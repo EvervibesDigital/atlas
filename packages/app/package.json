@@ -17,6 +17,13 @@
     "@atlas/personas": "workspace:*",
     "@atlas/creative": "workspace:*",
     "@atlas/publishing": "workspace:*",
-    "@atlas/learning": "workspace:*"
+    "@atlas/learning": "workspace:*",
+    "@atlas/research": "workspace:*",
+    "@atlas/business": "workspace:*",
+    "@atlas/opportunity": "workspace:*",
+    "@atlas/techdebt": "workspace:*",
+    "@atlas/strategy": "workspace:*",
+    "@atlas/experiments": "workspace:*",
+    "@atlas/knowledge": "workspace:*"
   }
 }

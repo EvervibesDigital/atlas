@@ -9,7 +9,7 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 
 ## Status
 
-**Phases 0–3 complete.** 71 passing tests, typecheck clean. `pnpm start` boots ATLAS.
+**Phases 0–5 complete.** 88 passing tests, typecheck clean. `pnpm start` boots all 15 plugins.
 
 | Layer | Module | State |
 | --- | --- | --- |
@@ -29,6 +29,13 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 | Creative | Reel script (Brain) + Pollinations images + captions | ✅ |
 | Publishing | Instagram Reels validate · approval-gated · dry-run | ✅ |
 | Learning | Reflection · confidence metrics · improvement proposals | ✅ |
+| Research | Curiosity engine — ranks discoveries into a digest | ✅ |
+| Business | COO — synthesizes metrics into a prioritized brief | ✅ |
+| Opportunity | Scores opportunities by value vs effort | ✅ |
+| Tech-Debt | Real scanner — TODO/FIXME + oversized files | ✅ |
+| Strategy | Multi-perspective council → verdict + risks | ✅ |
+| Experiments | A/B lab — records trials, picks the winner | ✅ |
+| Knowledge | Synthesizes lessons into playbooks | ✅ |
 | App | Composition root — `pnpm start` boots everything | ✅ |
 | Proof | `hello` plugin (dependability gate) | ✅ |
 
@@ -55,9 +62,22 @@ and — when a category underperforms with enough evidence — generates an
 are suggestions only. The walking-skeleton test proves the loop closes: after a
 (dry-run) publish, ATLAS has recorded a success it can learn from.
 
-Next: wire the MP4 encoder + live Instagram browser publisher to go live; then
-Phase 4 (widen departments) / Phase 5 (advanced systems). See
-`docs/architecture.md` and the plan.
+### Phases 4 & 5 — departments + advanced systems (built)
+
+**Departments:** Research (curiosity engine that ranks discoveries by
+open-source/free/API/Docker/MCP), Business (a COO that turns Learning metrics
+into a prioritized brief). **Advanced systems:** Opportunity Engine
+(value-vs-effort scoring), Tech-Debt Hunter (a real scanner that flags
+TODO/FIXME + oversized files — it can inspect ATLAS itself), Strategy Council (a
+5-perspective debate that returns a verdict + risks), Experiment Lab (A/B tests
+with statistically-gated winners), and Knowledge Synthesizer (merges lessons
+into playbooks). Every one is a plugin on the same kernel, Guardian-gated and
+audited.
+
+The platform is now feature-complete per the constitution's core layers. What
+remains is going live: the real MP4 encoder (edge-tts + ffmpeg/Remotion) and the
+live Instagram browser publisher with Mat's session, swapped in at the
+composition root. See `docs/architecture.md` and the plan.
 
 ### Memory
 

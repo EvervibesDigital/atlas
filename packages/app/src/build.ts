@@ -8,6 +8,13 @@ import { createPersonasPlugin } from "@atlas/personas";
 import { createCreativePlugin } from "@atlas/creative";
 import { createPublishingPlugin, type Publisher } from "@atlas/publishing";
 import { createLearningPlugin, MetricsTracker } from "@atlas/learning";
+import { createResearchPlugin } from "@atlas/research";
+import { createBusinessPlugin } from "@atlas/business";
+import { createOpportunityPlugin } from "@atlas/opportunity";
+import { createTechDebtPlugin } from "@atlas/techdebt";
+import { createStrategyPlugin } from "@atlas/strategy";
+import { createExperimentsPlugin } from "@atlas/experiments";
+import { createKnowledgePlugin } from "@atlas/knowledge";
 
 export interface AtlasOptions {
   memoryStore?: MemoryStore;
@@ -40,6 +47,17 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createCreativePlugin());
   await atlas.use(createPublishingPlugin({ publisher: opts.publisher }));
   await atlas.use(createLearningPlugin({ metrics: opts.metricsTracker, metricsFile: opts.metricsFile }));
+
+  // Phase 4 — departments
+  await atlas.use(createResearchPlugin());
+  await atlas.use(createBusinessPlugin());
+
+  // Phase 5 — advanced systems
+  await atlas.use(createOpportunityPlugin());
+  await atlas.use(createTechDebtPlugin());
+  await atlas.use(createStrategyPlugin());
+  await atlas.use(createExperimentsPlugin());
+  await atlas.use(createKnowledgePlugin());
 
   return atlas;
 }

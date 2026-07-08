@@ -29,6 +29,9 @@ importers:
       '@atlas/brain':
         specifier: workspace:*
         version: link:../brain
+      '@atlas/business':
+        specifier: workspace:*
+        version: link:../business
       '@atlas/core':
         specifier: workspace:*
         version: link:../core
@@ -38,21 +41,39 @@ importers:
       '@atlas/executive':
         specifier: workspace:*
         version: link:../executive
+      '@atlas/experiments':
+        specifier: workspace:*
+        version: link:../experiments
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+      '@atlas/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
       '@atlas/learning':
         specifier: workspace:*
         version: link:../learning
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
+      '@atlas/opportunity':
+        specifier: workspace:*
+        version: link:../opportunity
       '@atlas/personas':
         specifier: workspace:*
         version: link:../personas
       '@atlas/publishing':
         specifier: workspace:*
         version: link:../publishing
+      '@atlas/research':
+        specifier: workspace:*
+        version: link:../research
+      '@atlas/strategy':
+        specifier: workspace:*
+        version: link:../strategy
+      '@atlas/techdebt':
+        specifier: workspace:*
+        version: link:../techdebt
 
   packages/approvals:
     dependencies:
@@ -73,6 +94,22 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+
+  packages/business:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/learning':
+        specifier: workspace:*
+        version: link:../learning
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
 
   packages/core: {}
 
@@ -105,11 +142,34 @@ importers:
         specifier: workspace:*
         version: link:../guardian
 
+  packages/experiments:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+
   packages/guardian:
     dependencies:
       '@atlas/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/knowledge:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
 
   packages/learning:
     dependencies:
@@ -136,6 +196,19 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+
+  packages/opportunity:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
 
   packages/personas:
     dependencies:
@@ -169,6 +242,45 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+
+  packages/research:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
+
+  packages/strategy:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
+
+  packages/techdebt:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
 
 packages:
 
