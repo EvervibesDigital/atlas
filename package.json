@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "tsx packages/app/src/main.ts",
-    "cycle": "tsx packages/app/src/main-cycle.ts"
+    "cycle": "tsx packages/app/src/main-cycle.ts",
+    "status": "tsx packages/app/src/main-status.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
