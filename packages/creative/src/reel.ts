@@ -48,12 +48,32 @@ function buildHashtags(persona: Persona, topic: string): string[] {
  * deterministically, so this works offline (stub Brain) and better with a real
  * LLM. No network, no encode — it produces the spec.
  */
+/** True when the generator returned no real content (e.g. the offline stub). */
+function looksUnusable(text: string): boolean {
+  const t = text.trim();
+  return t.length < 15 || /^\[stub/i.test(t) || /write only|narration/i.test(t);
+}
+
+/** Clean, persona-driven fallback narration so offline runs still read well. */
+function templateNarration(persona: Persona, topic: string): string {
+  return [
+    `Here's the truth about ${topic}.`,
+    `Most people make it way harder than it needs to be.`,
+    `Pick one tool, automate the repetitive part, and stay consistent for thirty days.`,
+    `That's how ${persona.niche} actually starts paying off.`,
+    `Save this so you don't forget.`,
+  ].join(" ");
+}
+
 export async function buildReel(gen: TextGenerator, persona: Persona, topic: string): Promise<ReelSpec> {
   const system = `You are ${persona.name}, an Instagram Reels creator in the niche "${persona.niche}". Write a punchy 30-45 second vertical-video narration. Start with a scroll-stopping hook. Short sentences. No emojis.`;
   const prompt = `Topic: ${topic}\nWrite ONLY the narration, 4-6 short sentences.`;
   const { text } = await gen.generate({ prompt, system, needs: { creativity: 0.9, speed: 0.5 }, task: "reel.script" });
 
-  const sentences = splitSentences(text);
+  // If no real model answered (offline stub), use a clean template instead of
+  // echoing the prompt back at the viewer.
+  const narration = looksUnusable(text) ? templateNarration(persona, topic) : text;
+  const sentences = splitSentences(narration);
   const hook = sentences[0] ?? `Here's what nobody tells you about ${topic}.`;
   const body = sentences.slice(1);
   const cta = `Follow ${persona.handle} for more.`;

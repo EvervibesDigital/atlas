@@ -15,6 +15,7 @@ import { createTechDebtPlugin } from "@atlas/techdebt";
 import { createStrategyPlugin } from "@atlas/strategy";
 import { createExperimentsPlugin } from "@atlas/experiments";
 import { createKnowledgePlugin } from "@atlas/knowledge";
+import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
   memoryStore?: MemoryStore;
@@ -58,6 +59,9 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createStrategyPlugin());
   await atlas.use(createExperimentsPlugin());
   await atlas.use(createKnowledgePlugin());
+
+  // The autonomous loop — conducts every department above.
+  await atlas.use(createOrchestratorPlugin());
 
   return atlas;
 }

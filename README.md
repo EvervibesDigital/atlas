@@ -9,7 +9,8 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 
 ## Status
 
-**Phases 0–5 complete.** 88 passing tests, typecheck clean. `pnpm start` boots all 15 plugins.
+**Phases 0–6 complete — ATLAS is autonomous.** 93 passing tests, typecheck clean.
+`pnpm start` boots all 16 plugins; `pnpm cycle` runs one autonomous day of work.
 
 | Layer | Module | State |
 | --- | --- | --- |
@@ -36,8 +37,19 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 | Strategy | Multi-perspective council → verdict + risks | ✅ |
 | Experiments | A/B lab — records trials, picks the winner | ✅ |
 | Knowledge | Synthesizes lessons into playbooks | ✅ |
-| App | Composition root — `pnpm start` boots everything | ✅ |
+| Orchestrator | Autonomous daily loop — conducts every department | ✅ |
+| App | Composition root — `pnpm start` / `pnpm cycle` | ✅ |
 | Proof | `hello` plugin (dependability gate) | ✅ |
+
+### The autonomous loop — `pnpm cycle`
+
+One command runs a full day of ATLAS's work: assess the businesses (Business
+brief) → pick today's topic → write a Reel (Creative) → sanity-check it
+(Strategy Council) → queue it for approval (Publishing — gated on Mat) → gather
+improvement proposals (Learning) and the pending-approval list → file a timeline
+note → return a **morning report**. Offline-safe and posts nothing. A GitHub
+Actions schedule (`.github/workflows/atlas-daily.yml`) runs it daily so ATLAS
+works while you're at your day job.
 
 ### Phase 2 — Instagram Reels walking skeleton (READY, posts nothing)
 

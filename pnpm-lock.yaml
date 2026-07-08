@@ -59,6 +59,9 @@ importers:
       '@atlas/opportunity':
         specifier: workspace:*
         version: link:../opportunity
+      '@atlas/orchestrator':
+        specifier: workspace:*
+        version: link:../orchestrator
       '@atlas/personas':
         specifier: workspace:*
         version: link:../personas
@@ -209,6 +212,16 @@ importers:
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
+
+  packages/orchestrator:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
 
   packages/personas:
     dependencies:
