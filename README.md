@@ -9,7 +9,7 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 
 ## Status
 
-**Phases 0–2 complete.** 62 passing tests, typecheck clean. `pnpm start` boots ATLAS.
+**Phases 0–3 complete.** 71 passing tests, typecheck clean. `pnpm start` boots ATLAS.
 
 | Layer | Module | State |
 | --- | --- | --- |
@@ -28,6 +28,7 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 | Personas | AI-influencer identity registry | ✅ |
 | Creative | Reel script (Brain) + Pollinations images + captions | ✅ |
 | Publishing | Instagram Reels validate · approval-gated · dry-run | ✅ |
+| Learning | Reflection · confidence metrics · improvement proposals | ✅ |
 | App | Composition root — `pnpm start` boots everything | ✅ |
 | Proof | `hello` plugin (dependability gate) | ✅ |
 
@@ -44,8 +45,19 @@ publisher swapped in for the default `DryRunPublisher`. Two real-world hookups
 remain before going live: the final MP4 encode (edge-tts + ffmpeg/Remotion) and
 your Instagram login session for the browser publisher.
 
-Next: wire the MP4 encoder + live Instagram browser publisher; then Phase 3
-(learning loops). See `docs/architecture.md` and the plan.
+### Phase 3 — Learning loop (built)
+
+ATLAS now learns from every outcome. When a Reel publishes or an approval is
+granted/rejected, the **Learning** layer auto-writes a reflection (the lesson)
+to Memory, updates a **confidence metric** per category (persona, action, …),
+and — when a category underperforms with enough evidence — generates an
+**improvement proposal** for Mat to review. It never rewrites itself; proposals
+are suggestions only. The walking-skeleton test proves the loop closes: after a
+(dry-run) publish, ATLAS has recorded a success it can learn from.
+
+Next: wire the MP4 encoder + live Instagram browser publisher to go live; then
+Phase 4 (widen departments) / Phase 5 (advanced systems). See
+`docs/architecture.md` and the plan.
 
 ### Memory
 

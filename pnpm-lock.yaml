@@ -41,6 +41,9 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+      '@atlas/learning':
+        specifier: workspace:*
+        version: link:../learning
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
@@ -107,6 +110,22 @@ importers:
       '@atlas/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/learning:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/approvals':
+        specifier: workspace:*
+        version: link:../approvals
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
 
   packages/memory:
     dependencies:

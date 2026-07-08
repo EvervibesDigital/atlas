@@ -5,6 +5,7 @@ import { ApprovalGateway } from "@atlas/approvals";
 import { DEFAULT_PERSONA } from "@atlas/personas";
 import type { ReelSpec } from "@atlas/creative";
 import type { PublishInput, PublishResult } from "@atlas/publishing";
+import type { CategoryMetrics } from "@atlas/learning";
 import { buildAtlas } from "../src/build";
 
 /**
@@ -26,12 +27,13 @@ describe("Instagram Reels walking skeleton", () => {
     const { atlas, published } = await run();
 
     let publishResult: PublishResult | undefined;
+    let learned: CategoryMetrics | undefined;
     const studio: Plugin = {
       manifest: {
         name: "studio",
         version: "1",
         capabilities: [],
-        permissions: ["call:creative", "call:publishing", "call:approvals", "call:memory"],
+        permissions: ["call:creative", "call:publishing", "call:approvals", "call:memory", "call:learning"],
         role: "executor",
       },
       async register(ctx) {
@@ -62,6 +64,9 @@ describe("Instagram Reels walking skeleton", () => {
 
         // Record what happened.
         await ctx.call("memory", { op: "remember", input: { kind: "success", content: `Queued a Reel about ${spec.topic}` } });
+
+        // The learning layer should already have auto-recorded the outcome.
+        learned = (await ctx.call("learning", { op: "metrics", category: spec.personaHandle })) as CategoryMetrics;
       },
     };
 
@@ -71,6 +76,9 @@ describe("Instagram Reels walking skeleton", () => {
     expect(published).toHaveLength(1);
     expect(published[0]!.result.status).toBe("dry-run");
     expect(published[0]!.result.recipe?.at(-1)?.selector).toMatch(/Share/);
+
+    // The loop closed: ATLAS learned from the outcome.
+    expect(learned?.successes).toBe(1);
 
     // The whole thing was audited (approval requested + granted).
     const actions = atlas.audit.entries.map((e) => e.action);

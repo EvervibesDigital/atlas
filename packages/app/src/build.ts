@@ -7,12 +7,15 @@ import { createExecutivePlugin } from "@atlas/executive";
 import { createPersonasPlugin } from "@atlas/personas";
 import { createCreativePlugin } from "@atlas/creative";
 import { createPublishingPlugin, type Publisher } from "@atlas/publishing";
+import { createLearningPlugin, MetricsTracker } from "@atlas/learning";
 
 export interface AtlasOptions {
   memoryStore?: MemoryStore;
   memoryFile?: string;
   approvalsGateway?: ApprovalGateway;
   approvalsFile?: string;
+  metricsTracker?: MetricsTracker;
+  metricsFile?: string;
   /**
    * Publisher for the Publishing department. Defaults to a dry-run publisher
    * (never posts). Swap in a live browser publisher — with Mat's login — to go
@@ -36,6 +39,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createPersonasPlugin());
   await atlas.use(createCreativePlugin());
   await atlas.use(createPublishingPlugin({ publisher: opts.publisher }));
+  await atlas.use(createLearningPlugin({ metrics: opts.metricsTracker, metricsFile: opts.metricsFile }));
 
   return atlas;
 }

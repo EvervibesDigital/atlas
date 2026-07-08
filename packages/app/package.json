@@ -16,6 +16,7 @@
     "@atlas/executive": "workspace:*",
     "@atlas/personas": "workspace:*",
     "@atlas/creative": "workspace:*",
-    "@atlas/publishing": "workspace:*"
+    "@atlas/publishing": "workspace:*",
+    "@atlas/learning": "workspace:*"
   }
 }

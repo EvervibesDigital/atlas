@@ -95,9 +95,33 @@ objective ─▶ Executive.plan ─▶ risk ≤ L1 ─▶ emit task.ready ─▶
 Brain + Memory are called by any plugin via ctx.call("brain"|"memory", …).
 ```
 
-## What's next — Phase 2 (Walking Skeleton)
+## Phase 2 — Instagram Reels walking skeleton (built)
 
-Prove the spine with one real vertical: the faceless AI-influencer. Creative +
-Publishing department plugins run through Executive → Brain → render (edge-tts +
-Pollinations + Remotion) → queue → daily approval → browser post, with Memory
-recording what worked.
+`@atlas/personas` → `@atlas/creative` (Brain script + Pollinations images +
+caption) → `@atlas/publishing` (validate → approval-gated → dry-run publisher,
+posts nothing) → `@atlas/app` composition root. Nothing posts until a live
+publisher + login replace the dry-run default.
+
+## Phase 3 — Learning loop (built)
+
+`@atlas/learning` (service `learning`, role executor) closes the loop:
+
+- **Reflection** — on `reel.published` / `approval.granted` / `approval.rejected`
+  (or an explicit `reflect` call) it writes the lesson to Memory.
+- **Metrics** — success/failure counts + Laplace-smoothed confidence per
+  category, optionally persisted to JSON.
+- **Proposals** — flags underperforming categories (enough samples + low success
+  rate) as improvement suggestions. Never auto-applied — human review only.
+
+```
+reel.published / approval.* ─▶ Learning.reflect ─▶ Memory (lesson)
+                                              └▶ Metrics (confidence)
+                                                     └▶ Proposals ─▶ Mat reviews
+```
+
+## What's next
+
+- **Go live:** real MP4 encode (edge-tts + ffmpeg/Remotion) + live Instagram
+  browser publisher with Mat's session, swapped in at the composition root.
+- **Phase 4:** widen departments (Business/Research/Engineering) onto the Brain.
+- **Phase 5:** advanced systems (Opportunity, Tech-Debt, Strategy Council).

@@ -38,7 +38,7 @@ export function createPublishingPlugin(opts: { publisher?: Publisher } = {}): Pl
         if (!job) return;
         jobs.delete(approval.id);
         const result = await publisher.publish(job);
-        await ctx.emit("reel.published", { approvalId: approval.id, result });
+        await ctx.emit("reel.published", { approvalId: approval.id, result, personaHandle: job.personaHandle });
       });
 
       ctx.provide("publishing", async (payload) => {
