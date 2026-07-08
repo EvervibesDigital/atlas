@@ -9,7 +9,7 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 
 ## Status
 
-**Phase 0 & Phase 1 complete.** 50 passing tests, typecheck clean.
+**Phases 0–2 complete.** 62 passing tests, typecheck clean. `pnpm start` boots ATLAS.
 
 | Layer | Module | State |
 | --- | --- | --- |
@@ -25,12 +25,27 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 | Memory | Pluggable store: in-memory · JSON file · (pgvector later) | ✅ |
 | Executive | Objective → ordered, risk-tagged plan (plans only) | ✅ |
 | Approval Gateway | Pending queue · approve/reject · granted events | ✅ |
+| Personas | AI-influencer identity registry | ✅ |
+| Creative | Reel script (Brain) + Pollinations images + captions | ✅ |
+| Publishing | Instagram Reels validate · approval-gated · dry-run | ✅ |
+| App | Composition root — `pnpm start` boots everything | ✅ |
 | Proof | `hello` plugin (dependability gate) | ✅ |
 
-Next: **Phase 2 — Walking Skeleton.** A Creative + Publishing vertical (the
-faceless AI-influencer) running through this kernel end-to-end: Executive plans
-→ Brain writes the script → render → queue → daily approval → browser post →
-Memory records the lesson. See `docs/architecture.md` and the plan.
+### Phase 2 — Instagram Reels walking skeleton (READY, posts nothing)
+
+The full faceless-influencer spine runs offline: **persona → Brain writes the
+script → Creative builds a render-ready Reel (Pollinations images, captions,
+hashtags) → Publishing validates it against Instagram's rules → routes it to the
+Approval Gateway → on approval, a dry-run publisher shows the exact Instagram
+browser recipe it *would* run → Memory records the lesson.**
+
+Posting is deliberately gated twice: it needs (1) your approval and (2) a live
+publisher swapped in for the default `DryRunPublisher`. Two real-world hookups
+remain before going live: the final MP4 encode (edge-tts + ffmpeg/Remotion) and
+your Instagram login session for the browser publisher.
+
+Next: wire the MP4 encoder + live Instagram browser publisher; then Phase 3
+(learning loops). See `docs/architecture.md` and the plan.
 
 ### Memory
 

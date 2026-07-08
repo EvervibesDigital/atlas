@@ -1,0 +1,21 @@
+{
+  "name": "@atlas/app",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@atlas/core": "workspace:*",
+    "@atlas/guardian": "workspace:*",
+    "@atlas/brain": "workspace:*",
+    "@atlas/memory": "workspace:*",
+    "@atlas/approvals": "workspace:*",
+    "@atlas/executive": "workspace:*",
+    "@atlas/personas": "workspace:*",
+    "@atlas/creative": "workspace:*",
+    "@atlas/publishing": "workspace:*"
+  }
+}
