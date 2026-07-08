@@ -1,0 +1,18 @@
+# ATLAS local infrastructure. Phase 0 only needs Postgres+pgvector for the
+# memory layer that arrives in Phase 1. atlas-core runs via Node locally for now.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: atlas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas
+      POSTGRES_DB: atlas
+    ports:
+      - "5432:5432"
+    volumes:
+      - atlas_pg:/var/lib/postgresql/data
+
+volumes:
+  atlas_pg:

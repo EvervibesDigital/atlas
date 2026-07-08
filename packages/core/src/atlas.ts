@@ -1,0 +1,135 @@
+import { EventBus } from "./events";
+import { AuditLog } from "./audit";
+import { ConfigVault } from "./config";
+import type { Plugin, PluginManifest } from "./plugin";
+
+/** A Guardian verdict. */
+export type Decision = "allow" | "deny" | "pending";
+
+export interface GuardianVerdict {
+  decision: Decision;
+  reason: string;
+}
+
+/**
+ * The kernel depends only on this minimal interface, not on the concrete
+ * Guardian implementation. That keeps `@atlas/core` free of any dependency on
+ * `@atlas/guardian` (no import cycle) and lets the Guardian be swapped.
+ */
+export interface GuardianLike {
+  grant(manifest: PluginManifest): void;
+  check(manifest: PluginManifest, action: string): GuardianVerdict;
+}
+
+/** The result a plugin gets back from attempting an action. */
+export interface ActResult {
+  decision: Decision;
+  result?: unknown;
+  reason?: string;
+}
+
+/**
+ * The surface every plugin receives. Everything here is scoped to the plugin
+ * and passes through the Guardian + Audit Log. A plugin can NEVER touch the
+ * raw kernel, config secrets, or another plugin directly.
+ */
+export interface AtlasContext {
+  readonly plugin: PluginManifest;
+  /** Subscribe to an event. Returns an unsubscribe function. */
+  on(event: string, handler: (payload: unknown) => void | Promise<void>): () => void;
+  /** Emit an event (audited). */
+  emit(event: string, payload?: unknown): Promise<void>;
+  /** Read non-secret config. */
+  config(key: string): string | undefined;
+  /** Request a secret — brokered + audited by the Guardian. */
+  secret(key: string): Promise<string | undefined>;
+  /**
+   * Attempt an action. The Guardian decides allow/deny/pending BEFORE `run`
+   * is ever called; every attempt is audited.
+   */
+  act(action: string, run: () => Promise<unknown> | unknown): Promise<ActResult>;
+}
+
+/**
+ * Atlas — the kernel. Wires the event bus, audit log, config vault, guardian,
+ * and plugin registry, and hands each plugin a guarded context.
+ *
+ * A Guardian is REQUIRED (no permissive default): security must be wired in
+ * explicitly at the composition root. Safety by design.
+ */
+export class Atlas {
+  readonly events = new EventBus();
+  readonly audit: AuditLog;
+  readonly config: ConfigVault;
+  readonly guardian: GuardianLike;
+  private plugins = new Map<string, Plugin>();
+
+  constructor(deps: { guardian: GuardianLike; audit?: AuditLog; config?: ConfigVault }) {
+    this.guardian = deps.guardian;
+    this.audit = deps.audit ?? new AuditLog();
+    this.config = deps.config ?? new ConfigVault();
+  }
+
+  /** Load a plugin: register its permissions, then let it wire itself up. */
+  async use(plugin: Plugin): Promise<this> {
+    const { name, version } = plugin.manifest;
+    if (this.plugins.has(name)) throw new Error(`Plugin "${name}" is already loaded`);
+    this.plugins.set(name, plugin);
+    this.guardian.grant(plugin.manifest);
+    await plugin.register(this.makeContext(plugin.manifest));
+    await this.audit.record({
+      actor: "kernel",
+      action: `plugin.load:${name}`,
+      decision: "allow",
+      outcome: `v${version}`,
+    });
+    return this;
+  }
+
+  /** Names of loaded plugins. */
+  loaded(): string[] {
+    return [...this.plugins.keys()];
+  }
+
+  private makeContext(manifest: PluginManifest): AtlasContext {
+    return {
+      plugin: manifest,
+
+      on: (event, handler) => this.events.on(event, handler),
+
+      emit: async (event, payload) => {
+        await this.audit.record({ actor: manifest.name, action: `emit:${event}`, decision: "allow" });
+        await this.events.emit(event, payload);
+      },
+
+      config: (key) => this.config.get(key),
+
+      secret: async (key) => {
+        const verdict = this.guardian.check(manifest, `secret:${key}`);
+        await this.audit.record({
+          actor: manifest.name,
+          action: `secret:${key}`,
+          decision: verdict.decision,
+          outcome: verdict.reason,
+        });
+        return verdict.decision === "allow" ? this.config._getSecret(key) : undefined;
+      },
+
+      act: async (action, run) => {
+        const verdict = this.guardian.check(manifest, action);
+        if (verdict.decision !== "allow") {
+          await this.audit.record({
+            actor: manifest.name,
+            action,
+            decision: verdict.decision,
+            outcome: verdict.reason,
+          });
+          return { decision: verdict.decision, reason: verdict.reason };
+        }
+        const result = await run();
+        await this.audit.record({ actor: manifest.name, action, decision: "allow", outcome: "ok" });
+        return { decision: "allow", result };
+      },
+    };
+  }
+}
