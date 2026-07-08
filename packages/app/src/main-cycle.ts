@@ -1,4 +1,7 @@
+import { loadEnv } from "./env";
 import { runDailyCycle } from "./cycle";
+
+loadEnv();
 
 /**
  * `pnpm cycle` — run one autonomous day of work and print the morning report.

@@ -70,7 +70,8 @@ export const PAGE = `<!doctype html>
       <label>Key value</label>
       <input id="keyVal" type="password" placeholder="paste the key" />
       <button onclick="saveKey()">Save key (encrypted)</button>
-      <div class="note">Keys are encrypted with your master password and used to power the Brain. Grab free ones: console.groq.com · aistudio.google.com · openrouter.ai</div>
+      <button class="sec" onclick="exportEnv()">🌙 Enable overnight runs (copy keys to this computer)</button>
+      <div class="note">Keys are encrypted with your master password and used to power the Brain. Grab free ones: console.groq.com · aistudio.google.com · openrouter.ai<br/><br/>🌙 "Enable overnight runs" copies your keys into a local file so ATLAS can work at night without your password. That file stays on this computer only and is never uploaded — but it is not encrypted, so only do this on your own laptop.</div>
     </section>
 
     <section id="tab-logins" class="card hide">
@@ -151,6 +152,7 @@ async function loadProviders() {
     "<div class='row'><span>"+k+"</span><span class='pill "+(v?"on":"off")+"'>"+(v?"set":"missing")+"</span></div>").join("");
 }
 async function saveKey(){ try { await api("/api/secrets","POST",{name:$("keyName").value, value:$("keyVal").value}); $("keyVal").value=""; loadProviders(); loadStatus(); } catch(e){ alert(e.message);} }
+async function exportEnv(){ try { const r = await api("/api/export-env","POST"); alert("Done — "+r.exported+" key(s) enabled for overnight runs on this computer."); } catch(e){ alert(e.message);} }
 async function loadCreds(){ const c = await api("/api/credentials");
   $("creds").innerHTML = (c.credentials.length? c.credentials : []).map(x =>
     "<div class='row'><span><b>"+x.platform+"</b> — "+x.username+"</span><button class='mini sec' onclick=\\"delCred('"+x.platform+"')\\">remove</button></div>").join("") || "<div class='note'>No logins saved yet.</div>";

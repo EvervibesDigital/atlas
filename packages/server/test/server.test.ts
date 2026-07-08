@@ -10,7 +10,7 @@ let base = "";
 
 async function start(): Promise<void> {
   dir = await mkdtemp(join(tmpdir(), "atlas-server-"));
-  panel = createControlPanel({ vaultFile: join(dir, "vault.enc.json"), dataDir: dir });
+  panel = createControlPanel({ vaultFile: join(dir, "vault.enc.json"), dataDir: dir, envFile: join(dir, ".env") });
   const port = await panel.listen(0);
   base = `http://127.0.0.1:${port}`;
 }
@@ -61,6 +61,19 @@ describe("control panel", () => {
     expect(creds.credentials[0]!.platform).toBe("instagram");
     expect(creds.credentials[0]!.username).toBe("everspark");
     expect(JSON.stringify(creds)).not.toContain("hunter2");
+  });
+
+  it("exports provider keys to .env for overnight runs", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    await post("/api/secrets", { name: "GROQ_API_KEY", value: "gsk_night_key" }, token);
+
+    const r = (await (await post("/api/export-env", {}, token)).json()) as { exported: number };
+    expect(r.exported).toBe(1);
+
+    const { readFile } = await import("node:fs/promises");
+    const env = await readFile(join(dir, ".env"), "utf8");
+    expect(env).toContain("GROQ_API_KEY=gsk_night_key");
   });
 
   it("rejects the wrong master password on unlock", async () => {

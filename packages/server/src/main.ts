@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
+import { loadEnv } from "@atlas/app";
 import { createControlPanel } from "./server";
+
+loadEnv();
 
 /** Best-effort: pop open the default browser at the panel URL. */
 function openBrowser(url: string): void {

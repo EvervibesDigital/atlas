@@ -1,4 +1,7 @@
+import { loadEnv } from "./env";
 import { checkReadiness } from "./status";
+
+loadEnv();
 
 /** `pnpm status` — a plain-language readiness dashboard. */
 async function main(): Promise<void> {

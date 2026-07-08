@@ -1,4 +1,5 @@
 import { createServer as httpCreateServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
+import { readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { Atlas } from "@atlas/core";
 import { buildAtlas, checkReadiness } from "@atlas/app";
@@ -11,6 +12,8 @@ const CRED_PREFIX = "cred:";
 export interface ControlPanelOptions {
   vaultFile?: string;
   dataDir?: string;
+  /** Where "Enable overnight runs" writes provider keys (default ./.env). */
+  envFile?: string;
 }
 
 export interface ControlPanel {
@@ -28,6 +31,7 @@ export interface ControlPanel {
 export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel {
   const vaultFile = opts.vaultFile ?? "./data/vault.enc.json";
   const dataDir = opts.dataDir ?? "./data";
+  const envFile = opts.envFile ?? "./.env";
   const vault = new Vault(vaultFile);
   let token: string | null = null;
   let atlas: Atlas | null = null;
@@ -164,6 +168,26 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const platform = decodeURIComponent(path.slice("/api/credentials/".length));
       const ok = await vault.delete(CRED_PREFIX + platform);
       return send(res, 200, { ok });
+    }
+
+    if (method === "POST" && path === "/api/export-env") {
+      // Copy provider keys from the (unlocked) vault into a local git-ignored
+      // .env so automated runs — the nightly task and `pnpm cycle` — can use
+      // real models without needing the master password at 2:30 AM.
+      let existing = "";
+      try {
+        existing = await readFile(envFile, "utf8");
+      } catch {
+        /* no .env yet */
+      }
+      const kept = existing.split(/\r?\n/).filter((l) => l.trim() && !KNOWN_PROVIDERS.some((p) => l.startsWith(`${p}=`)));
+      const exported: string[] = [];
+      for (const p of KNOWN_PROVIDERS) {
+        const val = vault.list().includes(p) ? vault.get(p) : undefined;
+        if (val) exported.push(`${p}=${val}`);
+      }
+      await writeFile(envFile, [...kept, ...exported].join("\n") + "\n", "utf8");
+      return send(res, 200, { ok: true, exported: exported.length });
     }
 
     if (method === "GET" && path === "/api/status") {

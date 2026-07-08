@@ -1,4 +1,7 @@
+import { loadEnv } from "./env";
 import { buildAtlas } from "./build";
+
+loadEnv();
 
 /**
  * Runnable entrypoint — `pnpm start`. Boots the full ATLAS and reports what

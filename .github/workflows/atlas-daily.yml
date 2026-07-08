@@ -5,7 +5,9 @@ name: atlas-daily
 # (GROQ_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY) to use real models.
 on:
   schedule:
-    - cron: "0 13 * * *" # 13:00 UTC daily
+    - cron: "0 13 * * *" # 9:00 AM ET — morning cycle
+    - cron: "0 3 * * *" # 11:00 PM ET — night shift begins
+    - cron: "0 7 * * *" # 3:00 AM ET — overnight cycle
   workflow_dispatch:
 
 jobs:
@@ -15,6 +17,7 @@ jobs:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
