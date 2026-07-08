@@ -6,7 +6,7 @@
  * The member logic is deterministic (keyword-driven) so it runs offline and is
  * fully testable; the Brain can enrich each member's rationale later.
  */
-export type Perspective = "engineering" | "security" | "marketing" | "finance" | "operations";
+export type Perspective = "engineering" | "security" | "marketing" | "finance" | "operations" | "legal" | "customer";
 
 export interface CouncilOpinion {
   perspective: Perspective;
@@ -44,6 +44,8 @@ const COUNCIL: Member[] = [
   rule("engineering", /\b(rewrite|refactor everything|rush|hack|overnight)\b/i, "maintainability risk", /\b(test|modular|incremental)\b/i),
   rule("marketing", /\b(spam|misleading|fake)\b/i, "brand risk", /\b(post|content|audience|brand|launch|grow|reel)\b/i),
   rule("operations", /\b(manual|one-off|untracked)\b/i, "operational drag", /\b(automate|schedule|workflow|pipeline)\b/i),
+  rule("legal", /\b(scrape|copyright|guarantee|medical|personal data|gdpr|terms|impersonat)\b/i, "legal/compliance risk"),
+  rule("customer", /\b(spam|pushy|manipulat|dark pattern|misleading)\b/i, "hurts customer trust", /\b(help|value|save|easier|support|free)\b/i),
 ];
 
 export function convene(decision: string): CouncilVerdict {

@@ -12,6 +12,17 @@ async function main(): Promise<void> {
   console.log(`Date:   ${report.date}`);
   console.log(`Topic:  ${report.topic}`);
   console.log(`\nBusiness brief: ${report.brief.summary}`);
+
+  console.log("\n📌 The 3 things that matter today:");
+  if (report.topPriorities.length === 0) {
+    console.log("  (no performance data yet — start shipping to generate signal)");
+  } else {
+    report.topPriorities.forEach((p, i) => {
+      const r = p as { action?: string; rationale?: string };
+      console.log(`  ${i + 1}. ${r.action ?? String(p)}${r.rationale ? ` — ${r.rationale}` : ""}`);
+    });
+  }
+
   console.log(`\nDrafted Reel hook: "${report.reel.hook}"`);
   if (report.council) console.log(`Strategy Council: ${report.council.consensus} — ${report.council.recommendation}`);
   console.log(`Publish status:   ${report.publish.status} (${report.publish.detail})`);

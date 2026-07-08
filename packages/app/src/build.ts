@@ -15,6 +15,9 @@ import { createTechDebtPlugin } from "@atlas/techdebt";
 import { createStrategyPlugin } from "@atlas/strategy";
 import { createExperimentsPlugin } from "@atlas/experiments";
 import { createKnowledgePlugin } from "@atlas/knowledge";
+import { createCfoPlugin } from "@atlas/cfo";
+import { createAutomationPlugin } from "@atlas/automation";
+import { createSimulationPlugin } from "@atlas/simulation";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
@@ -59,6 +62,9 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createStrategyPlugin());
   await atlas.use(createExperimentsPlugin());
   await atlas.use(createKnowledgePlugin());
+  await atlas.use(createCfoPlugin());
+  await atlas.use(createAutomationPlugin());
+  await atlas.use(createSimulationPlugin());
 
   // The autonomous loop — conducts every department above.
   await atlas.use(createOrchestratorPlugin());

@@ -9,8 +9,8 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 
 ## Status
 
-**Phases 0–6 complete — ATLAS is autonomous.** 93 passing tests, typecheck clean.
-`pnpm start` boots all 16 plugins; `pnpm cycle` runs one autonomous day of work.
+**Autonomous & feature-rich.** 104 passing tests, typecheck clean.
+`pnpm start` boots 19 plugins · `pnpm cycle` runs an autonomous day · `pnpm status` shows readiness.
 
 | Layer | Module | State |
 | --- | --- | --- |
@@ -34,10 +34,13 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 | Business | COO — synthesizes metrics into a prioritized brief | ✅ |
 | Opportunity | Scores opportunities by value vs effort | ✅ |
 | Tech-Debt | Real scanner — TODO/FIXME + oversized files | ✅ |
-| Strategy | Multi-perspective council → verdict + risks | ✅ |
+| Strategy | 7-seat Board of Directors → verdict + risks | ✅ |
+| CFO | Runway · forecasting · ROI (protects the money) | ✅ |
+| Automation | Hunts repetitive work worth automating | ✅ |
+| Simulation | "What happens if…" projections before you commit | ✅ |
 | Experiments | A/B lab — records trials, picks the winner | ✅ |
 | Knowledge | Synthesizes lessons into playbooks | ✅ |
-| Orchestrator | Autonomous daily loop — conducts every department | ✅ |
+| Orchestrator | Autonomous daily loop — "the 3 things that matter today" | ✅ |
 | App | Composition root — `pnpm start` / `pnpm cycle` | ✅ |
 | Proof | `hello` plugin (dependability gate) | ✅ |
 

@@ -19,4 +19,11 @@ describe("Strategy Council", () => {
     expect(v.risks.join(" ")).toMatch(/security/);
     expect(v.consensus).not.toBe("for");
   });
+
+  it("adds a legal voice for compliance-sensitive actions", () => {
+    const v = convene("Scrape personal data from competitor sites and guarantee results");
+    expect(v.risks.join(" ")).toMatch(/legal/);
+    expect(v.opinions.some((o) => o.perspective === "legal")).toBe(true);
+    expect(v.opinions.some((o) => o.perspective === "customer")).toBe(true);
+  });
 });

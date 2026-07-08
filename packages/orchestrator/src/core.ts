@@ -9,6 +9,8 @@ export interface DailyReport {
   date: string;
   topic: string;
   brief: { summary: string; recommendations: unknown[] };
+  /** "The 3 things that matter today" — the top priorities from the brief. */
+  topPriorities: unknown[];
   reel: { hook: string; caption: string };
   council: { consensus: string; recommendation: string } | null;
   publish: { status: string; detail: string; approvalId?: string };

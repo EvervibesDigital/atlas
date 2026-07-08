@@ -83,6 +83,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           date: new Date().toISOString(),
           topic,
           brief,
+          topPriorities: brief.recommendations.slice(0, 3),
           reel: { hook: reel.hook, caption: reel.caption },
           council,
           publish,

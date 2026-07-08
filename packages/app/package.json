@@ -25,6 +25,9 @@
     "@atlas/strategy": "workspace:*",
     "@atlas/experiments": "workspace:*",
     "@atlas/knowledge": "workspace:*",
+    "@atlas/cfo": "workspace:*",
+    "@atlas/automation": "workspace:*",
+    "@atlas/simulation": "workspace:*",
     "@atlas/orchestrator": "workspace:*"
   }
 }
