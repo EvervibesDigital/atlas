@@ -29,6 +29,13 @@ export interface ActResult {
 }
 
 /**
+ * A callable service one plugin exposes for others (e.g. the Brain Router
+ * exposes "brain"). Consumers reach it via `ctx.call(service, payload)`, which
+ * the Guardian gates with a `call:<service>` permission.
+ */
+export type ServiceHandler = (payload: unknown) => Promise<unknown> | unknown;
+
+/**
  * The surface every plugin receives. Everything here is scoped to the plugin
  * and passes through the Guardian + Audit Log. A plugin can NEVER touch the
  * raw kernel, config secrets, or another plugin directly.
@@ -48,6 +55,16 @@ export interface AtlasContext {
    * is ever called; every attempt is audited.
    */
   act(action: string, run: () => Promise<unknown> | unknown): Promise<ActResult>;
+  /**
+   * Expose a callable service for other plugins. The service name MUST be one
+   * of this plugin's declared `capabilities`.
+   */
+  provide(service: string, handler: ServiceHandler): void;
+  /**
+   * Call a service another plugin provides. Guardian-gated by a
+   * `call:<service>` permission; audited. Rejects if denied or missing.
+   */
+  call(service: string, payload?: unknown): Promise<unknown>;
 }
 
 /**
@@ -63,6 +80,7 @@ export class Atlas {
   readonly config: ConfigVault;
   readonly guardian: GuardianLike;
   private plugins = new Map<string, Plugin>();
+  private services = new Map<string, { owner: string; handler: ServiceHandler }>();
 
   constructor(deps: { guardian: GuardianLike; audit?: AuditLog; config?: ConfigVault }) {
     this.guardian = deps.guardian;
@@ -129,6 +147,32 @@ export class Atlas {
         const result = await run();
         await this.audit.record({ actor: manifest.name, action, decision: "allow", outcome: "ok" });
         return { decision: "allow", result };
+      },
+
+      provide: (service, handler) => {
+        if (!manifest.capabilities.includes(service)) {
+          throw new Error(`plugin "${manifest.name}" cannot provide undeclared capability "${service}"`);
+        }
+        if (this.services.has(service)) {
+          throw new Error(`service "${service}" is already provided by "${this.services.get(service)!.owner}"`);
+        }
+        this.services.set(service, { owner: manifest.name, handler });
+        void this.audit.record({ actor: manifest.name, action: `provide:${service}`, decision: "allow" });
+      },
+
+      call: async (service, payload) => {
+        const verdict = this.guardian.check(manifest, `call:${service}`);
+        if (verdict.decision !== "allow") {
+          await this.audit.record({ actor: manifest.name, action: `call:${service}`, decision: verdict.decision, outcome: verdict.reason });
+          throw new Error(`Guardian ${verdict.decision}: call:${service} — ${verdict.reason}`);
+        }
+        const svc = this.services.get(service);
+        if (!svc) {
+          await this.audit.record({ actor: manifest.name, action: `call:${service}`, decision: "deny", outcome: "no such service" });
+          throw new Error(`no such service "${service}"`);
+        }
+        await this.audit.record({ actor: manifest.name, action: `call:${service}`, decision: "allow" });
+        return svc.handler(payload);
       },
     };
   }

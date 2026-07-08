@@ -9,8 +9,7 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 
 ## Status
 
-**Phase 0 — Foundations: complete.** The kernel frame is built and proven by an
-automated dependability gate (17 passing tests).
+**Phase 0 complete · Phase 1 in progress.** 30 passing tests, typecheck clean.
 
 | Layer | Module | State |
 | --- | --- | --- |
@@ -18,12 +17,23 @@ automated dependability gate (17 passing tests).
 | Kernel | Event Bus | ✅ |
 | Kernel | Config & Secrets Vault | ✅ |
 | Kernel | Audit Log | ✅ |
+| Kernel | Service registry (`provide`/`call`) | ✅ |
 | Guardian | Policy engine + 2 security seams | ✅ |
+| Brain Router | Model registry · scorer · fallback · cache | ✅ |
+| Brain Router | Free provider adapters (Groq/OpenRouter/Gemini/stub) | ✅ |
 | Proof | `hello` plugin (dependability gate) | ✅ |
 
-Next: **Phase 1 — Kernel** (Memory service on Postgres+pgvector, Brain Router
-over free LLMs, Executive planner, Approval Gateway). See
-`docs/architecture.md` and the plan.
+Next in Phase 1: **Memory service** (Postgres+pgvector), **Executive planner**,
+**Approval Gateway**. See `docs/architecture.md` and the plan.
+
+### Brain Router
+
+Any plugin calls one service — `ctx.call("brain", { prompt, needs })` — and the
+router scores every *available* free model against the request's needs
+(coding / reasoning / speed / privacy / cost …), picks the best, and falls back
+automatically when a provider errors or is rate-limited. Identical prompts are
+cached to stretch free tiers. With **no API keys**, an offline stub answers, so
+ATLAS always runs. High-privacy requests are forced to a local/private model.
 
 ## Architecture at a glance
 
