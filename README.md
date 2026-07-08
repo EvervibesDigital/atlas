@@ -21,10 +21,19 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 | Guardian | Policy engine + 2 security seams | ✅ |
 | Brain Router | Model registry · scorer · fallback · cache | ✅ |
 | Brain Router | Free provider adapters (Groq/OpenRouter/Gemini/stub) | ✅ |
+| Memory | Semantic remember/search/recall/forget | ✅ |
+| Memory | Pluggable store: in-memory · JSON file · (pgvector later) | ✅ |
 | Proof | `hello` plugin (dependability gate) | ✅ |
 
-Next in Phase 1: **Memory service** (Postgres+pgvector), **Executive planner**,
+Next in Phase 1: **Executive planner** (plans, never executes) and
 **Approval Gateway**. See `docs/architecture.md` and the plan.
+
+### Memory
+
+`ctx.call("memory", { op })` — `remember` a learning/outcome/preference,
+`search` by meaning, `recent` by kind, or `forget`. Persists to a JSON file by
+default (offline, no database), with the store swappable for Postgres+pgvector
+later. Search is semantic via an offline, zero-cost token embedder.
 
 ### Brain Router
 

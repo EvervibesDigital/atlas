@@ -36,6 +36,16 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/memory:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+
   packages/plugins/hello:
     dependencies:
       '@atlas/core':
