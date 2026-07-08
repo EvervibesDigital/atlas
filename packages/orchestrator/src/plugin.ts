@@ -40,6 +40,8 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         "call:learning",
         "call:approvals",
         "call:memory",
+        "call:compliance",
+        "call:analytics",
       ],
       role: "planner",
     },
@@ -75,7 +77,11 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           approvalId?: string;
         };
 
-        // 6. Gather advice + the approval list for the report.
+        // 6. Compliance-check the caption + pull headline KPIs.
+        const compliance = (await optional<unknown[]>(ctx, "compliance", { op: "check", text: reel.caption })) ?? [];
+        const kpis = (await optional<unknown>(ctx, "analytics", { op: "kpis" })) ?? null;
+
+        // 7. Gather advice + the approval list for the report.
         const proposals = (await optional<unknown[]>(ctx, "learning", { op: "proposals" })) ?? [];
         const pendingApprovals = (await optional<unknown[]>(ctx, "approvals", { op: "list", status: "pending" })) ?? [];
 
@@ -87,6 +93,8 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           reel: { hook: reel.hook, caption: reel.caption },
           council,
           publish,
+          compliance,
+          kpis,
           proposals,
           pendingApprovals,
         };

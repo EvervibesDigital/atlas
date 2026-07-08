@@ -9,8 +9,8 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 
 ## Status
 
-**Autonomous & feature-rich.** 104 passing tests, typecheck clean.
-`pnpm start` boots 19 plugins · `pnpm cycle` runs an autonomous day · `pnpm status` shows readiness.
+**Autonomous & feature-rich.** 118 passing tests, typecheck clean.
+`pnpm start` boots 24 plugins · `pnpm cycle` runs an autonomous day · `pnpm status` shows readiness.
 
 | Layer | Module | State |
 | --- | --- | --- |
@@ -38,6 +38,11 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 | CFO | Runway · forecasting · ROI (protects the money) | ✅ |
 | Automation | Hunts repetitive work worth automating | ✅ |
 | Simulation | "What happens if…" projections before you commit | ✅ |
+| Analytics | Rolls metrics into headline KPIs | ✅ |
+| Compliance | Catches FTC/#ad + income/health-claim risks pre-post | ✅ |
+| Negotiation | Anchor/target/walk-away + ZOPA + tactics | ✅ |
+| Detective | "Why is X down?" → ranked hypotheses + checks | ✅ |
+| Engineering | Classifies eng tasks by type/risk; tech-debt audits | ✅ |
 | Experiments | A/B lab — records trials, picks the winner | ✅ |
 | Knowledge | Synthesizes lessons into playbooks | ✅ |
 | Orchestrator | Autonomous daily loop — "the 3 things that matter today" | ✅ |

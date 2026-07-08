@@ -14,6 +14,10 @@ export interface DailyReport {
   reel: { hook: string; caption: string };
   council: { consensus: string; recommendation: string } | null;
   publish: { status: string; detail: string; approvalId?: string };
+  /** Compliance violations found in the drafted caption (empty = clean). */
+  compliance: unknown[];
+  /** Headline KPIs from the Analytics agent. */
+  kpis: unknown;
   proposals: unknown[];
   pendingApprovals: unknown[];
 }

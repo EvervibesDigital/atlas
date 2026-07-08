@@ -18,6 +18,11 @@ import { createKnowledgePlugin } from "@atlas/knowledge";
 import { createCfoPlugin } from "@atlas/cfo";
 import { createAutomationPlugin } from "@atlas/automation";
 import { createSimulationPlugin } from "@atlas/simulation";
+import { createAnalyticsPlugin } from "@atlas/analytics";
+import { createCompliancePlugin } from "@atlas/compliance";
+import { createNegotiationPlugin } from "@atlas/negotiation";
+import { createDetectivePlugin } from "@atlas/detective";
+import { createEngineeringPlugin } from "@atlas/engineering";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
@@ -65,6 +70,11 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createCfoPlugin());
   await atlas.use(createAutomationPlugin());
   await atlas.use(createSimulationPlugin());
+  await atlas.use(createAnalyticsPlugin());
+  await atlas.use(createCompliancePlugin());
+  await atlas.use(createNegotiationPlugin());
+  await atlas.use(createDetectivePlugin());
+  await atlas.use(createEngineeringPlugin());
 
   // The autonomous loop — conducts every department above.
   await atlas.use(createOrchestratorPlugin());

@@ -28,6 +28,11 @@
     "@atlas/cfo": "workspace:*",
     "@atlas/automation": "workspace:*",
     "@atlas/simulation": "workspace:*",
+    "@atlas/analytics": "workspace:*",
+    "@atlas/compliance": "workspace:*",
+    "@atlas/negotiation": "workspace:*",
+    "@atlas/detective": "workspace:*",
+    "@atlas/engineering": "workspace:*",
     "@atlas/orchestrator": "workspace:*"
   }
 }

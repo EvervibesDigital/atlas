@@ -21,8 +21,24 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)
 
+  packages/analytics:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/learning':
+        specifier: workspace:*
+        version: link:../learning
+
   packages/app:
     dependencies:
+      '@atlas/analytics':
+        specifier: workspace:*
+        version: link:../analytics
       '@atlas/approvals':
         specifier: workspace:*
         version: link:../approvals
@@ -38,12 +54,21 @@ importers:
       '@atlas/cfo':
         specifier: workspace:*
         version: link:../cfo
+      '@atlas/compliance':
+        specifier: workspace:*
+        version: link:../compliance
       '@atlas/core':
         specifier: workspace:*
         version: link:../core
       '@atlas/creative':
         specifier: workspace:*
         version: link:../creative
+      '@atlas/detective':
+        specifier: workspace:*
+        version: link:../detective
+      '@atlas/engineering':
+        specifier: workspace:*
+        version: link:../engineering
       '@atlas/executive':
         specifier: workspace:*
         version: link:../executive
@@ -62,6 +87,9 @@ importers:
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
+      '@atlas/negotiation':
+        specifier: workspace:*
+        version: link:../negotiation
       '@atlas/opportunity':
         specifier: workspace:*
         version: link:../opportunity
@@ -146,6 +174,16 @@ importers:
         specifier: workspace:*
         version: link:../memory
 
+  packages/compliance:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+
   packages/core: {}
 
   packages/creative:
@@ -163,6 +201,26 @@ importers:
       '@atlas/personas':
         specifier: workspace:*
         version: link:../personas
+
+  packages/detective:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+
+  packages/engineering:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
 
   packages/executive:
     dependencies:
@@ -223,6 +281,16 @@ importers:
         version: link:../memory
 
   packages/memory:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+
+  packages/negotiation:
     dependencies:
       '@atlas/core':
         specifier: workspace:*
