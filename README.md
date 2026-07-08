@@ -9,7 +9,7 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 
 ## Status
 
-**Phase 0 complete · Phase 1 in progress.** 30 passing tests, typecheck clean.
+**Phase 0 & Phase 1 complete.** 50 passing tests, typecheck clean.
 
 | Layer | Module | State |
 | --- | --- | --- |
@@ -23,10 +23,14 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 | Brain Router | Free provider adapters (Groq/OpenRouter/Gemini/stub) | ✅ |
 | Memory | Semantic remember/search/recall/forget | ✅ |
 | Memory | Pluggable store: in-memory · JSON file · (pgvector later) | ✅ |
+| Executive | Objective → ordered, risk-tagged plan (plans only) | ✅ |
+| Approval Gateway | Pending queue · approve/reject · granted events | ✅ |
 | Proof | `hello` plugin (dependability gate) | ✅ |
 
-Next in Phase 1: **Executive planner** (plans, never executes) and
-**Approval Gateway**. See `docs/architecture.md` and the plan.
+Next: **Phase 2 — Walking Skeleton.** A Creative + Publishing vertical (the
+faceless AI-influencer) running through this kernel end-to-end: Executive plans
+→ Brain writes the script → render → queue → daily approval → browser post →
+Memory records the lesson. See `docs/architecture.md` and the plan.
 
 ### Memory
 

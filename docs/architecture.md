@@ -69,9 +69,35 @@ loads; its emitted event reaches a listener; the permitted action and the event
 are audited; and a planner trying to execute is **blocked before its callback
 runs**, with the denial recorded. 17 tests pass across the workspace.
 
-## What's next — Phase 1 (Kernel layer)
+## Phase 1 — Kernel layer (built)
 
-- **Memory service** on Postgres + pgvector (unify semantic/business/project/…).
-- **Brain Router**: model registry + task scorer + free-provider adapters
-  (OpenRouter / Gemini / Groq / Ollama) + fallback + cache.
-- **Executive** (plans only) and **Approval Gateway** as first-class plugins.
+All four are plugins on the Phase 0 frame, reachable via the service registry
+(`ctx.call`), Guardian-gated and audited.
+
+- **Brain Router** (`@atlas/brain`, service `brain`) — scores every available
+  free model against a request's needs and routes to the best, with automatic
+  fallback, a prompt cache, and an offline stub so it runs with no keys.
+  High-privacy requests are forced to a local/private model.
+- **Memory** (`@atlas/memory`, service `memory`) — semantic remember / search /
+  recent / forget over a pluggable store (in-memory · JSON-file · pgvector
+  later), using an offline token embedder.
+- **Executive** (`@atlas/executive`, service `executive`, role `planner`) —
+  decomposes an objective into a topologically-ordered, risk-tagged plan;
+  auto-dispatches L0–L1 tasks (`task.ready` event) and routes L2–L3 to approval.
+- **Approval Gateway** (`@atlas/approvals`, service `approvals`, role `policy`) —
+  the pending queue; `approve`/`reject` emit `approval.granted`/`.rejected`.
+
+### How they connect (the spine)
+
+```
+objective ─▶ Executive.plan ─▶ risk ≤ L1 ─▶ emit task.ready ─▶ (executor, Phase 2)
+                              └▶ risk ≥ L2 ─▶ approvals.request ─▶ Mat ─▶ approval.granted
+Brain + Memory are called by any plugin via ctx.call("brain"|"memory", …).
+```
+
+## What's next — Phase 2 (Walking Skeleton)
+
+Prove the spine with one real vertical: the faceless AI-influencer. Creative +
+Publishing department plugins run through Executive → Brain → render (edge-tts +
+Pollinations + Remotion) → queue → daily approval → browser post, with Memory
+recording what worked.
