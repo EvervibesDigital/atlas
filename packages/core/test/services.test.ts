@@ -53,6 +53,14 @@ describe("service registry (provide / call)", () => {
     ).rejects.toThrow(/Guardian deny/);
   });
 
+  it("lets the owner console invoke a service directly (bypassing the gate)", async () => {
+    const atlas = new Atlas({ guardian: realishGuardian() });
+    await atlas.use(provider);
+    const sum = await atlas.invoke("math", { a: 4, b: 5 });
+    expect(sum).toBe(9);
+    expect(atlas.audit.entries.some((e) => e.actor === "owner-console" && e.action === "invoke:math")).toBe(true);
+  });
+
   it("refuses to provide a capability the plugin did not declare", async () => {
     const atlas = new Atlas({ guardian: realishGuardian() });
     await expect(

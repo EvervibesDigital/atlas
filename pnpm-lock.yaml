@@ -369,6 +369,18 @@ importers:
         specifier: workspace:*
         version: link:../memory
 
+  packages/server:
+    dependencies:
+      '@atlas/app':
+        specifier: workspace:*
+        version: link:../app
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+      '@atlas/vault':
+        specifier: workspace:*
+        version: link:../vault
+
   packages/simulation:
     dependencies:
       '@atlas/core':
@@ -404,6 +416,8 @@ importers:
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
+
+  packages/vault: {}
 
 packages:
 

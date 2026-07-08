@@ -1,0 +1,215 @@
+import { createServer as httpCreateServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
+import { randomUUID } from "node:crypto";
+import type { Atlas } from "@atlas/core";
+import { buildAtlas, checkReadiness } from "@atlas/app";
+import { Vault } from "@atlas/vault";
+import { PAGE } from "./html";
+
+const KNOWN_PROVIDERS = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"];
+const CRED_PREFIX = "cred:";
+
+export interface ControlPanelOptions {
+  vaultFile?: string;
+  dataDir?: string;
+}
+
+export interface ControlPanel {
+  server: Server;
+  listen(port: number, host?: string): Promise<number>;
+  close(): Promise<void>;
+}
+
+/**
+ * ATLAS Control Panel — a localhost-only web UI + JSON API. All secrets live in
+ * an encrypted Vault, unlocked with a master password. Secret/credential values
+ * are never returned to the browser; only names/usernames are. Bind to
+ * 127.0.0.1 so it is never reachable off the machine.
+ */
+export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel {
+  const vaultFile = opts.vaultFile ?? "./data/vault.enc.json";
+  const dataDir = opts.dataDir ?? "./data";
+  const vault = new Vault(vaultFile);
+  let token: string | null = null;
+  let atlas: Atlas | null = null;
+
+  async function rebuildAtlas(): Promise<void> {
+    if (vault.unlocked) {
+      for (const k of vault.list()) {
+        if (!k.startsWith(CRED_PREFIX)) {
+          const val = vault.get(k);
+          if (val) process.env[k] = val;
+        }
+      }
+    }
+    atlas = await buildAtlas({
+      memoryFile: `${dataDir}/memory.json`,
+      approvalsFile: `${dataDir}/approvals.json`,
+      metricsFile: `${dataDir}/metrics.json`,
+    });
+  }
+
+  async function ensureAtlas(): Promise<Atlas> {
+    if (!atlas) await rebuildAtlas();
+    return atlas!;
+  }
+
+  function send(res: ServerResponse, status: number, body: unknown): void {
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(body));
+  }
+
+  function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+    return new Promise((resolve) => {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        try {
+          resolve(raw ? (JSON.parse(raw) as Record<string, unknown>) : {});
+        } catch {
+          resolve({});
+        }
+      });
+    });
+  }
+
+  const authed = (req: IncomingMessage): boolean => !!token && req.headers["x-atlas-token"] === token;
+
+  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const path = url.pathname;
+    const method = req.method ?? "GET";
+
+    if (method === "GET" && path === "/") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(PAGE);
+      return;
+    }
+
+    if (method === "GET" && path === "/api/health") {
+      return send(res, 200, { ok: true, initialized: await vault.exists(), unlocked: vault.unlocked });
+    }
+
+    if (method === "POST" && path === "/api/setup") {
+      const { masterPassword } = await readBody(req);
+      if (await vault.exists()) return send(res, 400, { error: "vault already exists — use unlock" });
+      try {
+        await vault.initialize(String(masterPassword ?? ""));
+      } catch (e) {
+        return send(res, 400, { error: (e as Error).message });
+      }
+      await vault.unlock(String(masterPassword));
+      token = randomUUID();
+      await rebuildAtlas();
+      return send(res, 200, { token });
+    }
+
+    if (method === "POST" && path === "/api/unlock") {
+      const { masterPassword } = await readBody(req);
+      try {
+        await vault.unlock(String(masterPassword ?? ""));
+      } catch (e) {
+        return send(res, 401, { error: (e as Error).message });
+      }
+      token = randomUUID();
+      await rebuildAtlas();
+      return send(res, 200, { token });
+    }
+
+    // ── everything below requires an unlocked session ──
+    if (!authed(req)) return send(res, 401, { error: "locked — unlock first" });
+
+    if (method === "POST" && path === "/api/lock") {
+      vault.lock();
+      token = null;
+      atlas = null;
+      return send(res, 200, { ok: true });
+    }
+
+    if (method === "GET" && path === "/api/secrets") {
+      const names = vault.list().filter((k) => !k.startsWith(CRED_PREFIX));
+      const providers = Object.fromEntries(KNOWN_PROVIDERS.map((p) => [p, names.includes(p)]));
+      return send(res, 200, { names, providers });
+    }
+    if (method === "POST" && path === "/api/secrets") {
+      const { name, value } = await readBody(req);
+      if (!name || !value) return send(res, 400, { error: "name and value required" });
+      await vault.set(String(name), String(value));
+      await rebuildAtlas();
+      return send(res, 200, { ok: true });
+    }
+    if (method === "DELETE" && path.startsWith("/api/secrets/")) {
+      const name = decodeURIComponent(path.slice("/api/secrets/".length));
+      const ok = await vault.delete(name);
+      await rebuildAtlas();
+      return send(res, 200, { ok });
+    }
+
+    if (method === "GET" && path === "/api/credentials") {
+      const credentials = vault
+        .list()
+        .filter((k) => k.startsWith(CRED_PREFIX))
+        .map((k) => {
+          const parsed = JSON.parse(vault.get(k) ?? "{}") as { username?: string };
+          return { platform: k.slice(CRED_PREFIX.length), username: parsed.username ?? "" };
+        });
+      return send(res, 200, { credentials });
+    }
+    if (method === "POST" && path === "/api/credentials") {
+      const { platform, username, password, notes } = await readBody(req);
+      if (!platform || !username) return send(res, 400, { error: "platform and username required" });
+      await vault.set(CRED_PREFIX + String(platform), JSON.stringify({ username, password: password ?? "", notes: notes ?? "" }));
+      return send(res, 200, { ok: true });
+    }
+    if (method === "DELETE" && path.startsWith("/api/credentials/")) {
+      const platform = decodeURIComponent(path.slice("/api/credentials/".length));
+      const ok = await vault.delete(CRED_PREFIX + platform);
+      return send(res, 200, { ok });
+    }
+
+    if (method === "GET" && path === "/api/status") {
+      const readiness = await checkReadiness(process.env);
+      const credentials = vault.list().filter((k) => k.startsWith(CRED_PREFIX)).length;
+      return send(res, 200, { ...readiness, credentials });
+    }
+
+    if (method === "POST" && path === "/api/cycle") {
+      const a = await ensureAtlas();
+      const report = await a.invoke("orchestrator", { op: "runDailyCycle", videoRef: null });
+      return send(res, 200, report);
+    }
+
+    if (method === "GET" && path === "/api/approvals") {
+      const a = await ensureAtlas();
+      const pending = await a.invoke("approvals", { op: "list", status: "pending" });
+      return send(res, 200, { pending });
+    }
+
+    const decision = path.match(/^\/api\/approvals\/([^/]+)\/(approve|reject)$/);
+    if (method === "POST" && decision) {
+      const a = await ensureAtlas();
+      const result = await a.invoke("approvals", { op: decision[2] as "approve" | "reject", id: decodeURIComponent(decision[1]!) });
+      return send(res, 200, { result });
+    }
+
+    return send(res, 404, { error: "not found" });
+  }
+
+  const server = httpCreateServer((req, res) => {
+    handle(req, res).catch((e) => send(res, 500, { error: (e as Error).message }));
+  });
+
+  return {
+    server,
+    listen(port, host = "127.0.0.1") {
+      return new Promise((resolve) => {
+        server.listen(port, host, () => {
+          const addr = server.address();
+          resolve(typeof addr === "object" && addr ? addr.port : port);
+        });
+      });
+    },
+    close() {
+      return new Promise((resolve) => server.close(() => resolve()));
+    },
+  };
+}

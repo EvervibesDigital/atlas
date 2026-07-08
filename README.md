@@ -9,8 +9,27 @@ This is **not** a chatbot. It is a kernel + a growing set of plugins.
 
 ## Status
 
-**Autonomous & feature-rich.** 118 passing tests, typecheck clean.
-`pnpm start` boots 24 plugins · `pnpm cycle` runs an autonomous day · `pnpm status` shows readiness.
+**Autonomous, feature-rich, with a secure control panel.** 129 passing tests, typecheck clean.
+`pnpm ui` opens the control panel · `pnpm cycle` runs an autonomous day · `pnpm status` shows readiness · `pnpm start` boots 24 plugins.
+
+### Control Panel — `pnpm ui`
+
+A localhost-only web UI (http://127.0.0.1:4317) to run and configure ATLAS:
+
+- **Encrypted vault** (`@atlas/vault`) — API keys and platform logins are
+  encrypted at rest with AES-256-GCM behind a master password (scrypt KDF).
+  Values are never returned to the browser (names/usernames only) and the vault
+  file is git-ignored. No password recovery by design.
+- **API Keys** tab — paste free LLM keys (Groq / Gemini / OpenRouter); the Brain
+  picks them up immediately.
+- **Platform Logins** tab — store social logins (encrypted) for the future live
+  publisher.
+- **Run** tab — trigger an autonomous cycle and read the morning report.
+- **Approvals** tab — approve/reject what ATLAS wants to do.
+
+The server binds to `127.0.0.1` only and every secret route is gated behind the
+unlocked session. The owner console reaches ATLAS via `Atlas.invoke` (the human
+is the ultimate authority, above the Guardian).
 
 | Layer | Module | State |
 | --- | --- | --- |

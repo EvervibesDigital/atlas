@@ -109,6 +109,19 @@ export class Atlas {
     return [...this.plugins.keys()];
   }
 
+  /**
+   * OWNER-ONLY: invoke a service directly, bypassing the plugin permission
+   * gate. This is the human owner console (core principle #5 — human approval
+   * overrides AI: the human is the ultimate authority). Not available to
+   * plugins, which must use the guarded `ctx.call`.
+   */
+  async invoke(service: string, payload?: unknown): Promise<unknown> {
+    const svc = this.services.get(service);
+    if (!svc) throw new Error(`no such service "${service}"`);
+    await this.audit.record({ actor: "owner-console", action: `invoke:${service}`, decision: "allow" });
+    return svc.handler(payload);
+  }
+
   private makeContext(manifest: PluginManifest): AtlasContext {
     return {
       plugin: manifest,
