@@ -144,6 +144,11 @@ export const PAGE = `<!doctype html>
       <div style="display:flex;gap:8px;"><input id="repoName" placeholder="pollinations/pollinations" style="flex:1" /><button style="margin-top:0" onclick="learnRepo()">Analyze</button></div>
       <pre id="learnOut" class="hide"></pre>
 
+      <label style="margin-top:14px">Drop in many sites at once (one URL per line) — ATLAS studies &amp; files notes for each</label>
+      <textarea id="bulkUrls" rows="6" placeholder="https://a-tool-i-found.com&#10;https://competitor.com/pricing&#10;example.com/blog" style="font-family:monospace"></textarea>
+      <button onclick="bulkLearn()">🎓 Study all sites</button>
+      <pre id="bulkLearnOut" class="hide"></pre>
+
       <label style="margin-top:14px">Study a codebase you've built (folder path — read-only, changes nothing)</label>
       <div style="display:flex;gap:8px;"><input id="cbDir" placeholder="C:\\Users\\matbr\\claudecode1" style="flex:1" /><button style="margin-top:0" onclick="learnCodebase()">Study</button></div>
       <div class="note">Point it at your evervibes / wholesale folder. ATLAS reads the structure, configs, and workflows and writes an understanding to memory. It will not edit anything.</div>
@@ -168,7 +173,14 @@ export const PAGE = `<!doctype html>
     </section>
 
     <section id="tab-keys" class="card hide">
-      <h2>AI API keys</h2>
+      <h2>Paste all your keys at once</h2>
+      <div class="note">Paste one per line — any of these formats work: <code>NAME=value</code>, <code>NAME: value</code>, or <code>NAME value</code>. Blank lines and # comments are ignored. Then click Save all.</div>
+      <textarea id="bulkKeys" rows="7" placeholder="GROQ_API_KEY=gsk_...&#10;GEMINI_API_KEY=...&#10;OPENROUTER_API_KEY=...&#10;GITHUB_TOKEN=ghp_...&#10;VERCEL_TOKEN=...&#10;SUPABASE_TOKEN=sbp_..." style="margin-top:8px;font-family:monospace"></textarea>
+      <button onclick="bulkSave()">💾 Save all keys</button>
+      <button class="sec" onclick="exportEnv()">🌙 Enable overnight runs</button>
+      <div id="bulkOut" class="note"></div>
+
+      <h2 style="margin-top:20px">Status</h2>
       <div id="providers"></div>
       <label>Key name</label>
       <select id="keyName">
@@ -360,6 +372,8 @@ async function loadActions(){ try { const r = await api("/api/actions"); const l
 // ── Learn ──
 async function learnUrl(){ const url=$("learnUrl").value.trim(); if(!url) return; $("learnOut").classList.remove("hide"); $("learnOut").textContent="Reading "+url+" …";
   try { const r = await api("/api/learn","POST",{url}); $("learnOut").textContent = "📄 "+(r.title||url)+"\\n\\n"+r.notes; } catch(e){ $("learnOut").textContent="⚠ "+e.message; } }
+async function bulkLearn(){ const text=$("bulkUrls").value; if(!text.trim()) return; $("bulkLearnOut").classList.remove("hide"); $("bulkLearnOut").textContent="Studying sites… (this can take a minute for many)";
+  try { const r=await api("/api/learn/bulk","POST",{text}); $("bulkLearnOut").textContent="Studied "+r.total+" site(s):\\n"+(r.results||[]).map(x=>(x.ok?"✅ ":"⚠ ")+x.url+(x.ok?" — "+(x.title||""):" ("+x.error+")")).join("\\n"); } catch(e){ $("bulkLearnOut").textContent="⚠ "+e.message; } }
 async function learnRepo(){ const repo=$("repoName").value.trim(); if(!repo) return; $("learnOut").classList.remove("hide"); $("learnOut").textContent="Analyzing "+repo+" …";
   try { const r = await api("/api/repo","POST",{repo}); $("learnOut").textContent = "📦 "+repo+"\\n\\n"+r.notes; } catch(e){ $("learnOut").textContent="⚠ "+e.message; } }
 async function loadBiz(){ try { const r = await api("/api/businesses"); const list = r.businesses||[];
@@ -411,6 +425,8 @@ async function loadProviders() {
 }
 async function saveKey(){ try { await api("/api/secrets","POST",{name:$("keyName").value, value:$("keyVal").value}); $("keyVal").value=""; loadProviders(); loadStatus(); } catch(e){ alert(e.message);} }
 async function exportEnv(){ try { const r = await api("/api/export-env","POST"); alert("Done — "+r.exported+" key(s) enabled for overnight runs on this computer."); } catch(e){ alert(e.message);} }
+async function bulkSave(){ const text=$("bulkKeys").value; if(!text.trim()) return; $("bulkOut").textContent="Saving…";
+  try { const r=await api("/api/secrets/bulk","POST",{text}); $("bulkOut").textContent="✅ Saved "+r.saved+" key(s): "+(r.names||[]).join(", "); $("bulkKeys").value=""; loadProviders(); loadStatus(); } catch(e){ $("bulkOut").textContent="⚠ "+e.message; } }
 async function loadCreds(){ const c = await api("/api/credentials");
   $("creds").innerHTML = (c.credentials.length? c.credentials : []).map(x =>
     "<div class='row'><span><b>"+x.platform+"</b> — "+x.username+"</span><button class='mini sec' onclick=\\"delCred('"+x.platform+"')\\">remove</button></div>").join("") || "<div class='note'>No logins saved yet.</div>";

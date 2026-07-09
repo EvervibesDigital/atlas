@@ -9,6 +9,40 @@ import { PAGE } from "./html";
 const KNOWN_PROVIDERS = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"];
 const CRED_PREFIX = "cred:";
 
+/**
+ * Parse pasted key text into name/value pairs. Accepts many formats on separate
+ * lines: `KEY=value`, `export KEY=value`, `KEY: value`, `KEY value`, optional
+ * quotes; ignores blank lines and #/// comments.
+ */
+export function parseKeyLines(text: string): Array<{ name: string; value: string }> {
+  const out: Array<{ name: string; value: string }> = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+    const m = line.match(/^(?:export\s+)?([A-Za-z][A-Za-z0-9_.-]*)\s*(=|:|\s)\s*(.+)$/);
+    if (!m) continue;
+    const name = m[1]!;
+    // A bare whitespace separator only counts for KEY-style (SCREAMING_SNAKE)
+    // names, so prose lines aren't mistaken for keys.
+    if (/^\s$/.test(m[2]!) && !/^[A-Z][A-Z0-9_]*$/.test(name)) continue;
+    const value = m[3]!.trim().replace(/^["']|["']$/g, "").trim();
+    if (value) out.push({ name, value });
+  }
+  return out;
+}
+
+/** Parse pasted text into a de-duped list of http(s) URLs (bare domains get https). */
+export function parseUrls(text: string): string[] {
+  const urls: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    if (/^https?:\/\//i.test(line)) urls.push(line.split(/\s+/)[0]!);
+    else if (/^[a-z0-9.-]+\.[a-z]{2,}(\/\S*)?$/i.test(line)) urls.push("https://" + line);
+  }
+  return [...new Set(urls)];
+}
+
 export interface ControlPanelOptions {
   vaultFile?: string;
   dataDir?: string;
@@ -162,6 +196,13 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       await rebuildAtlas();
       return send(res, 200, { ok: true });
     }
+    if (method === "POST" && path === "/api/secrets/bulk") {
+      const { text } = await readBody(req);
+      const pairs = parseKeyLines(String(text ?? ""));
+      for (const p of pairs) await vault.set(p.name, p.value);
+      if (pairs.length) await rebuildAtlas();
+      return send(res, 200, { saved: pairs.length, names: pairs.map((p) => p.name) });
+    }
     if (method === "DELETE" && path.startsWith("/api/secrets/")) {
       const name = decodeURIComponent(path.slice("/api/secrets/".length));
       const ok = await vault.delete(name);
@@ -289,6 +330,22 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       if (!repo) return send(res, 400, { error: "repo required (owner/name)" });
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("web", { op: "repo", repo: String(repo) }));
+    }
+
+    if (method === "POST" && path === "/api/learn/bulk") {
+      const { text } = await readBody(req);
+      const urls = parseUrls(String(text ?? "")).slice(0, 25);
+      const a = await ensureAtlas();
+      const results: Array<{ url: string; ok: boolean; title?: string; error?: string }> = [];
+      for (const url of urls) {
+        try {
+          const r = (await a.invoke("web", { op: "learn", url })) as { title: string };
+          results.push({ url, ok: true, title: r.title });
+        } catch (e) {
+          results.push({ url, ok: false, error: (e as Error).message });
+        }
+      }
+      return send(res, 200, { total: urls.length, results });
     }
 
     if (method === "GET" && path === "/api/businesses") {
