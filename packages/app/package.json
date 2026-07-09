@@ -36,6 +36,9 @@
     "@atlas/web": "workspace:*",
     "@atlas/browser": "workspace:*",
     "@atlas/actions": "workspace:*",
+    "@atlas/codebase": "workspace:*",
+    "@atlas/toolvault": "workspace:*",
+    "@atlas/backup": "workspace:*",
     "@atlas/orchestrator": "workspace:*"
   }
 }

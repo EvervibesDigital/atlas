@@ -29,6 +29,11 @@ export const PAGE = `<!doctype html>
   pre { background:#12111f; padding:14px; border-radius:8px; overflow:auto; font-size:12px; color:#c9c7e0; }
   .note { font-size:12px; color:var(--mut); margin-top:8px; line-height:1.5; }
   .err { color:var(--bad); font-size:13px; margin-top:8px; }
+  @keyframes flow { to { stroke-dashoffset: 0; } }
+  #mapSvg .node text { transition: opacity .15s; }
+  #mapSvg.focus .nerve:not(.hot), #mapSvg.focus .sig:not(.hot) { stroke-opacity:.05; }
+  #mapSvg .nerve.hot { stroke-opacity:.9 !important; stroke-width:1.6; }
+  #mapSvg .sig.hot { stroke-opacity:1 !important; stroke-width:3; }
 </style>
 </head>
 <body>
@@ -47,7 +52,9 @@ export const PAGE = `<!doctype html>
   <div id="app" class="hide">
     <nav>
       <button data-tab="chat" class="active">💬 Chat</button>
+      <button data-tab="map">🧠 Map</button>
       <button data-tab="learn">🎓 Learn</button>
+      <button data-tab="vault">🧰 Vault</button>
       <button data-tab="status">Status</button>
       <button data-tab="keys">API Keys</button>
       <button data-tab="logins">Platform Logins</button>
@@ -67,6 +74,27 @@ export const PAGE = `<!doctype html>
       <div class="note" id="chatMeta">Free models via your keys — the Brain auto-switches providers if one hits a limit. Every chat is saved to ATLAS's memory, so talking to it literally trains it.</div>
     </section>
 
+    <section id="tab-map" class="card hide">
+      <h2>ATLAS · living map</h2>
+      <div class="note">The orchestrator (center) fires signals down its nerves to every agent, and agents reach out to your businesses. Hover a node to light its connections; click an agent to ask ATLAS about it.</div>
+      <div id="mapWrap" style="position:relative;margin-top:10px;"><svg id="mapSvg" viewBox="0 0 1000 720" style="width:100%;height:auto;display:block;"></svg></div>
+      <div id="mapInfo" class="note" style="text-align:center;min-height:18px;"></div>
+      <div id="mapLegend" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;font-size:12px;color:var(--mut);margin-top:6px;"></div>
+    </section>
+
+    <section id="tab-vault" class="card hide">
+      <h2>Internal AI Vault</h2>
+      <div class="note">ATLAS's memory of tools &amp; sites. For any job it uses the <b>best-quality</b> option that's <b>free</b> or that you've <b>approved</b> to pay for — never a paid tool on its own.</div>
+      <div id="toolList" class="note" style="margin-top:10px">Loading…</div>
+      <label style="margin-top:12px">Add a tool / site</label>
+      <input id="tName" placeholder="Name, e.g. Pollinations" />
+      <div style="display:flex;gap:8px;margin-top:6px"><input id="tCat" placeholder="category (images, tts, video, posting…)" style="flex:1" /><input id="tQual" type="number" min="1" max="5" value="4" title="quality 1-5" style="width:90px" /></div>
+      <input id="tUrl" placeholder="https://… (optional)" style="margin-top:6px" />
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;"><input id="tFree" type="checkbox" checked style="width:auto" /> Free to use</label>
+      <button onclick="addTool()">Add to vault</button>
+      <div style="margin-top:14px"><input id="tBestCat" placeholder="best tool for… (category)" style="width:60%;display:inline-block" /> <button class="sec" style="margin-top:0" onclick="bestTool()">Find best</button> <span id="bestOut" class="note"></span></div>
+    </section>
+
     <section id="tab-learn" class="card hide">
       <h2>Teach ATLAS the web</h2>
       <label>Learn from a website (read-only — it just reads &amp; takes notes)</label>
@@ -74,6 +102,10 @@ export const PAGE = `<!doctype html>
       <label style="margin-top:14px">Analyze a GitHub repo (owner/name)</label>
       <div style="display:flex;gap:8px;"><input id="repoName" placeholder="pollinations/pollinations" style="flex:1" /><button style="margin-top:0" onclick="learnRepo()">Analyze</button></div>
       <pre id="learnOut" class="hide"></pre>
+
+      <label style="margin-top:14px">Study a codebase you've built (folder path — read-only, changes nothing)</label>
+      <div style="display:flex;gap:8px;"><input id="cbDir" placeholder="C:\\Users\\matbr\\claudecode1" style="flex:1" /><button style="margin-top:0" onclick="learnCodebase()">Study</button></div>
+      <div class="note">Point it at your evervibes / wholesale folder. ATLAS reads the structure, configs, and workflows and writes an understanding to memory. It will not edit anything.</div>
 
       <h2 style="margin-top:22px">Your businesses</h2>
       <div id="bizList" class="note">Loading…</div>
@@ -180,12 +212,74 @@ $("lockNow").onclick = async () => { try{ await api("/api/lock","POST"); }catch{
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button[data-tab]").forEach(x=>x.classList.remove("active"));
   b.classList.add("active");
-  ["chat","learn","status","keys","logins","run","actions","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
+  ["chat","map","learn","vault","status","keys","logins","run","actions","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="chat") $("chatIn").focus();
   if (b.dataset.tab==="learn") loadBiz();
   if (b.dataset.tab==="actions") loadActions();
+  if (b.dataset.tab==="vault") loadTools();
+  if (b.dataset.tab==="map") renderMap();
 });
+
+// ── Codebase learning ──
+async function learnCodebase(){ const dir=$("cbDir").value.trim(); if(!dir) return; $("learnOut").classList.remove("hide"); $("learnOut").textContent="Studying "+dir+" … (large codebases take a moment)";
+  try { const r = await api("/api/codebase","POST",{dir}); $("learnOut").textContent = "💾 "+r.scan.name+" ("+r.scan.fileCount+" files, "+(r.scan.workflows.length)+" workflows)\\n\\n"+r.notes; } catch(e){ $("learnOut").textContent="⚠ "+e.message; } }
+
+// ── AI Vault ──
+async function loadTools(){ try { const r=await api("/api/tools"); const list=r.tools||[];
+  $("toolList").innerHTML = list.length ? list.map(t => "<div class='row'><span><b>"+t.name+"</b> · "+t.category+" · ⭐"+t.quality+" <span class='pill "+((t.free||t.approved)?"on":"off")+"'>"+(t.free?"free":(t.approved?"approved":"needs approval"))+"</span></span>"+(!t.free&&!t.approved?"<button class='mini' onclick=\\"approveTool('"+t.id+"')\\">approve $</button>":"")+"</div>").join("") : "<div class='note'>Vault is empty. Add your gathered tools &amp; sites below.</div>";
+  } catch(e){ $("toolList").textContent=e.message; } }
+async function addTool(){ try { await api("/api/tools","POST",{name:$("tName").value,category:$("tCat").value,url:$("tUrl").value,quality:$("tQual").value,free:$("tFree").checked}); ["tName","tCat","tUrl"].forEach(i=>$(i).value=""); loadTools(); } catch(e){ alert(e.message);} }
+async function approveTool(id){ await api("/api/tools/"+encodeURIComponent(id)+"/approve","POST"); loadTools(); }
+async function bestTool(){ const c=$("tBestCat").value.trim(); if(!c) return; try { const r=await api("/api/tools"); const list=(r.tools||[]).filter(t=>t.category.toLowerCase()===c.toLowerCase() && (t.free||t.approved)).sort((a,b)=>b.quality-a.quality); $("bestOut").textContent = list.length? ("→ "+list[0].name+" (⭐"+list[0].quality+")") : "→ nothing usable yet"; } catch(e){ $("bestOut").textContent=e.message; } }
+
+// ── Neural map ──
+const MAP_GROUPS = { core:["brain","memory","executive","approvals","guardian","backup"], create:["creative","publishing","personas","web"], intel:["research","opportunity","strategy","analytics","detective","simulation","knowledge","experiments","codebase"], money:["cfo","negotiation","business","toolvault"], ops:["learning","automation","techdebt","engineering","compliance","actions"] };
+const MAP_COLORS = { core:"#a78bfa", create:"#f472b6", intel:"#38bdf8", money:"#fbbf24", ops:"#34d399", biz:"#e5e7eb", other:"#94a3b8" };
+function groupOf(name){ for(const g in MAP_GROUPS){ if(MAP_GROUPS[g].includes(name)) return g; } return "other"; }
+const SVGNS="http://www.w3.org/2000/svg";
+function el(tag, attrs){ const e=document.createElementNS(SVGNS,tag); for(const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+let mapDone=false;
+async function renderMap(){ if(mapDone) return; mapDone=true;
+  const svg=$("mapSvg"); svg.innerHTML="";
+  let data; try { data = await api("/api/map"); } catch(e){ mapDone=false; return; }
+  const agents = (data.agents||[]).filter(a=>a!=="orchestrator" && a!=="hello");
+  const businesses = data.businesses||[];
+  const cx=500, cy=350, aR=210, bR=322;
+  const links=[]; const nodeEls={};
+  // agent positions
+  const A = agents.map((name,i)=>{ const ang=(i/agents.length)*2*Math.PI - Math.PI/2; return {name, group:groupOf(name), x:cx+aR*Math.cos(ang), y:cy+aR*Math.sin(ang), ang}; });
+  // business positions
+  const B = businesses.map((name,i)=>{ const ang=(i/Math.max(1,businesses.length))*2*Math.PI - Math.PI/2; return {name, x:cx+bR*Math.cos(ang), y:cy+bR*Math.sin(ang), ang}; });
+  function curve(x1,y1,x2,y2){ const mx=(x1+x2)/2, my=(y1+y2)/2; const dx=x2-x1, dy=y2-y1; const nx=-dy, ny=dx; const k=0.12; return "M"+x1+" "+y1+" Q"+(mx+nx*k)+" "+(my+ny*k)+" "+x2+" "+y2; }
+  // center glow
+  svg.appendChild(el("circle",{cx:cx,cy:cy,r:70,fill:"url(#glow)",opacity:"0.5"}));
+  const defs=el("defs",{}); defs.innerHTML='<radialGradient id="glow"><stop offset="0%" stop-color="#7c3aed" stop-opacity="0.7"/><stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/></radialGradient>'; svg.appendChild(defs);
+  // agent nerves + signals
+  A.forEach(a=>{ const d=curve(cx,cy,a.x,a.y); const c=MAP_COLORS[a.group];
+    const nerve=el("path",{d:d,fill:"none",stroke:c,"stroke-width":"1","stroke-opacity":"0.28",class:"nerve"});
+    const sig=el("path",{d:d,fill:"none",stroke:c,"stroke-width":"2.2","stroke-linecap":"round","stroke-dasharray":"3 460","stroke-dashoffset":"463",class:"sig"}); sig.style.animation="flow "+(2.4+Math.random()*2.6)+"s linear infinite"; sig.style.animationDelay=(-Math.random()*4)+"s";
+    svg.appendChild(nerve); svg.appendChild(sig); a._paths=[nerve,sig]; links.push({a:a.name,el:[nerve,sig]}); });
+  // business links → 2 nearest agents by angle
+  B.forEach(b=>{ const sorted=[...A].sort((p,q)=>Math.abs(angDiff(p.ang,b.ang))-Math.abs(angDiff(q.ang,b.ang))); const near=sorted.slice(0,2); b._paths=[];
+    near.forEach(a=>{ const nerve=el("path",{d:curve(a.x,a.y,b.x,b.y),fill:"none",stroke:MAP_COLORS.biz,"stroke-width":"1","stroke-opacity":"0.18",class:"nerve"}); svg.appendChild(nerve); b._paths.push(nerve); a._paths.push(nerve); }); });
+  function angDiff(x,y){ let d=x-y; while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI; return d; }
+  // nodes
+  function addNode(o, r, fill, label, kind){ const g=el("g",{class:"node",style:"cursor:pointer"});
+    const c=el("circle",{cx:o.x,cy:o.y,r:r,fill:fill,stroke:"#0f0e17","stroke-width":"1.5"}); c.style.filter="drop-shadow(0 0 5px "+fill+"88)";
+    const tx=el("text",{x:o.x,y:o.y-(r+6),"text-anchor":"middle","font-size":"12","fill":"#e6e6f0",opacity:"0",style:"pointer-events:none;font-family:system-ui"}); tx.textContent=label;
+    g.appendChild(c); g.appendChild(tx);
+    g.addEventListener("mouseenter",()=>{ svg.classList.add("focus"); (o._paths||[]).forEach(p=>p.classList.add("hot")); tx.setAttribute("opacity","1"); $("mapInfo").textContent=(kind==="agent"?"🧩 "+label+" agent":kind==="biz"?"🏢 "+label:"🧠 ATLAS orchestrator"); });
+    g.addEventListener("mouseleave",()=>{ svg.classList.remove("focus"); (o._paths||[]).forEach(p=>p.classList.remove("hot")); tx.setAttribute("opacity","0"); $("mapInfo").textContent=""; });
+    if(kind==="agent") g.addEventListener("click",()=>{ document.querySelector('nav button[data-tab="chat"]').click(); $("chatIn").value="What does the "+label+" agent do in ATLAS, and how is it doing?"; $("chatIn").focus(); });
+    svg.appendChild(g); return c; }
+  A.forEach(a=>addNode(a, 7, MAP_COLORS[a.group], a.name, "agent"));
+  B.forEach(b=>addNode(b, 8, MAP_COLORS.biz, b.name, "biz"));
+  const center={x:cx,y:cy,_paths:A.flatMap(a=>a._paths)}; const cc=addNode(center, 26, "#7c3aed", "ATLAS", "core");
+  const ctext=el("text",{x:cx,y:cy+4,"text-anchor":"middle","font-size":"15","font-weight":"800","fill":"#fff",style:"pointer-events:none;font-family:system-ui"}); ctext.textContent="ATLAS"; svg.appendChild(ctext);
+  // legend
+  $("mapLegend").innerHTML = Object.entries({core:"Core",create:"Creative",intel:"Intelligence",money:"Money",ops:"Ops",biz:"Businesses"}).map(([k,v])=>"<span><span style='display:inline-block;width:10px;height:10px;border-radius:50%;background:"+MAP_COLORS[k]+";margin-right:5px'></span>"+v+"</span>").join("");
+}
 
 // ── Actions ──
 async function requestAction(){ try { await api("/api/action","POST",{type:$("actType").value,title:$("actTitle").value,target:$("actTarget").value}); $("actTitle").value=""; $("actTarget").value=""; loadActions(); alert("Prepared — approve it in the Approvals tab to run (simulated)."); } catch(e){ alert(e.message);} }

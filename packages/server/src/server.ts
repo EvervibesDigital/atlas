@@ -50,6 +50,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       approvalsFile: `${dataDir}/approvals.json`,
       metricsFile: `${dataDir}/metrics.json`,
       businessFile: `${dataDir}/businesses.json`,
+      toolVaultFile: `${dataDir}/toolvault.json`,
     });
   }
 
@@ -285,6 +286,35 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "POST" && bizResearch) {
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("business", { op: "research", id: decodeURIComponent(bizResearch[1]!) }));
+    }
+
+    if (method === "POST" && path === "/api/codebase") {
+      const { dir, name } = await readBody(req);
+      if (!dir) return send(res, 400, { error: "dir (folder path) required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("codebase", { op: "learn", dir: String(dir), name }));
+    }
+
+    if (method === "GET" && path === "/api/tools") {
+      const a = await ensureAtlas();
+      return send(res, 200, { tools: await a.invoke("toolvault", { op: "list" }) });
+    }
+    if (method === "POST" && path === "/api/tools") {
+      const b = await readBody(req);
+      if (!b.name || !b.category) return send(res, 400, { error: "name and category required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("toolvault", { op: "add", tool: { name: b.name, category: b.category, url: b.url, quality: Number(b.quality ?? 3), free: !!b.free, approved: !!b.approved, monthlyCost: b.monthlyCost ? Number(b.monthlyCost) : undefined, notes: b.notes } }));
+    }
+    const toolApprove = path.match(/^\/api\/tools\/([^/]+)\/approve$/);
+    if (method === "POST" && toolApprove) {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("toolvault", { op: "approve", id: decodeURIComponent(toolApprove[1]!) }));
+    }
+
+    if (method === "GET" && path === "/api/map") {
+      const a = await ensureAtlas();
+      const businesses = (await a.invoke("business", { op: "listBusinesses" })) as Array<{ name: string }>;
+      return send(res, 200, { agents: a.loaded(), businesses: businesses.map((b) => b.name) });
     }
 
     if (method === "GET" && path === "/api/actions") {

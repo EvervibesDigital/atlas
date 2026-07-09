@@ -25,6 +25,9 @@ import { createDetectivePlugin } from "@atlas/detective";
 import { createEngineeringPlugin } from "@atlas/engineering";
 import { createWebPlugin } from "@atlas/web";
 import { createActionsPlugin } from "@atlas/actions";
+import { createCodebasePlugin } from "@atlas/codebase";
+import { createToolVaultPlugin } from "@atlas/toolvault";
+import { createBackupPlugin } from "@atlas/backup";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
@@ -35,6 +38,7 @@ export interface AtlasOptions {
   metricsTracker?: MetricsTracker;
   metricsFile?: string;
   businessFile?: string;
+  toolVaultFile?: string;
   /**
    * Publisher for the Publishing department. Defaults to a dry-run publisher
    * (never posts). Swap in a live browser publisher — with Mat's login — to go
@@ -64,6 +68,10 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createWebPlugin());
   // Action layer — real-world actions, approval-gated, simulated by default.
   await atlas.use(createActionsPlugin());
+  // Learning & safety: codebase reader, AI tool vault, backup/restore.
+  await atlas.use(createCodebasePlugin());
+  await atlas.use(createToolVaultPlugin({ file: opts.toolVaultFile }));
+  await atlas.use(createBackupPlugin());
 
   // Phase 4 — departments
   await atlas.use(createResearchPlugin());

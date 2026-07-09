@@ -14,13 +14,23 @@ import type { PluginManifest, GuardianVerdict } from "@atlas/core";
 /** High-risk actions that always require human approval. */
 export const APPROVAL_REQUIRED: readonly string[] = [
   "file.delete",
+  "file.overwrite",
   "software.install",
+  "repo.install",
   "script.run",
+  "code.change",
   "prod.change",
+  "deploy",
+  "git.push",
+  "git.force",
   "money",
   "account.create",
   "purchase",
+  "subscription",
   "credential.change",
+  "dns.change",
+  "domain",
+  "email.send",
   "system.modify",
 ];
 
