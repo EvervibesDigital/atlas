@@ -14,6 +14,10 @@ export interface ControlPanelOptions {
   dataDir?: string;
   /** Where "Enable overnight runs" writes provider keys (default ./.env). */
   envFile?: string;
+  /** Failed unlocks before a temporary lockout (default 5). */
+  maxUnlockFails?: number;
+  /** Lockout duration in ms after too many failed unlocks (default 15 min). */
+  lockoutMs?: number;
 }
 
 export interface ControlPanel {
@@ -32,9 +36,13 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   const vaultFile = opts.vaultFile ?? "./data/vault.enc.json";
   const dataDir = opts.dataDir ?? "./data";
   const envFile = opts.envFile ?? "./.env";
+  const maxUnlockFails = opts.maxUnlockFails ?? 5;
+  const lockoutMs = opts.lockoutMs ?? 15 * 60 * 1000;
   const vault = new Vault(vaultFile);
   let token: string | null = null;
   let atlas: Atlas | null = null;
+  let failedUnlocks = 0;
+  let lockedUntil = 0;
 
   async function rebuildAtlas(): Promise<void> {
     if (vault.unlocked) {
@@ -110,12 +118,21 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     }
 
     if (method === "POST" && path === "/api/unlock") {
+      if (Date.now() < lockedUntil) {
+        return send(res, 429, { error: "too many failed attempts — locked out, try again later" });
+      }
       const { masterPassword } = await readBody(req);
       try {
         await vault.unlock(String(masterPassword ?? ""));
       } catch (e) {
+        failedUnlocks++;
+        if (failedUnlocks >= maxUnlockFails) {
+          lockedUntil = Date.now() + lockoutMs;
+          failedUnlocks = 0;
+        }
         return send(res, 401, { error: (e as Error).message });
       }
+      failedUnlocks = 0;
       token = randomUUID();
       await rebuildAtlas();
       return send(res, 200, { token });

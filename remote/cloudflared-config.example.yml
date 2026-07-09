@@ -1,0 +1,14 @@
+# ATLAS remote access via Cloudflare Tunnel (free).
+# Copy this to  C:\Users\matbr\.cloudflared\config.yml  and fill in your tunnel id.
+#
+# It routes  https://atlas.evervibesdigital.com  →  the ATLAS panel running
+# locally on 127.0.0.1:4317. The panel itself stays bound to localhost — the
+# tunnel is the only way in, and it's still gated by your master password.
+
+tunnel: atlas
+credentials-file: C:\Users\matbr\.cloudflared\REPLACE-WITH-TUNNEL-ID.json
+
+ingress:
+  - hostname: atlas.evervibesdigital.com
+    service: http://127.0.0.1:4317
+  - service: http_status:404

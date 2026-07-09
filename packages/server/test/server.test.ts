@@ -91,6 +91,24 @@ describe("control panel", () => {
     expect(env).toContain("GROQ_API_KEY=gsk_night_key");
   });
 
+  it("locks out after too many failed unlock attempts (brute-force guard)", async () => {
+    dir = await mkdtemp(join(tmpdir(), "atlas-server-"));
+    panel = createControlPanel({ vaultFile: join(dir, "vault.enc.json"), dataDir: dir, envFile: join(dir, ".env"), maxUnlockFails: 3, lockoutMs: 60000 });
+    const port = await panel.listen(0);
+    base = `http://127.0.0.1:${port}`;
+
+    await post("/api/setup", { masterPassword: "the-real-password" });
+    // Lock first so unlock is the path being tested.
+    // 3 wrong attempts trip the lockout.
+    for (let i = 0; i < 3; i++) {
+      const r = await post("/api/unlock", { masterPassword: "wrong" });
+      expect(r.status).toBe(401);
+    }
+    // Now even the CORRECT password is refused with 429 during lockout.
+    const locked = await post("/api/unlock", { masterPassword: "the-real-password" });
+    expect(locked.status).toBe(429);
+  });
+
   it("rejects the wrong master password on unlock", async () => {
     await start();
     await post("/api/setup", { masterPassword: "the-right-one" });
