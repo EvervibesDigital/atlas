@@ -170,6 +170,60 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, { ok });
     }
 
+    if (method === "POST" && path === "/api/chat") {
+      const { message, history } = await readBody(req);
+      if (!message) return send(res, 400, { error: "message required" });
+      const a = await ensureAtlas();
+
+      // Recall memories related to what Mat is asking (best-effort).
+      let recalled = "";
+      try {
+        const hits = (await a.invoke("memory", { op: "search", query: String(message), options: { limit: 3, minScore: 0.15 } })) as Array<{
+          record: { content: string };
+        }>;
+        if (hits.length) recalled = "Things you remember that may be relevant:\n" + hits.map((h) => `- ${h.record.content}`).join("\n");
+      } catch {
+        /* memory optional */
+      }
+
+      const turns = Array.isArray(history) ? (history as Array<{ role: string; text: string }>).slice(-10) : [];
+      const convo = turns.map((t) => `${t.role === "user" ? "Mat" : "ATLAS"}: ${t.text}`).join("\n");
+
+      const system = [
+        "You are ATLAS — Mat's autonomous AI Operating System (AI That Learns, Acts & Scales).",
+        "You run his businesses' agents: creative (Instagram Reels), publishing (approval-gated), CFO, strategy board, research, learning, and more.",
+        "Mat is a non-technical founder; explain things plainly, be direct and practical, keep answers tight.",
+        "You never post or spend money without Mat's approval. If asked to do something, explain what you'd queue and where he approves it (the Approvals tab).",
+        "If you don't know something, say so honestly.",
+      ].join(" ");
+
+      const prompt = [recalled, convo, `Mat: ${String(message)}`, "ATLAS:"].filter(Boolean).join("\n\n");
+
+      const started = Date.now();
+      const resp = (await a.invoke("brain", {
+        prompt,
+        system,
+        needs: { reasoning: 0.7, creativity: 0.4, cost: 1 },
+        maxTokens: 1024,
+        task: "owner.chat",
+      })) as { text: string; provider: string; model: string };
+
+      // Every conversation becomes memory — this is how chatting develops ATLAS.
+      try {
+        await a.invoke("memory", {
+          op: "remember",
+          input: {
+            kind: "conversation",
+            content: `Mat asked: ${String(message).slice(0, 300)} | ATLAS answered: ${resp.text.slice(0, 300)}`,
+          },
+        });
+      } catch {
+        /* memory optional */
+      }
+
+      return send(res, 200, { reply: resp.text, provider: resp.provider, model: resp.model, latencyMs: Date.now() - started });
+    }
+
     if (method === "POST" && path === "/api/export-env") {
       // Copy provider keys from the (unlocked) vault into a local git-ignored
       // .env so automated runs — the nightly task and `pnpm cycle` — can use

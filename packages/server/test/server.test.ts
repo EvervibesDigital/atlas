@@ -63,6 +63,21 @@ describe("control panel", () => {
     expect(JSON.stringify(creds)).not.toContain("hunter2");
   });
 
+  it("chats with the brain and reports which model answered", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/chat", { message: "hello ATLAS", history: [] }, token);
+    expect(r.status).toBe(200);
+    const data = (await r.json()) as { reply: string; provider: string };
+    expect(data.reply.length).toBeGreaterThan(0);
+    expect(data.provider).toBeTruthy(); // offline test env → the stub answers
+  });
+
+  it("blocks chat when locked", async () => {
+    await start();
+    expect((await post("/api/chat", { message: "hi" })).status).toBe(401);
+  });
+
   it("exports provider keys to .env for overnight runs", async () => {
     await start();
     const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };

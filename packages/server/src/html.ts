@@ -46,7 +46,8 @@ export const PAGE = `<!doctype html>
 
   <div id="app" class="hide">
     <nav>
-      <button data-tab="status" class="active">Status</button>
+      <button data-tab="chat" class="active">💬 Chat</button>
+      <button data-tab="status">Status</button>
       <button data-tab="keys">API Keys</button>
       <button data-tab="logins">Platform Logins</button>
       <button data-tab="run">Run</button>
@@ -54,7 +55,17 @@ export const PAGE = `<!doctype html>
       <button id="lockNow" class="sec" style="margin-left:auto">Lock</button>
     </nav>
 
-    <section id="tab-status" class="card">
+    <section id="tab-chat" class="card">
+      <h2>Talk to ATLAS</h2>
+      <div id="chatBox" style="max-height:420px;overflow-y:auto;padding:6px 2px;"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <input id="chatIn" placeholder="Ask ATLAS anything — strategy, content, its own status…" style="flex:1" />
+        <button id="chatSend" style="margin-top:0">Send</button>
+      </div>
+      <div class="note" id="chatMeta">Free models via your keys — the Brain auto-switches providers if one hits a limit. Every chat is saved to ATLAS's memory, so talking to it literally trains it.</div>
+    </section>
+
+    <section id="tab-status" class="card hide">
       <h2>Readiness</h2><div id="statusBox">Loading…</div>
       <button class="sec" onclick="loadStatus()">Refresh</button>
     </section>
@@ -127,6 +138,8 @@ $("lockBtn").onclick = async () => {
     TOKEN = res.token;
     $("lock").classList.add("hide"); $("app").classList.remove("hide");
     loadStatus(); loadProviders(); loadCreds();
+    bubble("bot", "ATLAS online. Ask me anything — business strategy, content ideas, or what I've been working on. Everything we discuss becomes part of my memory.");
+    $("chatIn").focus();
   } catch (e) { $("lockErr").textContent = e.message; }
 };
 $("lockNow").onclick = async () => { try{ await api("/api/lock","POST"); }catch{} TOKEN=null; location.reload(); };
@@ -134,9 +147,37 @@ $("lockNow").onclick = async () => { try{ await api("/api/lock","POST"); }catch{
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button[data-tab]").forEach(x=>x.classList.remove("active"));
   b.classList.add("active");
-  ["status","keys","logins","run","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
+  ["chat","status","keys","logins","run","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
   if (b.dataset.tab==="approvals") loadApprovals();
+  if (b.dataset.tab==="chat") $("chatIn").focus();
 });
+
+// ── Chat ──
+const chatHistory = [];
+function bubble(role, text){
+  const d = document.createElement("div");
+  d.style.cssText = "margin:8px 0;padding:10px 14px;border-radius:12px;max-width:85%;white-space:pre-wrap;font-size:14px;line-height:1.5;" +
+    (role==="user" ? "background:var(--acc);color:#fff;margin-left:auto;" : "background:#12111f;border:1px solid #2a2840;");
+  d.textContent = text;
+  $("chatBox").appendChild(d);
+  $("chatBox").scrollTop = $("chatBox").scrollHeight;
+  return d;
+}
+async function sendChat(){
+  const msg = $("chatIn").value.trim();
+  if (!msg) return;
+  $("chatIn").value = "";
+  bubble("user", msg);
+  const thinking = bubble("bot", "…thinking");
+  try {
+    const r = await api("/api/chat","POST",{ message: msg, history: chatHistory });
+    thinking.textContent = r.reply;
+    chatHistory.push({role:"user",text:msg},{role:"bot",text:r.reply});
+    $("chatMeta").textContent = "Answered by "+r.provider+" ("+r.model+") in "+(r.latencyMs/1000).toFixed(1)+"s · saved to memory";
+  } catch(e){ thinking.textContent = "⚠ " + e.message; }
+}
+$("chatSend").onclick = sendChat;
+$("chatIn").addEventListener("keydown", (e) => { if (e.key==="Enter") sendChat(); });
 
 async function loadStatus() {
   try { const s = await api("/api/status");
