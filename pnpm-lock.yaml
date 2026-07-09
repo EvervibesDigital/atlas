@@ -157,6 +157,9 @@ importers:
       '@atlas/toolvault':
         specifier: workspace:*
         version: link:../toolvault
+      '@atlas/vault':
+        specifier: workspace:*
+        version: link:../vault
       '@atlas/web':
         specifier: workspace:*
         version: link:../web

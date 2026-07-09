@@ -13,6 +13,8 @@
     "cycle": "tsx packages/app/src/main-cycle.ts",
     "status": "tsx packages/app/src/main-status.ts",
     "seed": "tsx packages/app/src/main-seed.ts",
+    "vault:try": "tsx packages/app/src/main-vault.ts",
+    "vault:reset": "tsx packages/app/src/main-vault.ts reset",
     "ui": "tsx packages/server/src/main.ts"
   },
   "devDependencies": {

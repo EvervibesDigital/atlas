@@ -43,6 +43,7 @@
     "@atlas/inbox": "workspace:*",
     "@atlas/skills": "workspace:*",
     "@atlas/forge": "workspace:*",
+    "@atlas/vault": "workspace:*",
     "@atlas/orchestrator": "workspace:*"
   }
 }
