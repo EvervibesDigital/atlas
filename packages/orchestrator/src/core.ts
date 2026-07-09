@@ -18,6 +18,8 @@ export interface DailyReport {
   compliance: unknown[];
   /** Headline KPIs from the Analytics agent. */
   kpis: unknown;
+  /** The business ATLAS studied this cycle (rotates nightly), if any. */
+  learned: unknown;
   proposals: unknown[];
   pendingApprovals: unknown[];
 }

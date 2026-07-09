@@ -47,6 +47,7 @@ export const PAGE = `<!doctype html>
   <div id="app" class="hide">
     <nav>
       <button data-tab="chat" class="active">💬 Chat</button>
+      <button data-tab="learn">🎓 Learn</button>
       <button data-tab="status">Status</button>
       <button data-tab="keys">API Keys</button>
       <button data-tab="logins">Platform Logins</button>
@@ -63,6 +64,24 @@ export const PAGE = `<!doctype html>
         <button id="chatSend" style="margin-top:0">Send</button>
       </div>
       <div class="note" id="chatMeta">Free models via your keys — the Brain auto-switches providers if one hits a limit. Every chat is saved to ATLAS's memory, so talking to it literally trains it.</div>
+    </section>
+
+    <section id="tab-learn" class="card hide">
+      <h2>Teach ATLAS the web</h2>
+      <label>Learn from a website (read-only — it just reads &amp; takes notes)</label>
+      <div style="display:flex;gap:8px;"><input id="learnUrl" placeholder="https://a-site-to-study.com" style="flex:1" /><button style="margin-top:0" onclick="learnUrl()">Learn</button></div>
+      <label style="margin-top:14px">Analyze a GitHub repo (owner/name)</label>
+      <div style="display:flex;gap:8px;"><input id="repoName" placeholder="pollinations/pollinations" style="flex:1" /><button style="margin-top:0" onclick="learnRepo()">Analyze</button></div>
+      <pre id="learnOut" class="hide"></pre>
+
+      <h2 style="margin-top:22px">Your businesses</h2>
+      <div id="bizList" class="note">Loading…</div>
+      <label style="margin-top:10px">Add a business</label>
+      <input id="bizName" placeholder="Business name" />
+      <input id="bizUrl" placeholder="https://its-website.com (so ATLAS can study it)" style="margin-top:6px" />
+      <input id="bizGoal" placeholder="Goal, e.g. grow to $5k/mo" style="margin-top:6px" />
+      <button onclick="addBiz()">Add business</button>
+      <div class="note">ATLAS studies one business site each night automatically and files notes to memory. Signing up / posting / installing stays behind your approval.</div>
     </section>
 
     <section id="tab-status" class="card hide">
@@ -147,10 +166,23 @@ $("lockNow").onclick = async () => { try{ await api("/api/lock","POST"); }catch{
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button[data-tab]").forEach(x=>x.classList.remove("active"));
   b.classList.add("active");
-  ["chat","status","keys","logins","run","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
+  ["chat","learn","status","keys","logins","run","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="chat") $("chatIn").focus();
+  if (b.dataset.tab==="learn") loadBiz();
 });
+
+// ── Learn ──
+async function learnUrl(){ const url=$("learnUrl").value.trim(); if(!url) return; $("learnOut").classList.remove("hide"); $("learnOut").textContent="Reading "+url+" …";
+  try { const r = await api("/api/learn","POST",{url}); $("learnOut").textContent = "📄 "+(r.title||url)+"\\n\\n"+r.notes; } catch(e){ $("learnOut").textContent="⚠ "+e.message; } }
+async function learnRepo(){ const repo=$("repoName").value.trim(); if(!repo) return; $("learnOut").classList.remove("hide"); $("learnOut").textContent="Analyzing "+repo+" …";
+  try { const r = await api("/api/repo","POST",{repo}); $("learnOut").textContent = "📦 "+repo+"\\n\\n"+r.notes; } catch(e){ $("learnOut").textContent="⚠ "+e.message; } }
+async function loadBiz(){ try { const r = await api("/api/businesses"); const list = r.businesses||[];
+  $("bizList").innerHTML = list.length ? list.map(b => "<div class='row'><span><b>"+b.name+"</b> — "+(b.stage||"idea")+(b.url?" · "+b.url:"")+"</span>"+(b.url?"<button class='mini' onclick=\\"researchBiz('"+b.id+"')\\">study now</button>":"")+"</div>").join("") : "<div class='note'>No businesses yet. Add your first below.</div>";
+  } catch(e){ $("bizList").textContent=e.message; } }
+async function addBiz(){ try { await api("/api/businesses","POST",{name:$("bizName").value,url:$("bizUrl").value,goal:$("bizGoal").value}); ["bizName","bizUrl","bizGoal"].forEach(i=>$(i).value=""); loadBiz(); } catch(e){ alert(e.message);} }
+async function researchBiz(id){ $("learnOut").classList.remove("hide"); $("learnOut").textContent="Studying…";
+  try { const r = await api("/api/businesses/"+encodeURIComponent(id)+"/research","POST"); $("learnOut").textContent = r.notes ? ("🏢 "+r.business.name+"\\n\\n"+r.notes) : ("Skipped: "+(r.skipped||"")); loadBiz(); } catch(e){ $("learnOut").textContent="⚠ "+e.message; } }
 
 // ── Chat ──
 const chatHistory = [];

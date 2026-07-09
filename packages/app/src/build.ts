@@ -23,6 +23,7 @@ import { createCompliancePlugin } from "@atlas/compliance";
 import { createNegotiationPlugin } from "@atlas/negotiation";
 import { createDetectivePlugin } from "@atlas/detective";
 import { createEngineeringPlugin } from "@atlas/engineering";
+import { createWebPlugin } from "@atlas/web";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
@@ -32,6 +33,7 @@ export interface AtlasOptions {
   approvalsFile?: string;
   metricsTracker?: MetricsTracker;
   metricsFile?: string;
+  businessFile?: string;
   /**
    * Publisher for the Publishing department. Defaults to a dry-run publisher
    * (never posts). Swap in a live browser publisher — with Mat's login — to go
@@ -57,9 +59,12 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createPublishingPlugin({ publisher: opts.publisher }));
   await atlas.use(createLearningPlugin({ metrics: opts.metricsTracker, metricsFile: opts.metricsFile }));
 
+  // Web reader (loaded before Business so it can research business sites).
+  await atlas.use(createWebPlugin());
+
   // Phase 4 — departments
   await atlas.use(createResearchPlugin());
-  await atlas.use(createBusinessPlugin());
+  await atlas.use(createBusinessPlugin({ businessFile: opts.businessFile }));
 
   // Phase 5 — advanced systems
   await atlas.use(createOpportunityPlugin());

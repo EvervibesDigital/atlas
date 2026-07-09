@@ -33,6 +33,7 @@
     "@atlas/negotiation": "workspace:*",
     "@atlas/detective": "workspace:*",
     "@atlas/engineering": "workspace:*",
+    "@atlas/web": "workspace:*",
     "@atlas/orchestrator": "workspace:*"
   }
 }

@@ -81,6 +81,10 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         const compliance = (await optional<unknown[]>(ctx, "compliance", { op: "check", text: reel.caption })) ?? [];
         const kpis = (await optional<unknown>(ctx, "analytics", { op: "kpis" })) ?? null;
 
+        // 6b. Study one of Mat's businesses (rotates each cycle — how ATLAS
+        // learns his businesses overnight). Read-only; safe to run autonomously.
+        const learned = (await optional<unknown>(ctx, "business", { op: "research-next" })) ?? null;
+
         // 7. Gather advice + the approval list for the report.
         const proposals = (await optional<unknown[]>(ctx, "learning", { op: "proposals" })) ?? [];
         const pendingApprovals = (await optional<unknown[]>(ctx, "approvals", { op: "list", status: "pending" })) ?? [];
@@ -95,6 +99,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           publish,
           compliance,
           kpis,
+          learned,
           proposals,
           pendingApprovals,
         };

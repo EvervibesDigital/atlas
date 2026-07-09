@@ -43,4 +43,10 @@ export function prioritize(metrics: UnitMetric[]): Recommendation[] {
   return recs.sort((a, b) => rank[a.priority] - rank[b.priority]);
 }
 
-export type BusinessCommand = { op: "units" } | { op: "brief" };
+export type BusinessCommand =
+  | { op: "units" }
+  | { op: "brief" }
+  | { op: "add"; business: { name: string; url?: string; goal?: string; stage?: string } }
+  | { op: "listBusinesses" }
+  | { op: "research"; id: string }
+  | { op: "research-next" };

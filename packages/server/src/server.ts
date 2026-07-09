@@ -49,6 +49,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       memoryFile: `${dataDir}/memory.json`,
       approvalsFile: `${dataDir}/approvals.json`,
       metricsFile: `${dataDir}/metrics.json`,
+      businessFile: `${dataDir}/businesses.json`,
     });
   }
 
@@ -254,6 +255,36 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const a = await ensureAtlas();
       const report = await a.invoke("orchestrator", { op: "runDailyCycle", videoRef: null });
       return send(res, 200, report);
+    }
+
+    if (method === "POST" && path === "/api/learn") {
+      const { url } = await readBody(req);
+      if (!url) return send(res, 400, { error: "url required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("web", { op: "learn", url: String(url) }));
+    }
+
+    if (method === "POST" && path === "/api/repo") {
+      const { repo } = await readBody(req);
+      if (!repo) return send(res, 400, { error: "repo required (owner/name)" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("web", { op: "repo", repo: String(repo) }));
+    }
+
+    if (method === "GET" && path === "/api/businesses") {
+      const a = await ensureAtlas();
+      return send(res, 200, { businesses: await a.invoke("business", { op: "listBusinesses" }) });
+    }
+    if (method === "POST" && path === "/api/businesses") {
+      const { name, url, goal } = await readBody(req);
+      if (!name) return send(res, 400, { error: "name required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("business", { op: "add", business: { name, url, goal } }));
+    }
+    const bizResearch = path.match(/^\/api\/businesses\/([^/]+)\/research$/);
+    if (method === "POST" && bizResearch) {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("business", { op: "research", id: decodeURIComponent(bizResearch[1]!) }));
     }
 
     if (method === "GET" && path === "/api/approvals") {

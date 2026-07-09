@@ -114,6 +114,9 @@ importers:
       '@atlas/techdebt':
         specifier: workspace:*
         version: link:../techdebt
+      '@atlas/web':
+        specifier: workspace:*
+        version: link:../web
 
   packages/approvals:
     dependencies:
@@ -151,6 +154,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@atlas/brain':
+        specifier: workspace:*
+        version: link:../brain
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
@@ -160,6 +166,9 @@ importers:
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
+      '@atlas/web':
+        specifier: workspace:*
+        version: link:../web
 
   packages/cfo:
     dependencies:
@@ -418,6 +427,22 @@ importers:
         version: link:../memory
 
   packages/vault: {}
+
+  packages/web:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/brain':
+        specifier: workspace:*
+        version: link:../brain
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
 
 packages:
 

@@ -35,6 +35,8 @@ async function main(): Promise<void> {
   } else {
     console.log(`Compliance:       clean ✅`);
   }
+  const learned = report.learned as { business?: { name?: string } } | null;
+  if (learned?.business?.name) console.log(`\n🎓 Studied business: ${learned.business.name} (notes saved to memory)`);
   console.log(`\nImprovement proposals: ${report.proposals.length}`);
   console.log(`⏳ Awaiting your approval: ${report.pendingApprovals.length} item(s)`);
   console.log("════════════════════════════════════════════════════");

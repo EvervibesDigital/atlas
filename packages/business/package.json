@@ -6,5 +6,5 @@
   "types": "./src/index.ts",
   "exports": { ".": "./src/index.ts" },
   "dependencies": { "@atlas/core": "workspace:*" },
-  "devDependencies": { "@atlas/guardian": "workspace:*", "@atlas/memory": "workspace:*", "@atlas/learning": "workspace:*" }
+  "devDependencies": { "@atlas/guardian": "workspace:*", "@atlas/memory": "workspace:*", "@atlas/learning": "workspace:*", "@atlas/web": "workspace:*", "@atlas/brain": "workspace:*" }
 }
