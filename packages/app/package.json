@@ -34,6 +34,8 @@
     "@atlas/detective": "workspace:*",
     "@atlas/engineering": "workspace:*",
     "@atlas/web": "workspace:*",
+    "@atlas/browser": "workspace:*",
+    "@atlas/actions": "workspace:*",
     "@atlas/orchestrator": "workspace:*"
   }
 }

@@ -287,6 +287,17 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, await a.invoke("business", { op: "research", id: decodeURIComponent(bizResearch[1]!) }));
     }
 
+    if (method === "GET" && path === "/api/actions") {
+      const a = await ensureAtlas();
+      return send(res, 200, { actions: await a.invoke("actions", { op: "list" }) });
+    }
+    if (method === "POST" && path === "/api/action") {
+      const { type, title, target, detail } = await readBody(req);
+      if (!title) return send(res, 400, { error: "title required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("actions", { op: "request", request: { type: type ?? "custom", title, target, detail } }));
+    }
+
     if (method === "GET" && path === "/api/approvals") {
       const a = await ensureAtlas();
       const pending = await a.invoke("approvals", { op: "list", status: "pending" });

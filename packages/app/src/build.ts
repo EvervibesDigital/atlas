@@ -24,6 +24,7 @@ import { createNegotiationPlugin } from "@atlas/negotiation";
 import { createDetectivePlugin } from "@atlas/detective";
 import { createEngineeringPlugin } from "@atlas/engineering";
 import { createWebPlugin } from "@atlas/web";
+import { createActionsPlugin } from "@atlas/actions";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
@@ -61,6 +62,8 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
 
   // Web reader (loaded before Business so it can research business sites).
   await atlas.use(createWebPlugin());
+  // Action layer — real-world actions, approval-gated, simulated by default.
+  await atlas.use(createActionsPlugin());
 
   // Phase 4 — departments
   await atlas.use(createResearchPlugin());

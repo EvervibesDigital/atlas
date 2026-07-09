@@ -52,6 +52,7 @@ export const PAGE = `<!doctype html>
       <button data-tab="keys">API Keys</button>
       <button data-tab="logins">Platform Logins</button>
       <button data-tab="run">Run</button>
+      <button data-tab="actions">⚡ Actions</button>
       <button data-tab="approvals">Approvals</button>
       <button id="lockNow" class="sec" style="margin-left:auto">Lock</button>
     </nav>
@@ -125,6 +126,19 @@ export const PAGE = `<!doctype html>
       <pre id="report" class="hide"></pre>
     </section>
 
+    <section id="tab-actions" class="card hide">
+      <h2>Real-world actions</h2>
+      <div class="note">ATLAS can request actions (sign up for a site, install a repo, post). Each one goes to your <b>Approvals</b> tab first. Until you enable the real browser driver, approving an action <b>simulates</b> it — it logs what it would do and touches nothing.</div>
+      <label style="margin-top:12px">Ask ATLAS to prepare an action</label>
+      <select id="actType"><option value="signup">Sign up for a site</option><option value="install">Install a GitHub repo</option><option value="post">Post something</option><option value="browse">Browse & do a task</option></select>
+      <input id="actTitle" placeholder="Short title, e.g. Sign up for Buffer" style="margin-top:6px" />
+      <input id="actTarget" placeholder="URL or owner/repo" style="margin-top:6px" />
+      <button onclick="requestAction()">Prepare action (goes to Approvals)</button>
+      <h2 style="margin-top:20px">Action history</h2>
+      <div id="actList" class="note">None yet.</div>
+      <button class="sec" onclick="loadActions()">Refresh</button>
+    </section>
+
     <section id="tab-approvals" class="card hide">
       <h2>Awaiting your approval</h2>
       <div id="approvals">None loaded.</div>
@@ -166,11 +180,18 @@ $("lockNow").onclick = async () => { try{ await api("/api/lock","POST"); }catch{
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button[data-tab]").forEach(x=>x.classList.remove("active"));
   b.classList.add("active");
-  ["chat","learn","status","keys","logins","run","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
+  ["chat","learn","status","keys","logins","run","actions","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="chat") $("chatIn").focus();
   if (b.dataset.tab==="learn") loadBiz();
+  if (b.dataset.tab==="actions") loadActions();
 });
+
+// ── Actions ──
+async function requestAction(){ try { await api("/api/action","POST",{type:$("actType").value,title:$("actTitle").value,target:$("actTarget").value}); $("actTitle").value=""; $("actTarget").value=""; loadActions(); alert("Prepared — approve it in the Approvals tab to run (simulated)."); } catch(e){ alert(e.message);} }
+async function loadActions(){ try { const r = await api("/api/actions"); const list=r.actions||[];
+  $("actList").innerHTML = list.length ? list.map(a => "<div class='row'><span><b>"+a.request.title+"</b> · <span class='pill "+(a.status==="pending-approval"?"off":"on")+"'>"+a.status+"</span>"+(a.result?"<br/><span class='note'>"+a.result+"</span>":"")+"</span></div>").join("") : "<div class='note'>No actions yet.</div>";
+  } catch(e){ $("actList").textContent=e.message; } }
 
 // ── Learn ──
 async function learnUrl(){ const url=$("learnUrl").value.trim(); if(!url) return; $("learnOut").classList.remove("hide"); $("learnOut").textContent="Reading "+url+" …";

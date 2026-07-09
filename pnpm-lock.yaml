@@ -21,6 +21,22 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)
 
+  packages/actions:
+    dependencies:
+      '@atlas/browser':
+        specifier: workspace:*
+        version: link:../browser
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/approvals':
+        specifier: workspace:*
+        version: link:../approvals
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+
   packages/analytics:
     dependencies:
       '@atlas/core':
@@ -36,6 +52,9 @@ importers:
 
   packages/app:
     dependencies:
+      '@atlas/actions':
+        specifier: workspace:*
+        version: link:../actions
       '@atlas/analytics':
         specifier: workspace:*
         version: link:../analytics
@@ -48,6 +67,9 @@ importers:
       '@atlas/brain':
         specifier: workspace:*
         version: link:../brain
+      '@atlas/browser':
+        specifier: workspace:*
+        version: link:../browser
       '@atlas/business':
         specifier: workspace:*
         version: link:../business
@@ -147,6 +169,8 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+
+  packages/browser: {}
 
   packages/business:
     dependencies:
