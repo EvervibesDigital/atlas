@@ -130,7 +130,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     const method = req.method ?? "GET";
 
     if (method === "GET" && path === "/") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, must-revalidate" });
       res.end(PAGE);
       return;
     }
