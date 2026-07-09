@@ -37,6 +37,11 @@ async function main(): Promise<void> {
   }
   const learned = report.learned as { business?: { name?: string } } | null;
   if (learned?.business?.name) console.log(`\n🎓 Studied business: ${learned.business.name} (notes saved to memory)`);
+  const inbox = report.inbox as { new?: Array<{ number: number; title: string }> } | null;
+  if (inbox?.new?.length) {
+    console.log(`\n📨 New instructions from Mat (via GitHub inbox):`);
+    for (const m of inbox.new) console.log(`   #${m.number} ${m.title}`);
+  }
   console.log(`\nImprovement proposals: ${report.proposals.length}`);
   console.log(`⏳ Awaiting your approval: ${report.pendingApprovals.length} item(s)`);
   console.log("════════════════════════════════════════════════════");

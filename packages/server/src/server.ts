@@ -311,6 +311,32 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, await a.invoke("toolvault", { op: "approve", id: decodeURIComponent(toolApprove[1]!) }));
     }
 
+    const connSync = path.match(/^\/api\/connectors\/(github|vercel|supabase)\/sync$/);
+    if (method === "POST" && connSync) {
+      const which = connSync[1] as "github" | "vercel" | "supabase";
+      const tokenKey = { github: "GITHUB_TOKEN", vercel: "VERCEL_TOKEN", supabase: "SUPABASE_TOKEN" }[which];
+      const token = vault.list().includes(tokenKey) ? vault.get(tokenKey) : undefined;
+      if (!token) return send(res, 400, { error: `no ${tokenKey} saved — add it in the Connectors tab` });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("connectors", { op: "sync", which, token }));
+    }
+
+    if (method === "POST" && path === "/api/inbox/check") {
+      const { repo } = await readBody(req);
+      const token = vault.list().includes("GITHUB_TOKEN") ? vault.get("GITHUB_TOKEN") : undefined;
+      if (!token) return send(res, 400, { error: "no GITHUB_TOKEN saved — add it in the Connectors tab" });
+      if (!repo) return send(res, 400, { error: "repo required (owner/name)" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("inbox", { op: "check", repo: String(repo), token }));
+    }
+
+    if (method === "POST" && path === "/api/import-history") {
+      const { dir } = await readBody(req);
+      if (!dir) return send(res, 400, { error: "dir required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("codebase", { op: "importChats", dir: String(dir) }));
+    }
+
     if (method === "GET" && path === "/api/map") {
       const a = await ensureAtlas();
       const businesses = (await a.invoke("business", { op: "listBusinesses" })) as Array<{ name: string }>;

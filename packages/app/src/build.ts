@@ -28,6 +28,8 @@ import { createActionsPlugin } from "@atlas/actions";
 import { createCodebasePlugin } from "@atlas/codebase";
 import { createToolVaultPlugin } from "@atlas/toolvault";
 import { createBackupPlugin } from "@atlas/backup";
+import { createConnectorsPlugin } from "@atlas/connectors";
+import { createInboxPlugin } from "@atlas/inbox";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
@@ -72,6 +74,9 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createCodebasePlugin());
   await atlas.use(createToolVaultPlugin({ file: opts.toolVaultFile }));
   await atlas.use(createBackupPlugin());
+  // Cloud connectors (read-only) + the from-the-road GitHub inbox.
+  await atlas.use(createConnectorsPlugin());
+  await atlas.use(createInboxPlugin());
 
   // Phase 4 — departments
   await atlas.use(createResearchPlugin());

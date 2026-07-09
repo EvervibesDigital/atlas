@@ -42,6 +42,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         "call:memory",
         "call:compliance",
         "call:analytics",
+        "call:inbox",
       ],
       role: "planner",
     },
@@ -85,6 +86,12 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         // learns his businesses overnight). Read-only; safe to run autonomously.
         const learned = (await optional<unknown>(ctx, "business", { op: "research-next" })) ?? null;
 
+        // 6c. Check the GitHub inbox for instructions Mat sent from the road
+        // (only if configured via env — works in the cloud cycle too).
+        const inboxRepo = process.env.ATLAS_INBOX_REPO;
+        const inboxToken = process.env.GITHUB_TOKEN;
+        const inbox = inboxRepo && inboxToken ? ((await optional<unknown>(ctx, "inbox", { op: "check", repo: inboxRepo, token: inboxToken })) ?? null) : null;
+
         // 7. Gather advice + the approval list for the report.
         const proposals = (await optional<unknown[]>(ctx, "learning", { op: "proposals" })) ?? [];
         const pendingApprovals = (await optional<unknown[]>(ctx, "approvals", { op: "list", status: "pending" })) ?? [];
@@ -100,6 +107,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           compliance,
           kpis,
           learned,
+          inbox,
           proposals,
           pendingApprovals,
         };

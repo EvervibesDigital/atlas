@@ -76,6 +76,60 @@ export async function scanCodebase(dir: string, name: string, opts: { maxKeyFile
   return { name, dir, topFolders, fileCount: acc.files.length, keyFiles, workflows, routeGroups };
 }
 
+/** Recursively pull human-readable text out of a transcript JSON object. */
+function extractText(o: unknown, depth = 0): string {
+  if (depth > 7 || o == null) return "";
+  if (typeof o === "string") return o.length < 4000 ? o : "";
+  if (Array.isArray(o)) return o.map((x) => extractText(x, depth + 1)).join(" ");
+  if (typeof o === "object") {
+    let s = "";
+    const rec = o as Record<string, unknown>;
+    for (const k of ["text", "content", "summary"]) if (k in rec) s += " " + extractText(rec[k], depth + 1);
+    return s;
+  }
+  return "";
+}
+
+/**
+ * Import local Claude Code chat transcripts (.jsonl) and memory notes (.md)
+ * from a directory into readable excerpts, so ATLAS can absorb the history of
+ * what was built and discussed here. READ-ONLY.
+ */
+export async function importTranscripts(dir: string, opts: { maxChars?: number } = {}): Promise<{ file: string; text: string }[]> {
+  const max = opts.maxChars ?? 2000;
+  const out: { file: string; text: string }[] = [];
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const e of entries) {
+    if (!e.isFile() || !/\.(jsonl|md)$/i.test(e.name)) continue;
+    try {
+      const raw = await readFile(join(dir, e.name), "utf8");
+      let text = "";
+      if (e.name.endsWith(".jsonl")) {
+        for (const line of raw.split(/\n/)) {
+          if (!line.trim()) continue;
+          try {
+            text += extractText(JSON.parse(line)) + " ";
+          } catch {
+            /* skip malformed line */
+          }
+        }
+      } else {
+        text = raw;
+      }
+      text = text.replace(/\s+/g, " ").trim();
+      if (text) out.push({ file: e.name, text: text.slice(0, max) });
+    } catch {
+      /* skip unreadable file */
+    }
+  }
+  return out;
+}
+
 /** Build a compact briefing string from a scan, for the Brain to summarize. */
 export function scanBriefing(scan: CodebaseScan): string {
   const parts = [

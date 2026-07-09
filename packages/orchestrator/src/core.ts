@@ -20,6 +20,8 @@ export interface DailyReport {
   kpis: unknown;
   /** The business ATLAS studied this cycle (rotates nightly), if any. */
   learned: unknown;
+  /** New instructions Mat sent via the GitHub inbox, if configured. */
+  inbox: unknown;
   proposals: unknown[];
   pendingApprovals: unknown[];
 }

@@ -85,6 +85,9 @@ importers:
       '@atlas/compliance':
         specifier: workspace:*
         version: link:../compliance
+      '@atlas/connectors':
+        specifier: workspace:*
+        version: link:../connectors
       '@atlas/core':
         specifier: workspace:*
         version: link:../core
@@ -106,6 +109,9 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+      '@atlas/inbox':
+        specifier: workspace:*
+        version: link:../inbox
       '@atlas/knowledge':
         specifier: workspace:*
         version: link:../knowledge
@@ -248,6 +254,19 @@ importers:
         specifier: workspace:*
         version: link:../guardian
 
+  packages/connectors:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
+
   packages/core: {}
 
   packages/creative:
@@ -314,6 +333,19 @@ importers:
       '@atlas/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/inbox:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
 
   packages/knowledge:
     dependencies:

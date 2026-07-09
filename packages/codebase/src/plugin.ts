@@ -1,5 +1,5 @@
 import type { Plugin } from "@atlas/core";
-import { scanCodebase, scanBriefing } from "./scan";
+import { scanCodebase, scanBriefing, importTranscripts } from "./scan";
 
 /**
  * Codebase plugin (service "codebase", READ-ONLY). `learn` scans a project
@@ -11,7 +11,21 @@ export function createCodebasePlugin(): Plugin {
     manifest: { name: "codebase", version: "0.1.0", capabilities: ["codebase"], permissions: ["call:brain", "call:memory"], role: "executor" },
     register(ctx) {
       ctx.provide("codebase", async (payload) => {
-        const cmd = payload as { op: "learn"; dir: string; name?: string };
+        const cmd = payload as { op: "learn" | "importChats"; dir: string; name?: string };
+
+        if (cmd.op === "importChats") {
+          const logs = await importTranscripts(cmd.dir);
+          for (const log of logs) {
+            try {
+              await ctx.call("memory", { op: "remember", input: { kind: "conversation", content: `Chat log ${log.file}: ${log.text}`.slice(0, 2000), metadata: { file: log.file, source: "claude-history" } } });
+            } catch {
+              /* memory optional */
+            }
+          }
+          await ctx.emit("codebase.history", { files: logs.length });
+          return { imported: logs.length, files: logs.map((l) => l.file) };
+        }
+
         if (cmd.op !== "learn") throw new Error(`codebase: unknown op "${(cmd as { op: string }).op}"`);
 
         const name = cmd.name ?? cmd.dir.split(/[\\/]/).filter(Boolean).pop() ?? "project";

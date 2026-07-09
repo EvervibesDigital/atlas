@@ -54,6 +54,7 @@ export const PAGE = `<!doctype html>
       <button data-tab="chat" class="active">💬 Chat</button>
       <button data-tab="map">🧠 Map</button>
       <button data-tab="learn">🎓 Learn</button>
+      <button data-tab="connect">🔌 Connect</button>
       <button data-tab="vault">🧰 Vault</button>
       <button data-tab="status">Status</button>
       <button data-tab="keys">API Keys</button>
@@ -82,6 +83,24 @@ export const PAGE = `<!doctype html>
       <div id="mapLegend" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;font-size:12px;color:var(--mut);margin-top:6px;"></div>
     </section>
 
+    <section id="tab-connect" class="card hide">
+      <h2>Connect your accounts (read-only)</h2>
+      <div class="note">Paste an access token for each service. Stored encrypted in your vault. ATLAS can then SEE your repos / deploys / databases and learn them. It cannot change or deploy anything without your approval.</div>
+      <div id="connStatus" style="margin-top:10px"></div>
+      <label style="margin-top:12px">GitHub token <span class="note">(github.com → Settings → Developer settings → Personal access tokens; read-only scopes)</span></label>
+      <div style="display:flex;gap:8px;"><input id="ghTok" type="password" placeholder="ghp_…" style="flex:1"/><button style="margin-top:0" onclick="saveTok('GITHUB_TOKEN','ghTok')">Save</button><button class="sec" style="margin-top:0" onclick="syncConn('github')">Sync</button></div>
+      <label style="margin-top:10px">Vercel token</label>
+      <div style="display:flex;gap:8px;"><input id="vcTok" type="password" placeholder="vercel token" style="flex:1"/><button style="margin-top:0" onclick="saveTok('VERCEL_TOKEN','vcTok')">Save</button><button class="sec" style="margin-top:0" onclick="syncConn('vercel')">Sync</button></div>
+      <label style="margin-top:10px">Supabase access token</label>
+      <div style="display:flex;gap:8px;"><input id="sbTok" type="password" placeholder="sbp_…" style="flex:1"/><button style="margin-top:0" onclick="saveTok('SUPABASE_TOKEN','sbTok')">Save</button><button class="sec" style="margin-top:0" onclick="syncConn('supabase')">Sync</button></div>
+      <pre id="connOut" class="hide"></pre>
+
+      <h2 style="margin-top:22px">📨 Message ATLAS from the road</h2>
+      <div class="note">On your phone, open the GitHub app → the <b>atlas</b> repo → Issues → New issue. Type your instruction as the title. ATLAS reads open issues (here, or automatically on its cloud cycle) and adds them to what it's working on.</div>
+      <div style="display:flex;gap:8px;margin-top:8px;"><input id="inboxRepo" placeholder="EvervibesDigital/atlas" style="flex:1"/><button style="margin-top:0" onclick="checkInbox()">Check inbox</button></div>
+      <pre id="inboxOut" class="hide"></pre>
+    </section>
+
     <section id="tab-vault" class="card hide">
       <h2>Internal AI Vault</h2>
       <div class="note">ATLAS's memory of tools &amp; sites. For any job it uses the <b>best-quality</b> option that's <b>free</b> or that you've <b>approved</b> to pay for — never a paid tool on its own.</div>
@@ -106,6 +125,10 @@ export const PAGE = `<!doctype html>
       <label style="margin-top:14px">Study a codebase you've built (folder path — read-only, changes nothing)</label>
       <div style="display:flex;gap:8px;"><input id="cbDir" placeholder="C:\\Users\\matbr\\claudecode1" style="flex:1" /><button style="margin-top:0" onclick="learnCodebase()">Study</button></div>
       <div class="note">Point it at your evervibes / wholesale folder. ATLAS reads the structure, configs, and workflows and writes an understanding to memory. It will not edit anything.</div>
+
+      <label style="margin-top:14px">Import our Claude chat history (folder with .jsonl transcripts)</label>
+      <div style="display:flex;gap:8px;"><input id="histDir" placeholder="C:\\Users\\matbr\\.claude\\projects\\C--Users-matbr-claudecode1" style="flex:1" /><button style="margin-top:0" onclick="importHistory()">Import</button></div>
+      <div class="note">Reads the local Claude Code transcripts of everything we've built and files them into ATLAS's memory.</div>
 
       <h2 style="margin-top:22px">Your businesses</h2>
       <div id="bizList" class="note">Loading…</div>
@@ -212,7 +235,7 @@ $("lockNow").onclick = async () => { try{ await api("/api/lock","POST"); }catch{
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button[data-tab]").forEach(x=>x.classList.remove("active"));
   b.classList.add("active");
-  ["chat","map","learn","vault","status","keys","logins","run","actions","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
+  ["chat","map","learn","connect","vault","status","keys","logins","run","actions","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="chat") $("chatIn").focus();
   if (b.dataset.tab==="learn") loadBiz();
@@ -220,6 +243,15 @@ document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () =>
   if (b.dataset.tab==="vault") loadTools();
   if (b.dataset.tab==="map") renderMap();
 });
+
+// ── Connectors + inbox + history ──
+async function saveTok(name, inputId){ const v=$(inputId).value.trim(); if(!v) return; try { await api("/api/secrets","POST",{name,value:v}); $(inputId).value=""; alert(name+" saved (encrypted)."); } catch(e){ alert(e.message);} }
+async function syncConn(which){ $("connOut").classList.remove("hide"); $("connOut").textContent="Syncing "+which+" …";
+  try { const r=await api("/api/connectors/"+which+"/sync","POST"); $("connOut").textContent="✅ "+r.summary+"\\n\\n"+(r.items||[]).slice(0,40).join("\\n"); } catch(e){ $("connOut").textContent="⚠ "+e.message; } }
+async function checkInbox(){ const repo=$("inboxRepo").value.trim()||"EvervibesDigital/atlas"; $("inboxOut").classList.remove("hide"); $("inboxOut").textContent="Checking "+repo+" …";
+  try { const r=await api("/api/inbox/check","POST",{repo}); $("inboxOut").textContent = r.new && r.new.length ? ("📨 "+r.new.length+" new instruction(s) added to memory:\\n"+r.new.map(m=>"#"+m.number+" "+m.title).join("\\n")) : ("No new messages ("+r.total+" open issues seen)."); } catch(e){ $("inboxOut").textContent="⚠ "+e.message; } }
+async function importHistory(){ const dir=$("histDir").value.trim(); if(!dir) return; $("learnOut").classList.remove("hide"); $("learnOut").textContent="Importing chat history from "+dir+" …";
+  try { const r=await api("/api/import-history","POST",{dir}); $("learnOut").textContent="🧠 Imported "+r.imported+" chat log(s) into memory:\\n"+(r.files||[]).join("\\n"); } catch(e){ $("learnOut").textContent="⚠ "+e.message; } }
 
 // ── Codebase learning ──
 async function learnCodebase(){ const dir=$("cbDir").value.trim(); if(!dir) return; $("learnOut").classList.remove("hide"); $("learnOut").textContent="Studying "+dir+" … (large codebases take a moment)";
