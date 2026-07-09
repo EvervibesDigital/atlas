@@ -30,6 +30,8 @@ import { createToolVaultPlugin } from "@atlas/toolvault";
 import { createBackupPlugin } from "@atlas/backup";
 import { createConnectorsPlugin } from "@atlas/connectors";
 import { createInboxPlugin } from "@atlas/inbox";
+import { createSkillsPlugin } from "@atlas/skills";
+import { createForgePlugin, loadActivePlugins } from "@atlas/forge";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
@@ -41,6 +43,9 @@ export interface AtlasOptions {
   metricsFile?: string;
   businessFile?: string;
   toolVaultFile?: string;
+  skillsFile?: string;
+  /** Directory ATLAS forges new plugins into (default ./forge). */
+  forgeDir?: string;
   /**
    * Publisher for the Publishing department. Defaults to a dry-run publisher
    * (never posts). Swap in a live browser publisher — with Mat's login — to go
@@ -77,6 +82,9 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   // Cloud connectors (read-only) + the from-the-road GitHub inbox.
   await atlas.use(createConnectorsPlugin());
   await atlas.use(createInboxPlugin());
+  // Self-growth: skills (new capabilities as data) + forge (new plugin code).
+  await atlas.use(createSkillsPlugin({ file: opts.skillsFile }));
+  await atlas.use(createForgePlugin({ forgeDir: opts.forgeDir }));
 
   // Phase 4 — departments
   await atlas.use(createResearchPlugin());
@@ -99,6 +107,9 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
 
   // The autonomous loop — conducts every department above.
   await atlas.use(createOrchestratorPlugin());
+
+  // Auto-load any capabilities ATLAS has forged and Mat has approved.
+  await loadActivePlugins(atlas, `${opts.forgeDir ?? "./forge"}/active`);
 
   return atlas;
 }

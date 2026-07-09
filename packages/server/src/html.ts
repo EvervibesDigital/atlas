@@ -55,6 +55,7 @@ export const PAGE = `<!doctype html>
       <button data-tab="map">🧠 Map</button>
       <button data-tab="learn">🎓 Learn</button>
       <button data-tab="connect">🔌 Connect</button>
+      <button data-tab="grow">🔨 Grow</button>
       <button data-tab="vault">🧰 Vault</button>
       <button data-tab="status">Status</button>
       <button data-tab="keys">API Keys</button>
@@ -99,6 +100,27 @@ export const PAGE = `<!doctype html>
       <div class="note">On your phone, open the GitHub app → the <b>atlas</b> repo → Issues → New issue. Type your instruction as the title. ATLAS reads open issues (here, or automatically on its cloud cycle) and adds them to what it's working on.</div>
       <div style="display:flex;gap:8px;margin-top:8px;"><input id="inboxRepo" placeholder="EvervibesDigital/atlas" style="flex:1"/><button style="margin-top:0" onclick="checkInbox()">Check inbox</button></div>
       <pre id="inboxOut" class="hide"></pre>
+    </section>
+
+    <section id="tab-grow" class="card hide">
+      <h2>ATLAS grows itself</h2>
+      <div class="note">Two ways ATLAS adds to itself — both on your free LLMs, no Claude Code. <b>Skills</b> = new capabilities as data (safe, instant). <b>Forge</b> = ATLAS writes a real new plugin (gated: it backs up + waits for your approval before going live).</div>
+
+      <h2 style="margin-top:16px">Skills</h2>
+      <input id="skName" placeholder="Skill name, e.g. Competitor pricing analysis" />
+      <input id="skPurpose" placeholder="What it should be expert at" style="margin-top:6px" />
+      <button onclick="createSkill()">✨ Invent skill</button>
+      <div id="skList" class="note" style="margin-top:10px">Loading…</div>
+      <div style="margin-top:8px"><input id="skInput" placeholder="input to run the selected skill on" style="width:60%;display:inline-block"/> <span id="skRunHint" class="note"></span></div>
+      <pre id="skOut" class="hide"></pre>
+
+      <h2 style="margin-top:20px">Forge (writes new plugin code)</h2>
+      <input id="fgName" placeholder="Capability name, e.g. Headline optimizer" />
+      <input id="fgPurpose" placeholder="What the new capability should do" style="margin-top:6px" />
+      <button onclick="forgeDraft()">🔧 Draft plugin</button>
+      <button class="sec" onclick="forgeVerify()">✅ Verify (typecheck)</button>
+      <button class="sec" onclick="forgeActivate()">🚀 Request activation</button>
+      <pre id="fgOut" class="hide"></pre>
     </section>
 
     <section id="tab-vault" class="card hide">
@@ -235,14 +257,30 @@ $("lockNow").onclick = async () => { try{ await api("/api/lock","POST"); }catch{
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button[data-tab]").forEach(x=>x.classList.remove("active"));
   b.classList.add("active");
-  ["chat","map","learn","connect","vault","status","keys","logins","run","actions","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
+  ["chat","map","learn","connect","grow","vault","status","keys","logins","run","actions","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="chat") $("chatIn").focus();
   if (b.dataset.tab==="learn") loadBiz();
   if (b.dataset.tab==="actions") loadActions();
   if (b.dataset.tab==="vault") loadTools();
+  if (b.dataset.tab==="grow") loadSkills();
   if (b.dataset.tab==="map") renderMap();
 });
+
+// ── Grow: skills + forge ──
+let selectedSkill=null;
+async function loadSkills(){ try { const r=await api("/api/skills"); const list=r.skills||[];
+  $("skList").innerHTML = list.length ? list.map(s => "<div class='row'><span><b>"+s.name+"</b> · "+s.category+" · ran "+s.timesRun+"×</span><button class='mini' onclick=\\"pickSkill('"+s.id+"','"+s.name.replace(/'/g,"")+"')\\">use</button></div>").join("") : "<div class='note'>No skills yet. Invent one above — ATLAS writes the expert prompt itself.</div>";
+  } catch(e){ $("skList").textContent=e.message; } }
+async function createSkill(){ const name=$("skName").value.trim(), purpose=$("skPurpose").value.trim(); if(!name||!purpose) return; $("skOut").classList.remove("hide"); $("skOut").textContent="ATLAS is designing the skill…";
+  try { const s=await api("/api/skills","POST",{name,purpose,category:"custom"}); $("skName").value="";$("skPurpose").value=""; $("skOut").textContent="✨ Created \""+s.name+"\".\\n\\nIts expert prompt:\\n"+s.systemPrompt.slice(0,500); loadSkills(); } catch(e){ $("skOut").textContent="⚠ "+e.message; } }
+function pickSkill(id,name){ selectedSkill=id; $("skRunHint").textContent="→ running: "+name; $("skInput").focus(); }
+$("skInput") && $("skInput").addEventListener("keydown", async (e)=>{ if(e.key==="Enter" && selectedSkill){ const input=$("skInput").value; $("skOut").classList.remove("hide"); $("skOut").textContent="Running…"; try{ const r=await api("/api/skills/"+selectedSkill+"/run","POST",{input}); $("skOut").textContent=r.output; loadSkills(); }catch(err){ $("skOut").textContent="⚠ "+err.message; } } });
+async function forgeDraft(){ const name=$("fgName").value.trim(), purpose=$("fgPurpose").value.trim(); if(!name||!purpose) return; $("fgOut").classList.remove("hide"); $("fgOut").textContent="ATLAS is writing the plugin…";
+  try { const r=await api("/api/forge/draft","POST",{name,purpose,capability:name}); $("fgOut").textContent="🔧 Drafted "+r.file+"\\n\\n"+r.code.slice(0,900); } catch(e){ $("fgOut").textContent="⚠ "+e.message; } }
+async function forgeVerify(){ $("fgOut").classList.remove("hide"); $("fgOut").textContent="Typechecking the whole project…";
+  try { const r=await api("/api/forge/verify","POST"); $("fgOut").textContent=(r.ok?"✅ ":"❌ ")+r.output.slice(0,1500); } catch(e){ $("fgOut").textContent="⚠ "+e.message; } }
+async function forgeActivate(){ const name=$("fgName").value.trim(); if(!name){ alert("Enter the capability name you drafted."); return; } try { const r=await api("/api/forge/activate","POST",{name}); alert("Backup taken. Activation sent to Approvals — approve it there to make it live (then relock/unlock)."); } catch(e){ alert(e.message);} }
 
 // ── Connectors + inbox + history ──
 async function saveTok(name, inputId){ const v=$(inputId).value.trim(); if(!v) return; try { await api("/api/secrets","POST",{name,value:v}); $(inputId).value=""; alert(name+" saved (encrypted)."); } catch(e){ alert(e.message);} }

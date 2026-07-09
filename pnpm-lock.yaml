@@ -106,6 +106,9 @@ importers:
       '@atlas/experiments':
         specifier: workspace:*
         version: link:../experiments
+      '@atlas/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
@@ -142,6 +145,9 @@ importers:
       '@atlas/simulation':
         specifier: workspace:*
         version: link:../simulation
+      '@atlas/skills':
+        specifier: workspace:*
+        version: link:../skills
       '@atlas/strategy':
         specifier: workspace:*
         version: link:../strategy
@@ -328,6 +334,22 @@ importers:
         specifier: workspace:*
         version: link:../guardian
 
+  packages/forge:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/approvals':
+        specifier: workspace:*
+        version: link:../approvals
+      '@atlas/brain':
+        specifier: workspace:*
+        version: link:../brain
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+
   packages/guardian:
     dependencies:
       '@atlas/core':
@@ -486,6 +508,22 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+
+  packages/skills:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/brain':
+        specifier: workspace:*
+        version: link:../brain
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
 
   packages/strategy:
     dependencies:

@@ -41,6 +41,8 @@
     "@atlas/backup": "workspace:*",
     "@atlas/connectors": "workspace:*",
     "@atlas/inbox": "workspace:*",
+    "@atlas/skills": "workspace:*",
+    "@atlas/forge": "workspace:*",
     "@atlas/orchestrator": "workspace:*"
   }
 }

@@ -59,6 +59,8 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       metricsFile: `${dataDir}/metrics.json`,
       businessFile: `${dataDir}/businesses.json`,
       toolVaultFile: `${dataDir}/toolvault.json`,
+      skillsFile: `${dataDir}/skills.json`,
+      forgeDir: "./forge",
     });
   }
 
@@ -352,6 +354,43 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       if (!dir) return send(res, 400, { error: "dir required" });
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("codebase", { op: "importChats", dir: String(dir) }));
+    }
+
+    if (method === "GET" && path === "/api/skills") {
+      const a = await ensureAtlas();
+      return send(res, 200, { skills: await a.invoke("skills", { op: "list" }) });
+    }
+    if (method === "POST" && path === "/api/skills") {
+      const { name, category, purpose } = await readBody(req);
+      if (!name || !purpose) return send(res, 400, { error: "name and purpose required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("skills", { op: "create", name, category, purpose }));
+    }
+    const skillRun = path.match(/^\/api\/skills\/([^/]+)\/run$/);
+    if (method === "POST" && skillRun) {
+      const { input } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("skills", { op: "run", id: decodeURIComponent(skillRun[1]!), input: String(input ?? "") }));
+    }
+
+    if (method === "GET" && path === "/api/forge") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("forge", { op: "list" }));
+    }
+    if (method === "POST" && path === "/api/forge/draft") {
+      const { name, capability, purpose } = await readBody(req);
+      if (!name || !purpose) return send(res, 400, { error: "name and purpose required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("forge", { op: "draft", name, capability, purpose }));
+    }
+    if (method === "POST" && path === "/api/forge/verify") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("forge", { op: "verify" }));
+    }
+    if (method === "POST" && path === "/api/forge/activate") {
+      const { name } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("forge", { op: "activate", name }));
     }
 
     if (method === "GET" && path === "/api/map") {
