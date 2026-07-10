@@ -33,6 +33,8 @@ import { createInboxPlugin } from "@atlas/inbox";
 import { createSkillsPlugin } from "@atlas/skills";
 import { createForgePlugin, loadActivePlugins } from "@atlas/forge";
 import { createCuriosityPlugin, createRedTeamPlugin, createLegacyPlugin, createArchaeologistPlugin, createJanitorPlugin } from "@atlas/advisors";
+import { createSearchPlugin } from "@atlas/search";
+import { createEmailPlugin } from "@atlas/email";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
@@ -92,6 +94,9 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createLegacyPlugin());
   await atlas.use(createArchaeologistPlugin());
   await atlas.use(createJanitorPlugin());
+  // Find things on the internet + ATLAS's own email.
+  await atlas.use(createSearchPlugin());
+  await atlas.use(createEmailPlugin());
 
   // Phase 4 — departments
   await atlas.use(createResearchPlugin());

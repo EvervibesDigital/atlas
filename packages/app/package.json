@@ -45,6 +45,8 @@
     "@atlas/forge": "workspace:*",
     "@atlas/vault": "workspace:*",
     "@atlas/advisors": "workspace:*",
+    "@atlas/search": "workspace:*",
+    "@atlas/email": "workspace:*",
     "@atlas/orchestrator": "workspace:*"
   }
 }
