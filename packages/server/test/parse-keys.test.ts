@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseKeyLines, parseUrls, detectSecrets, redactSecrets } from "../src/server";
+import { parseKeyLines, parseUrls, detectSecrets, redactSecrets, trivialReply, chatNeeds } from "../src/server";
 
 describe("parseKeyLines", () => {
   it("parses mixed formats and ignores noise", () => {
@@ -49,6 +49,21 @@ describe("detectSecrets", () => {
   it("keeps only one value per env name", () => {
     const found = detectSecrets(`gsk_${"a".repeat(40)} gsk_${"b".repeat(40)}`);
     expect(found.filter((s) => s.name === "GROQ_API_KEY")).toHaveLength(1);
+  });
+});
+
+describe("frugal chat layer", () => {
+  it("answers greetings/acks with no LLM call", () => {
+    expect(trivialReply("hi")).toBeTruthy();
+    expect(trivialReply("thanks!")).toBeTruthy();
+    expect(trivialReply("ok")).toBeTruthy();
+  });
+  it("passes real questions through to the LLM", () => {
+    expect(trivialReply("what should I focus on this week?")).toBeNull();
+  });
+  it("routes simple asks to a cheap model and hard asks to a strong one", () => {
+    expect(chatNeeds("what time is it").reasoning).toBeLessThan(0.5); // cheap
+    expect(chatNeeds("analyze my wholesale strategy and compare the options").reasoning).toBeGreaterThan(0.8); // strong
   });
 });
 

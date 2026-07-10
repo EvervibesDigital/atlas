@@ -4,7 +4,16 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@atlas/core": "workspace:*" },
-  "devDependencies": { "@atlas/guardian": "workspace:*", "@atlas/approvals": "workspace:*" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@atlas/core": "workspace:*",
+    "imapflow": "^1.4.6",
+    "nodemailer": "^9.0.3"
+  },
+  "devDependencies": {
+    "@atlas/approvals": "workspace:*",
+    "@atlas/guardian": "workspace:*"
+  }
 }

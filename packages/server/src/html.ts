@@ -70,7 +70,8 @@ export const PAGE = `<!doctype html>
       <h2>Talk to ATLAS</h2>
       <div id="chatBox" style="max-height:420px;overflow-y:auto;padding:6px 2px;"></div>
       <div style="display:flex;gap:8px;margin-top:10px;">
-        <input id="chatIn" placeholder="Ask ATLAS anything — strategy, content, its own status…" style="flex:1" />
+        <input id="chatIn" placeholder="Ask ATLAS anything — or tap the mic to talk…" style="flex:1" />
+        <button id="chatMic" class="sec" style="margin-top:0" title="Speak">🎤</button>
         <button id="chatSend" style="margin-top:0">Send</button>
       </div>
       <div class="note" id="chatMeta">Free models via your keys — the Brain auto-switches providers if one hits a limit. Every chat is saved to ATLAS's memory, so talking to it literally trains it.</div>
@@ -409,6 +410,24 @@ async function sendChat(){
 }
 $("chatSend").onclick = sendChat;
 $("chatIn").addEventListener("keydown", (e) => { if (e.key==="Enter") sendChat(); });
+
+// 🎤 speech-to-text (browser Web Speech API — free, no server cost)
+(function(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const mic = $("chatMic");
+  if (!SR) { mic.disabled = true; mic.title = "Speech not supported in this browser (use Chrome)"; return; }
+  let rec = null, on = false;
+  mic.onclick = () => {
+    if (on && rec) { rec.stop(); return; }
+    rec = new SR(); rec.lang = "en-US"; rec.interimResults = true; rec.continuous = false;
+    let base = $("chatIn").value ? $("chatIn").value + " " : "";
+    rec.onstart = () => { on = true; mic.textContent = "🔴"; mic.title = "Listening… tap to stop"; };
+    rec.onresult = (e) => { let t = ""; for (let i=e.resultIndex;i<e.results.length;i++) t += e.results[i][0].transcript; $("chatIn").value = base + t; };
+    rec.onerror = () => { on = false; mic.textContent = "🎤"; };
+    rec.onend = () => { on = false; mic.textContent = "🎤"; mic.title = "Speak"; $("chatIn").focus(); };
+    rec.start();
+  };
+})();
 
 async function loadStatus() {
   try { const s = await api("/api/status");

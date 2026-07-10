@@ -96,6 +96,31 @@ export function redactSecrets(text: string, secrets: DetectedSecret[]): string {
   return out;
 }
 
+/**
+ * FRUGAL layer #1 — answer trivial messages (greetings/acks) with a canned
+ * reply and ZERO LLM calls, so rate-limited models aren't spent on "hi".
+ */
+export function trivialReply(message: string): string | null {
+  const m = message.trim().toLowerCase();
+  if (/^(hi+|hey+|hello|yo|sup|howdy)[.! ]*$/.test(m)) return "Hey Matt — ready. What are we working on?";
+  if (/^(thanks|thank you|thx|ty|nice|cool|great|awesome|perfect|love it)[.! ]*$/.test(m)) return "Anytime. What's next?";
+  if (/^(ok|okay|k|kk|got it|sounds good|yes|yep|yeah|no|nope)[.! ]*$/.test(m)) return "👍";
+  if (/^(status|health|are you (there|up|online|ready))[?. ]*$/.test(m)) return "Online and running on the smart brain. Ask me anything, or check the Status tab.";
+  return null;
+}
+
+/**
+ * FRUGAL layer #2 — size the request so the Brain Router picks a cheap/fast
+ * model for simple asks and the strong model only for hard ones.
+ */
+export function chatNeeds(message: string): Record<string, number> {
+  const words = message.trim().split(/\s+/).filter(Boolean).length;
+  const hard = /\b(strateg|analy|plan|why|compare|design|architect|legal|forecast|evaluate|pros and cons|should i|build|improve|red[- ]?team)\b/i.test(message);
+  if (words <= 6 && !hard) return { reasoning: 0.3, speed: 0.8, cost: 1 };
+  if (hard || words > 40) return { reasoning: 0.85, creativity: 0.5, cost: 1 };
+  return { reasoning: 0.6, creativity: 0.4, cost: 1 };
+}
+
 /** Parse pasted text into a de-duped list of http(s) URLs (bare domains get https). */
 export function parseUrls(text: string): string[] {
   const urls: string[] = [];
@@ -320,6 +345,13 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         await rebuildAtlas(); // pick up any new LLM keys immediately
       }
       const safeMessage = redactSecrets(String(message), secrets);
+      const storedBanner = storedNotes.length ? `🔒 Stored ${storedNotes.length} key(s) securely in your vault (values never sent to the AI):\n• ${storedNotes.join("\n• ")}\n\n` : "";
+
+      // FRUGAL short-circuit: answer trivial messages with no LLM call at all.
+      const quick = trivialReply(safeMessage);
+      if (quick) {
+        return send(res, 200, { reply: storedBanner + quick, provider: "frugal", model: "no-llm", latencyMs: Date.now() - started, stored: storedNotes.length });
+      }
 
       // Recall memories related to what Mat is asking (best-effort, redacted).
       let recalled = "";
@@ -347,7 +379,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const resp = (await a.invoke("brain", {
         prompt,
         system,
-        needs: { reasoning: 0.7, creativity: 0.4, cost: 1 },
+        needs: chatNeeds(safeMessage),
         maxTokens: 2048,
         task: "owner.chat",
       })) as { text: string; provider: string; model: string };
@@ -362,7 +394,6 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         /* memory optional */
       }
 
-      const storedBanner = storedNotes.length ? `🔒 Stored ${storedNotes.length} key(s) securely in your vault (values never sent to the AI):\n• ${storedNotes.join("\n• ")}\n\n` : "";
       return send(res, 200, { reply: storedBanner + resp.text, provider: resp.provider, model: resp.model, latencyMs: Date.now() - started, stored: storedNotes.length });
     }
 
