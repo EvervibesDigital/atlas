@@ -22,6 +22,9 @@ export interface DailyReport {
   learned: unknown;
   /** New instructions Mat sent via the GitHub inbox, if configured. */
   inbox: unknown;
+  /** Nightly intelligence sweep: curiosity ideas, GitHub repo scouting,
+   * free-tool discovery, GitHub sync, and memory tidy (each optional). */
+  intel: unknown;
   proposals: unknown[];
   pendingApprovals: unknown[];
 }

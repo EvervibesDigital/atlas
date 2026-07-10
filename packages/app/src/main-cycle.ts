@@ -42,6 +42,15 @@ async function main(): Promise<void> {
     console.log(`\n📨 New instructions from Mat (via GitHub inbox):`);
     for (const m of inbox.new) console.log(`   #${m.number} ${m.title}`);
   }
+  const intel = report.intel as { curiosity?: unknown; repoScout?: { results?: unknown[] }; freeTools?: { results?: unknown[] }; github?: { summary?: string }; tidy?: { total?: number } } | null;
+  if (intel) {
+    console.log(`\n🔭 Daily intelligence sweep:`);
+    if (intel.curiosity) console.log(`   • Curiosity ideas generated`);
+    if (intel.repoScout?.results?.length) console.log(`   • Scouted ${intel.repoScout.results.length} GitHub repos for improvements`);
+    if (intel.freeTools?.results?.length) console.log(`   • Found ${intel.freeTools.results.length} free-tool candidates`);
+    if (intel.github?.summary) console.log(`   • GitHub synced: ${intel.github.summary}`);
+    if (intel.tidy) console.log(`   • Memory tidied (${intel.tidy.total ?? 0} records reviewed)`);
+  }
   console.log(`\nImprovement proposals: ${report.proposals.length}`);
   console.log(`⏳ Awaiting your approval: ${report.pendingApprovals.length} item(s)`);
   console.log("════════════════════════════════════════════════════");

@@ -58,20 +58,25 @@ const SYNCS: Record<ConnectorName, (t: string, f: FetchLike) => Promise<SyncResu
   supabase: syncSupabase,
 };
 
-export type ConnectorCommand = { op: "sync"; which: ConnectorName; token: string };
+export type ConnectorCommand = { op: "sync"; which: ConnectorName; token?: string };
 
-/** Connectors plugin (service "connectors"). */
+const TOKEN_NAME: Record<ConnectorName, string> = { github: "GITHUB_TOKEN", vercel: "VERCEL_TOKEN", supabase: "SUPABASE_TOKEN" };
+
+/** Connectors plugin (service "connectors"). Self-reads tokens from the vault
+ * so the autonomous cycle can sync without a token being passed in. */
 export function createConnectorsPlugin(opts: { fetcher?: FetchLike } = {}): Plugin {
   const fetcher = opts.fetcher ?? (globalThis.fetch as unknown as FetchLike);
   return {
-    manifest: { name: "connectors", version: "0.1.0", capabilities: ["connectors"], permissions: ["call:memory"], role: "executor" },
+    manifest: { name: "connectors", version: "0.1.0", capabilities: ["connectors"], permissions: ["call:memory", "secret:*"], role: "executor" },
     register(ctx) {
       ctx.provide("connectors", async (payload) => {
         const cmd = payload as ConnectorCommand;
         if (cmd.op !== "sync") throw new Error(`connectors: unknown op "${(cmd as { op: string }).op}"`);
         const fn = SYNCS[cmd.which];
         if (!fn) throw new Error(`unknown connector "${cmd.which}"`);
-        const result = await fn(cmd.token, fetcher);
+        const token = cmd.token ?? (await ctx.secret(TOKEN_NAME[cmd.which]));
+        if (!token) throw new Error(`no ${TOKEN_NAME[cmd.which]} in the vault`);
+        const result = await fn(token, fetcher);
         try {
           await ctx.call("memory", {
             op: "remember",

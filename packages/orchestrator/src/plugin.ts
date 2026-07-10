@@ -43,6 +43,10 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         "call:compliance",
         "call:analytics",
         "call:inbox",
+        "call:curiosity",
+        "call:search",
+        "call:connectors",
+        "call:janitor",
       ],
       role: "planner",
     },
@@ -92,6 +96,17 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         const inboxToken = process.env.GITHUB_TOKEN;
         const inbox = inboxRepo && inboxToken ? ((await optional<unknown>(ctx, "inbox", { op: "check", repo: inboxRepo, token: inboxToken })) ?? null) : null;
 
+        // 6d. Daily intelligence sweep — everything optional/graceful (a missing
+        // service or key just skips that item). This is how ATLAS gets smarter
+        // and hunts improvements/free tools every night, hands-free.
+        const intel = {
+          curiosity: (await optional<unknown>(ctx, "curiosity", { op: "ideas" })) ?? null,
+          repoScout: (await optional<unknown>(ctx, "search", { op: "scout", query: "autonomous AI agent framework OR MCP server OR open-source LLM tools", max: 6 })) ?? null,
+          freeTools: (await optional<unknown>(ctx, "search", { op: "freeApis", topic: "content automation, AI agents, and social posting" })) ?? null,
+          github: (await optional<unknown>(ctx, "connectors", { op: "sync", which: "github" })) ?? null,
+          tidy: (await optional<unknown>(ctx, "janitor", { op: "tidy" })) ?? null,
+        };
+
         // 7. Gather advice + the approval list for the report.
         const proposals = (await optional<unknown[]>(ctx, "learning", { op: "proposals" })) ?? [];
         const pendingApprovals = (await optional<unknown[]>(ctx, "approvals", { op: "list", status: "pending" })) ?? [];
@@ -108,6 +123,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           kpis,
           learned,
           inbox,
+          intel,
           proposals,
           pendingApprovals,
         };
