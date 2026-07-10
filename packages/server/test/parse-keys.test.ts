@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseKeyLines, parseUrls } from "../src/server";
+import { parseKeyLines, parseUrls, detectSecrets, redactSecrets } from "../src/server";
 
 describe("parseKeyLines", () => {
   it("parses mixed formats and ignores noise", () => {
@@ -21,6 +21,34 @@ describe("parseKeyLines", () => {
     expect(map.GITHUB_TOKEN).toBe("ghp_quoted"); // quotes stripped
     expect(map.SUPABASE_TOKEN).toBe("sbp_spaced");
     expect(pairs).toHaveLength(5); // comment/blank/prose ignored
+  });
+});
+
+describe("detectSecrets", () => {
+  // Fixtures are built by concatenation so no literal key-shaped string exists
+  // in this file (which would trip GitHub's secret-scanning push protection).
+  const groqKey = "gsk_" + "z".repeat(40);
+  const orKey = "sk-or-" + "v1-" + "0".repeat(30);
+  const stripeKey = "rk_" + "live_" + "q".repeat(24);
+
+  it("recognizes keys by shape and never keeps the value in redacted text", () => {
+    const msg = `groq api key -- ${groqKey} and openrouter ${orKey}`;
+    const found = detectSecrets(msg);
+    expect(found.map((s) => s.name)).toEqual(expect.arrayContaining(["GROQ_API_KEY", "OPENROUTER_API_KEY"]));
+    const safe = redactSecrets(msg, found);
+    expect(safe).not.toContain(groqKey);
+    expect(safe).toContain("[saved:GROQ_API_KEY]");
+  });
+
+  it("flags a live Stripe key as sensitive", () => {
+    const found = detectSecrets(`stripe ${stripeKey}`);
+    expect(found[0]!.name).toBe("STRIPE_RESTRICTED_KEY");
+    expect(found[0]!.sensitive).toBe(true);
+  });
+
+  it("keeps only one value per env name", () => {
+    const found = detectSecrets(`gsk_${"a".repeat(40)} gsk_${"b".repeat(40)}`);
+    expect(found.filter((s) => s.name === "GROQ_API_KEY")).toHaveLength(1);
   });
 });
 

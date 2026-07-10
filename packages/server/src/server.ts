@@ -31,6 +31,71 @@ export function parseKeyLines(text: string): Array<{ name: string; value: string
   return out;
 }
 
+/**
+ * Detect known API keys/tokens in free text by their shape, so ATLAS can store
+ * them securely from a chat paste WITHOUT the values ever reaching the LLM.
+ */
+interface KeySpec {
+  re: RegExp;
+  name: string;
+  label: string;
+  category: string;
+  free: boolean;
+  approved?: boolean;
+  sensitive?: boolean;
+}
+const KEY_SPECS: KeySpec[] = [
+  { re: /sk-ant-[A-Za-z0-9_-]{20,}/g, name: "ANTHROPIC_API_KEY", label: "Anthropic", category: "llm", free: false, approved: true },
+  { re: /sk-or-v1-[A-Za-z0-9]{20,}/g, name: "OPENROUTER_API_KEY", label: "OpenRouter", category: "llm", free: true },
+  { re: /gsk_[A-Za-z0-9]{30,}/g, name: "GROQ_API_KEY", label: "Groq", category: "llm", free: true },
+  { re: /AIza[A-Za-z0-9_-]{30,}/g, name: "GEMINI_API_KEY", label: "Google Gemini", category: "llm", free: true },
+  { re: /sbp_[a-f0-9]{40}/g, name: "SUPABASE_TOKEN", label: "Supabase", category: "database", free: true },
+  { re: /(?:ghp|github_pat)_[A-Za-z0-9_]{20,}/g, name: "GITHUB_TOKEN", label: "GitHub", category: "dev", free: true },
+  { re: /(?:vck|vcp)_[A-Za-z0-9]{20,}/g, name: "VERCEL_TOKEN", label: "Vercel", category: "hosting", free: true },
+  { re: /rk_live_[A-Za-z0-9]{20,}/g, name: "STRIPE_RESTRICTED_KEY", label: "Stripe (live)", category: "payments", free: true, sensitive: true },
+  { re: /pk_live_[A-Za-z0-9]{20,}/g, name: "STRIPE_PUBLISHABLE_KEY", label: "Stripe (publishable)", category: "payments", free: true },
+  { re: /re_[A-Za-z0-9_]{16,}/g, name: "RESEND_API_KEY", label: "Resend", category: "email", free: true },
+  { re: /tvly-[A-Za-z0-9-]{16,}/g, name: "TAVILY_API_KEY", label: "Tavily", category: "search", free: true },
+  { re: /apify_api_[A-Za-z0-9]{20,}/g, name: "APIFY_API_KEY", label: "Apify", category: "scraping", free: true },
+  { re: /ph[xc]_[A-Za-z0-9]{20,}/g, name: "POSTHOG_API_KEY", label: "PostHog", category: "analytics", free: true },
+  { re: /pina_[A-Za-z0-9]{30,}/g, name: "PINTEREST_TOKEN", label: "Pinterest", category: "posting", free: true },
+  { re: /xox[baprs]-[A-Za-z0-9-]{10,}/g, name: "SLACK_TOKEN", label: "Slack", category: "messaging", free: true },
+];
+
+export interface DetectedSecret {
+  name: string;
+  label: string;
+  value: string;
+  category: string;
+  free: boolean;
+  approved: boolean;
+  sensitive: boolean;
+}
+
+export function detectSecrets(text: string): DetectedSecret[] {
+  const out: DetectedSecret[] = [];
+  const seenValue = new Set<string>();
+  const seenName = new Set<string>();
+  for (const s of KEY_SPECS) {
+    const matches = text.match(s.re);
+    if (!matches) continue;
+    for (const v of matches) {
+      if (seenValue.has(v) || seenName.has(s.name)) continue; // one value per env name
+      seenValue.add(v);
+      seenName.add(s.name);
+      out.push({ name: s.name, label: s.label, value: v, category: s.category, free: s.free, approved: s.approved ?? false, sensitive: s.sensitive ?? false });
+    }
+  }
+  return out;
+}
+
+/** Replace secret values with a safe placeholder so they never reach the LLM/logs. */
+export function redactSecrets(text: string, secrets: DetectedSecret[]): string {
+  let out = text;
+  for (const s of secrets) out = out.split(s.value).join(`[saved:${s.name}]`);
+  return out;
+}
+
 /** Parse pasted text into a de-duped list of http(s) URLs (bare domains get https). */
 export function parseUrls(text: string): string[] {
   const urls: string[] = [];
@@ -236,13 +301,30 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const { message, history } = await readBody(req);
       if (!message) return send(res, 400, { error: "message required" });
       const a = await ensureAtlas();
+      const started = Date.now();
 
-      // Recall memories related to what Mat is asking (best-effort).
+      // ── SMART INTAKE: detect API keys, store them in the vault, and REDACT
+      //    them so their values never touch the AI, the logs, or memory. ──
+      const secrets = detectSecrets(String(message));
+      const storedNotes: string[] = [];
+      if (secrets.length) {
+        for (const s of secrets) {
+          await vault.set(s.name, s.value);
+          try {
+            await a.invoke("toolvault", { op: "add", tool: { name: s.label, category: s.category, quality: 4, free: s.free, approved: s.approved } });
+          } catch {
+            /* toolvault optional */
+          }
+          storedNotes.push(`${s.label} (${s.name})${s.sensitive ? " ⚠ sensitive — rotate if this was pasted anywhere public" : ""}`);
+        }
+        await rebuildAtlas(); // pick up any new LLM keys immediately
+      }
+      const safeMessage = redactSecrets(String(message), secrets);
+
+      // Recall memories related to what Mat is asking (best-effort, redacted).
       let recalled = "";
       try {
-        const hits = (await a.invoke("memory", { op: "search", query: String(message), options: { limit: 3, minScore: 0.15 } })) as Array<{
-          record: { content: string };
-        }>;
+        const hits = (await a.invoke("memory", { op: "search", query: safeMessage, options: { limit: 3, minScore: 0.15 } })) as Array<{ record: { content: string } }>;
         if (hits.length) recalled = "Things you remember that may be relevant:\n" + hits.map((h) => `- ${h.record.content}`).join("\n");
       } catch {
         /* memory optional */
@@ -253,37 +335,35 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
 
       const system = [
         "You are ATLAS — Mat's autonomous AI Operating System (AI That Learns, Acts & Scales).",
-        "You run his businesses' agents: creative (Instagram Reels), publishing (approval-gated), CFO, strategy board, research, learning, and more.",
-        "Mat is a non-technical founder; explain things plainly, be direct and practical, keep answers tight.",
-        "You never post or spend money without Mat's approval. If asked to do something, explain what you'd queue and where he approves it (the Approvals tab).",
+        "You run his businesses' agents: creative (Instagram Reels), publishing (approval-gated), CFO, strategy board, research, learning, curiosity, red-team, and more.",
+        "Mat is a non-technical founder; explain plainly, be direct and useful, and give complete answers (don't cut yourself off).",
+        "When [saved:NAME] placeholders appear, a secret was already stored securely in the vault — acknowledge it briefly, never ask for the value, and move on.",
+        "You never post, spend money, sign up, or install without Mat's approval; explain what you'd queue and that he approves it in the Approvals tab.",
         "If you don't know something, say so honestly.",
       ].join(" ");
 
-      const prompt = [recalled, convo, `Mat: ${String(message)}`, "ATLAS:"].filter(Boolean).join("\n\n");
+      const prompt = [recalled, convo, `Mat: ${safeMessage}`, "ATLAS:"].filter(Boolean).join("\n\n");
 
-      const started = Date.now();
       const resp = (await a.invoke("brain", {
         prompt,
         system,
         needs: { reasoning: 0.7, creativity: 0.4, cost: 1 },
-        maxTokens: 1024,
+        maxTokens: 2048,
         task: "owner.chat",
       })) as { text: string; provider: string; model: string };
 
-      // Every conversation becomes memory — this is how chatting develops ATLAS.
+      // Save the REDACTED exchange to memory (never the secret values).
       try {
         await a.invoke("memory", {
           op: "remember",
-          input: {
-            kind: "conversation",
-            content: `Mat asked: ${String(message).slice(0, 300)} | ATLAS answered: ${resp.text.slice(0, 300)}`,
-          },
+          input: { kind: "conversation", content: `Mat asked: ${safeMessage.slice(0, 300)} | ATLAS answered: ${resp.text.slice(0, 300)}` },
         });
       } catch {
         /* memory optional */
       }
 
-      return send(res, 200, { reply: resp.text, provider: resp.provider, model: resp.model, latencyMs: Date.now() - started });
+      const storedBanner = storedNotes.length ? `🔒 Stored ${storedNotes.length} key(s) securely in your vault (values never sent to the AI):\n• ${storedNotes.join("\n• ")}\n\n` : "";
+      return send(res, 200, { reply: storedBanner + resp.text, provider: resp.provider, model: resp.model, latencyMs: Date.now() - started, stored: storedNotes.length });
     }
 
     if (method === "POST" && path === "/api/export-env") {
