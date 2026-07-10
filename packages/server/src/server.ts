@@ -110,6 +110,83 @@ export function trivialReply(message: string): string | null {
 }
 
 /**
+ * Chat command router — lets the chat DO things by mapping natural language to
+ * a real ATLAS service call. Deterministic (fast, free, reliable, frugal); if
+ * nothing matches, the message falls through to a normal LLM reply.
+ */
+export interface ChatIntent {
+  kind: string;
+  service: string;
+  payload: unknown;
+  intro: string;
+}
+
+export function routeChatIntent(message: string): ChatIntent | null {
+  const m = message.trim();
+  const low = m.toLowerCase();
+  let x: RegExpMatchArray | null;
+
+  // "free apis for X"  OR  "free X apis/tools"
+  let freeTopic: string | null = null;
+  if ((x = low.match(/free\s+(?:ai\s+)?(?:apis?|tools?)\s+(?:for|to|about)\s+(.{2,})/))) freeTopic = x[1]!;
+  else if ((x = low.match(/free\s+(.{2,}?)\s+(?:apis?|tools?)\b/))) freeTopic = x[1]!;
+  if (freeTopic) {
+    const topic = freeTopic.replace(/[?.!]+$/, "").trim();
+    return { kind: "freeApis", service: "search", payload: { op: "freeApis", topic }, intro: `🆓 Free tools for "${topic}":` };
+  }
+  if (/\b(scout|find|search|look).{0,20}(github|repos?)\b/.test(low) || /\bimprove atlas\b/.test(low) || /\brepos? (that|to).{0,30}(improve|better)\b/.test(low)) {
+    const q = m.replace(/.*\b(github|repos?)\b/i, "").trim() || "autonomous AI agent framework OR MCP server OR LLM tools";
+    return { kind: "scout", service: "search", payload: { op: "scout", query: q, max: 8 }, intro: `🔎 GitHub repos worth a look:` };
+  }
+  if ((x = low.match(/(?:find|what'?s|whats|get)\s+(?:the\s+)?(?:website|site|url)\s+(?:for|of)\s+(.{2,})/))) {
+    return { kind: "findSite", service: "search", payload: { op: "findSite", name: x[1]!.trim() }, intro: `🌐 Best match:` };
+  }
+  if ((x = low.match(/^(?:search|look up|google|web search)\s+(?:for\s+)?(.{2,})/))) {
+    return { kind: "search", service: "search", payload: { op: "web", query: x[1]!.trim() }, intro: `🔎 Results:` };
+  }
+  if (/\b(run|do)\b.{0,20}\b(cycle|daily|today'?s work|the day|my day)\b/.test(low)) {
+    return { kind: "cycle", service: "orchestrator", payload: { op: "runDailyCycle", videoRef: null }, intro: `▶ Running today's cycle…` };
+  }
+  if ((x = m.match(/^(?:red[- ]?team|stress[- ]?test|poke holes(?:\s+in)?)[:\s]+(.{4,})/i))) {
+    return { kind: "redteam", service: "redteam", payload: { op: "challenge", idea: x[1]!.trim() }, intro: `🔴 Red Team:` };
+  }
+  if ((x = m.match(/^(?:learn|study|read)\s+(https?:\/\/\S+)/i))) {
+    return { kind: "learn", service: "web", payload: { op: "learn", url: x[1]! }, intro: `🎓 Studied it:` };
+  }
+  if (/\b(brainstorm|curiosity|new ideas|give me ideas|opportunit)/.test(low)) {
+    return { kind: "curiosity", service: "curiosity", payload: { op: "ideas" }, intro: `🧠 Ideas:` };
+  }
+  if (/\b(ceo brief|business brief|how are (my|the) business|state of the business)/.test(low)) {
+    return { kind: "brief", service: "business", payload: { op: "brief" }, intro: `📊 Brief:` };
+  }
+  if (/\b(check|read|any).{0,12}(email|inbox|mail)\b/.test(low)) {
+    return { kind: "email", service: "email", payload: { op: "check", limit: 8 }, intro: `📧 Inbox:` };
+  }
+  return null;
+}
+
+/** Format an agent result into a readable chat reply. */
+export function formatIntentResult(kind: string, result: unknown): string {
+  const r = result as Record<string, unknown>;
+  const list = (r.results ?? r.candidates ?? []) as Array<{ title?: string; url?: string }>;
+  if (kind === "search" || kind === "freeApis" || kind === "scout") return list.length ? list.map((x) => `• ${x.title ?? ""} — ${x.url ?? ""}`).join("\n") : "(no results — is the search key set?)";
+  if (kind === "findSite") return r.best ? `→ ${(r.best as { title: string; url: string }).title} — ${(r.best as { url: string }).url}` : "(couldn't find it)";
+  if (kind === "redteam") return String(r.critique ?? "");
+  if (kind === "curiosity") return String(r.ideas ?? "");
+  if (kind === "learn") return String(r.notes ?? "");
+  if (kind === "brief") return `${String(r.summary ?? "")}\n${((r.recommendations as Array<{ priority: string; action: string }>) ?? []).slice(0, 5).map((x) => `• [${x.priority}] ${x.action}`).join("\n")}`;
+  if (kind === "email") {
+    const msgs = (r.messages as Array<{ subject: string; from: string; links: string[] }>) ?? [];
+    return msgs.length ? msgs.map((x) => `✉ ${x.subject} — ${x.from}${x.links[0] ? `\n   link: ${x.links[0]}` : ""}`).join("\n") : "(inbox empty or not configured)";
+  }
+  if (kind === "cycle") {
+    const rep = r as { topic?: string; reel?: { hook?: string }; pendingApprovals?: unknown[] };
+    return `Done. Topic: ${rep.topic}. Drafted hook: "${rep.reel?.hook ?? ""}". ${rep.pendingApprovals?.length ?? 0} item(s) awaiting your approval.`;
+  }
+  return JSON.stringify(r).slice(0, 800);
+}
+
+/**
  * FRUGAL layer #2 — size the request so the Brain Router picks a cheap/fast
  * model for simple asks and the strong model only for hard ones.
  */
@@ -353,6 +430,23 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         return send(res, 200, { reply: storedBanner + quick, provider: "frugal", model: "no-llm", latencyMs: Date.now() - started, stored: storedNotes.length });
       }
 
+      // COMMAND ROUTER: if the message is a "do X" request, run the real agent.
+      const intent = routeChatIntent(safeMessage);
+      if (intent) {
+        try {
+          const result = await a.invoke(intent.service, intent.payload);
+          const reply = `${storedBanner}${intent.intro}\n${formatIntentResult(intent.kind, result)}`;
+          try {
+            await a.invoke("memory", { op: "remember", input: { kind: "conversation", content: `Mat asked ATLAS to ${intent.kind}: ${safeMessage.slice(0, 200)}` } });
+          } catch {
+            /* memory optional */
+          }
+          return send(res, 200, { reply, provider: `agent:${intent.service}`, model: intent.kind, latencyMs: Date.now() - started, stored: storedNotes.length });
+        } catch {
+          /* agent failed (e.g. missing key) — fall through to a normal reply */
+        }
+      }
+
       // Recall memories related to what Mat is asking (best-effort, redacted).
       let recalled = "";
       try {
@@ -369,6 +463,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         "You are ATLAS — Mat's autonomous AI Operating System (AI That Learns, Acts & Scales).",
         "You run his businesses' agents: creative (Instagram Reels), publishing (approval-gated), CFO, strategy board, research, learning, curiosity, red-team, and more.",
         "Mat is a non-technical founder; explain plainly, be direct and useful, and give complete answers (don't cut yourself off).",
+        "You can DO things when asked: 'find free X apis', 'scout github for X', 'search for X', 'find the website for X', 'run today's cycle', 'red team: <idea>', 'learn <url>', 'give me ideas', 'business brief', 'check email'. If Mat seems to want an action, tell him the exact phrase to say.",
         "When [saved:NAME] placeholders appear, a secret was already stored securely in the vault — acknowledge it briefly, never ask for the value, and move on.",
         "You never post, spend money, sign up, or install without Mat's approval; explain what you'd queue and that he approves it in the Approvals tab.",
         "If you don't know something, say so honestly.",

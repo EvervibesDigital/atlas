@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseKeyLines, parseUrls, detectSecrets, redactSecrets, trivialReply, chatNeeds } from "../src/server";
+import { parseKeyLines, parseUrls, detectSecrets, redactSecrets, trivialReply, chatNeeds, routeChatIntent, formatIntentResult } from "../src/server";
 
 describe("parseKeyLines", () => {
   it("parses mixed formats and ignores noise", () => {
@@ -64,6 +64,32 @@ describe("frugal chat layer", () => {
   it("routes simple asks to a cheap model and hard asks to a strong one", () => {
     expect(chatNeeds("what time is it").reasoning).toBeLessThan(0.5); // cheap
     expect(chatNeeds("analyze my wholesale strategy and compare the options").reasoning).toBeGreaterThan(0.8); // strong
+  });
+});
+
+describe("routeChatIntent (chat can DO things)", () => {
+  it("routes 'find free tts apis' to the search agent", () => {
+    const i = routeChatIntent("find free tts apis");
+    expect(i?.service).toBe("search");
+    expect((i?.payload as { op: string }).op).toBe("freeApis");
+  });
+  it("routes 'scout github for agent frameworks' to a repo scout", () => {
+    const i = routeChatIntent("scout github for agent frameworks");
+    expect(i?.kind).toBe("scout");
+  });
+  it("routes 'run today's cycle' to the orchestrator", () => {
+    expect(routeChatIntent("run today's cycle")?.service).toBe("orchestrator");
+  });
+  it("routes 'red team: my dentist SaaS idea' to the red team", () => {
+    const i = routeChatIntent("red team: my dentist SaaS idea");
+    expect(i?.service).toBe("redteam");
+    expect((i?.payload as { idea: string }).idea).toMatch(/dentist/);
+  });
+  it("lets normal conversation fall through", () => {
+    expect(routeChatIntent("what do you think about my week")).toBeNull();
+  });
+  it("formats search results as a list", () => {
+    expect(formatIntentResult("freeApis", { results: [{ title: "edge-tts", url: "https://x" }] })).toContain("edge-tts");
   });
 });
 
