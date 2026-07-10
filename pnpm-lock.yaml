@@ -509,6 +509,19 @@ importers:
         specifier: workspace:*
         version: link:../memory
 
+  packages/search:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
+
   packages/server:
     dependencies:
       '@atlas/app':

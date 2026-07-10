@@ -4,19 +4,14 @@ import { openaiChat } from "./shared";
 /** OpenRouter — one key, many free models. Best for quality reasoning/coding. */
 export class OpenRouterAdapter implements ProviderAdapter {
   name = "openrouter";
+  // Note: OpenRouter's free tier removed DeepSeek R1/V3 (now paid, 404 on :free).
+  // Kept model is real but heavily rate-limited, so it sits BELOW Groq 70B and
+  // acts as a backup only.
   models: ModelSpec[] = [
     {
-      id: "deepseek/deepseek-r1:free",
-      label: "DeepSeek R1 (free)",
-      caps: { reasoning: 0.9, coding: 0.7, research: 0.7, creativity: 0.6, speed: 0.4 },
-      costUsd: 0,
-      privacy: 0,
-      free: true,
-    },
-    {
       id: "meta-llama/llama-3.3-70b-instruct:free",
-      label: "Llama 3.3 70B (free)",
-      caps: { reasoning: 0.8, coding: 0.7, research: 0.7, creativity: 0.7, speed: 0.5 },
+      label: "Llama 3.3 70B (OpenRouter free)",
+      caps: { reasoning: 0.78, coding: 0.7, research: 0.7, creativity: 0.68, speed: 0.5 },
       costUsd: 0,
       privacy: 0,
       free: true,

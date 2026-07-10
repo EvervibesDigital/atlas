@@ -6,6 +6,14 @@ export class GroqAdapter implements ProviderAdapter {
   name = "groq";
   models: ModelSpec[] = [
     {
+      id: "llama-3.3-70b-versatile",
+      label: "Llama 3.3 70B (Groq)",
+      caps: { reasoning: 0.85, coding: 0.75, research: 0.75, creativity: 0.72, speed: 0.85 },
+      costUsd: 0,
+      privacy: 0,
+      free: true,
+    },
+    {
       id: "llama-3.1-8b-instant",
       label: "Llama 3.1 8B Instant (Groq)",
       caps: { speed: 0.95, reasoning: 0.5, coding: 0.5, research: 0.5, creativity: 0.5 },

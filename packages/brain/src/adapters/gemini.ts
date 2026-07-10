@@ -7,7 +7,7 @@ export class GeminiAdapter implements ProviderAdapter {
     {
       id: "gemini-flash-latest",
       label: "Gemini Flash (free)",
-      caps: { reasoning: 0.6, coding: 0.6, research: 0.7, creativity: 0.6, speed: 0.8, vision: 0.7 },
+      caps: { reasoning: 0.75, coding: 0.7, research: 0.75, creativity: 0.7, speed: 0.8, vision: 0.7 },
       costUsd: 0,
       privacy: 0,
       free: true,
