@@ -407,10 +407,13 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       } catch {
         /* no .env yet */
       }
-      const kept = existing.split(/\r?\n/).filter((l) => l.trim() && !KNOWN_PROVIDERS.some((p) => l.startsWith(`${p}=`)));
+      // Export ALL non-credential secrets (LLM keys + GitHub/Vercel/Supabase/
+      // Tavily/etc.) so the overnight cycle can do everything, not just chat.
+      const names = vault.list().filter((k) => !k.startsWith(CRED_PREFIX));
+      const kept = existing.split(/\r?\n/).filter((l) => l.trim() && !names.some((p) => l.startsWith(`${p}=`)));
       const exported: string[] = [];
-      for (const p of KNOWN_PROVIDERS) {
-        const val = vault.list().includes(p) ? vault.get(p) : undefined;
+      for (const p of names) {
+        const val = vault.get(p);
         if (val) exported.push(`${p}=${val}`);
       }
       await writeFile(envFile, [...kept, ...exported].join("\n") + "\n", "utf8");
