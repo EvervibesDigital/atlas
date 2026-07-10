@@ -32,6 +32,7 @@ import { createConnectorsPlugin } from "@atlas/connectors";
 import { createInboxPlugin } from "@atlas/inbox";
 import { createSkillsPlugin } from "@atlas/skills";
 import { createForgePlugin, loadActivePlugins } from "@atlas/forge";
+import { createCuriosityPlugin, createRedTeamPlugin, createLegacyPlugin, createArchaeologistPlugin, createJanitorPlugin } from "@atlas/advisors";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
@@ -85,6 +86,12 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   // Self-growth: skills (new capabilities as data) + forge (new plugin code).
   await atlas.use(createSkillsPlugin({ file: opts.skillsFile }));
   await atlas.use(createForgePlugin({ forgeDir: opts.forgeDir }));
+  // Advisor agents (deduped from the wishlist).
+  await atlas.use(createCuriosityPlugin());
+  await atlas.use(createRedTeamPlugin());
+  await atlas.use(createLegacyPlugin());
+  await atlas.use(createArchaeologistPlugin());
+  await atlas.use(createJanitorPlugin());
 
   // Phase 4 — departments
   await atlas.use(createResearchPlugin());
