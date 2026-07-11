@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Atlas } from "@atlas/core";
 import { buildAtlas, checkReadiness } from "@atlas/app";
 import { Vault } from "@atlas/vault";
+import { SessionStore } from "./sessions";
 import { PAGE } from "./html";
 
 const KNOWN_PROVIDERS = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"];
@@ -240,6 +241,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   const maxUnlockFails = opts.maxUnlockFails ?? 5;
   const lockoutMs = opts.lockoutMs ?? 15 * 60 * 1000;
   const vault = new Vault(vaultFile);
+  const sessions = new SessionStore(`${dataDir}/chats.json`);
   let token: string | null = null;
   let atlas: Atlas | null = null;
   let failedUnlocks = 0;
@@ -351,6 +353,34 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, { ok: true });
     }
 
+    // ── Chat sessions + projects (Claude-like sidebar) ──
+    if (method === "GET" && path === "/api/chats") {
+      return send(res, 200, { sessions: await sessions.list(), projects: await sessions.projects() });
+    }
+    if (method === "GET" && path.startsWith("/api/chats/")) {
+      const id = decodeURIComponent(path.slice("/api/chats/".length));
+      const s = await sessions.get(id);
+      return s ? send(res, 200, s) : send(res, 404, { error: "no such chat" });
+    }
+    if (method === "POST" && path === "/api/chats") {
+      const { project, title } = await readBody(req);
+      const s = await sessions.create(String(project ?? ""), String(title ?? "New chat"));
+      return send(res, 200, s);
+    }
+    if (method === "PATCH" && path.startsWith("/api/chats/")) {
+      const id = decodeURIComponent(path.slice("/api/chats/".length));
+      const { title, project } = await readBody(req);
+      if (typeof title === "string") await sessions.rename(id, title);
+      if (typeof project === "string") await sessions.setProject(id, project);
+      const s = await sessions.get(id);
+      return s ? send(res, 200, s) : send(res, 404, { error: "no such chat" });
+    }
+    if (method === "DELETE" && path.startsWith("/api/chats/")) {
+      const id = decodeURIComponent(path.slice("/api/chats/".length));
+      const ok = await sessions.remove(id);
+      return send(res, ok ? 200 : 404, { ok });
+    }
+
     if (method === "GET" && path === "/api/secrets") {
       const names = vault.list().filter((k) => !k.startsWith(CRED_PREFIX));
       const providers = Object.fromEntries(KNOWN_PROVIDERS.map((p) => [p, names.includes(p)]));
@@ -400,10 +430,16 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     }
 
     if (method === "POST" && path === "/api/chat") {
-      const { message, history } = await readBody(req);
+      const { message, history, sessionId } = await readBody(req);
       if (!message) return send(res, 400, { error: "message required" });
       const a = await ensureAtlas();
       const started = Date.now();
+      // Persist the user's turn into the session (if one was supplied).
+      const sid = typeof sessionId === "string" && sessionId ? sessionId : "";
+      if (sid) await sessions.append(sid, { role: "user", text: String(message) });
+      const saveBot = async (reply: string, provider: string, model: string): Promise<void> => {
+        if (sid) await sessions.append(sid, { role: "bot", text: reply, provider, model });
+      };
 
       // ── SMART INTAKE: detect API keys, store them in the vault, and REDACT
       //    them so their values never touch the AI, the logs, or memory. ──
@@ -427,6 +463,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       // FRUGAL short-circuit: answer trivial messages with no LLM call at all.
       const quick = trivialReply(safeMessage);
       if (quick) {
+        await saveBot(storedBanner + quick, "frugal", "no-llm");
         return send(res, 200, { reply: storedBanner + quick, provider: "frugal", model: "no-llm", latencyMs: Date.now() - started, stored: storedNotes.length });
       }
 
@@ -441,6 +478,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
           } catch {
             /* memory optional */
           }
+          await saveBot(reply, `agent:${intent.service}`, intent.kind);
           return send(res, 200, { reply, provider: `agent:${intent.service}`, model: intent.kind, latencyMs: Date.now() - started, stored: storedNotes.length });
         } catch {
           /* agent failed (e.g. missing key) — fall through to a normal reply */
@@ -489,6 +527,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         /* memory optional */
       }
 
+      await saveBot(storedBanner + resp.text, resp.provider, resp.model);
       return send(res, 200, { reply: storedBanner + resp.text, provider: resp.provider, model: resp.model, latencyMs: Date.now() - started, stored: storedNotes.length });
     }
 
