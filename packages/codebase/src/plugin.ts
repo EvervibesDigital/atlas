@@ -1,5 +1,6 @@
 import type { Plugin } from "@atlas/core";
 import { scanCodebase, scanBriefing, importTranscripts } from "./scan";
+import { detectErrors, suggestFix, verifyFix, commitFix } from "./healer";
 
 /**
  * Codebase plugin (service "codebase", READ-ONLY). `learn` scans a project
@@ -11,7 +12,53 @@ export function createCodebasePlugin(): Plugin {
     manifest: { name: "codebase", version: "0.1.0", capabilities: ["codebase"], permissions: ["call:brain", "call:memory"], role: "executor" },
     register(ctx) {
       ctx.provide("codebase", async (payload) => {
-        const cmd = payload as { op: "learn" | "importChats"; dir: string; name?: string };
+        const cmd = payload as { op: "learn" | "importChats" | "heal"; dir: string; name?: string };
+
+        if (cmd.op === "heal") {
+          // Self-healing: detect errors, suggest fixes, verify, commit.
+          const errors = await detectErrors(cmd.dir);
+          if (!errors.length) return { healed: 0, errors: [] };
+
+          const fixed: { file: string; error: string; fixed: boolean }[] = [];
+          for (const err of errors) {
+            try {
+              const brainCall = async (prompt: string): Promise<string> => {
+                const r = (await ctx.call("brain", {
+                  prompt,
+                  system: "You are ATLAS's code fixer. Suggest a minimal fix for the error.",
+                  needs: { coding: 0.9, reasoning: 0.7 },
+                  maxTokens: 800,
+                  task: "codebase.heal",
+                })) as { text: string };
+                return r.text;
+              };
+              const fixSuggestion = await suggestFix(err, brainCall);
+              if (!fixSuggestion) continue;
+              const verified = await verifyFix(cmd.dir);
+              if (!verified) continue;
+              const committed = await commitFix(cmd.dir, err, fixSuggestion);
+              if (committed) {
+                fixed.push({ file: err.file, error: err.message, fixed: true });
+                try {
+                  await ctx.call("memory", {
+                    op: "remember",
+                    input: {
+                      kind: "event",
+                      content: `ATLAS healed error in ${err.file}: ${err.message.slice(0, 100)}`,
+                      metadata: { type: "self-heal", file: err.file },
+                    },
+                  });
+                } catch {
+                  /* memory optional */
+                }
+              }
+            } catch {
+              fixed.push({ file: err.file, error: err.message, fixed: false });
+            }
+          }
+          await ctx.emit("codebase.healed", { fixed: fixed.filter((f) => f.fixed).length, total: errors.length });
+          return { healed: fixed.filter((f) => f.fixed).length, errors: fixed };
+        }
 
         if (cmd.op === "importChats") {
           const logs = await importTranscripts(cmd.dir);
