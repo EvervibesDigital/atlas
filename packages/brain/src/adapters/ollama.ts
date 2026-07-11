@@ -31,31 +31,19 @@ export function stripReasoning(raw: string): string {
 export class OllamaAdapter implements ProviderAdapter {
   name = "ollama";
 
+  // NOTE: On a CPU laptop, reasoning models (DeepSeek R1) generate hundreds of
+  // slow chain-of-thought tokens and blow past the request timeout on hard
+  // questions — causing a silent fallback to the stub ("[stub-1]" garbage).
+  // So for INTERACTIVE chat we use only Qwen: fast (~11s), no <think> overhead,
+  // strong general answers. R1 is kept installed for future nightly/deep work
+  // via a dedicated slow path — never the live chat.
   models: ModelSpec[] = [
     {
-      // Fast path — no chain-of-thought overhead. Wins for short/simple asks
-      // (router weights speed there) so everyday chat feels instant.
       id: "qwen2.5-coder:7b",
-      label: "Qwen2.5 7B (Local · fast)",
-      caps: { reasoning: 0.6, coding: 0.85, research: 0.6, creativity: 0.6, speed: 0.9 },
-      costUsd: 0,
-      privacy: 1,
-      free: true,
-    },
-    {
-      // Deep path — reasoning model. Wins for hard/strategy asks (router weights
-      // reasoning there). Slower because it "thinks" first; <think> is stripped.
-      id: "deepseek-r1:7b",
-      label: "DeepSeek R1 7B (Local · deep)",
-      caps: { reasoning: 0.8, coding: 0.78, research: 0.75, creativity: 0.7, speed: 0.7 },
-      costUsd: 0,
-      privacy: 1,
-      free: true,
-    },
-    {
-      id: "deepseek-r1:14b",
-      label: "DeepSeek R1 14B (Local)",
-      caps: { reasoning: 0.85, coding: 0.82, research: 0.8, creativity: 0.75, speed: 0.5 },
+      label: "Qwen2.5 7B (Local)",
+      // High across the board so it wins the router for BOTH simple and hard
+      // chat needs — the only local model fast enough for real-time use here.
+      caps: { reasoning: 0.82, coding: 0.85, research: 0.78, creativity: 0.72, speed: 0.9 },
       costUsd: 0,
       privacy: 1,
       free: true,
@@ -85,7 +73,9 @@ export class OllamaAdapter implements ProviderAdapter {
             { role: "user" as const, content: req.prompt },
           ],
           temperature: 0.7,
-          max_tokens: req.maxTokens ?? 2048,
+          // Cap tokens so replies finish quickly on CPU (a long generation is
+          // what times out and triggers stub fallback). 1024 is plenty for chat.
+          max_tokens: Math.min(req.maxTokens ?? 1024, 1024),
           top_p: 0.9,
         }),
         signal: controller.signal,
@@ -104,10 +94,12 @@ export class OllamaAdapter implements ProviderAdapter {
       const raw = data.choices?.[0]?.message?.content ?? "";
       if (!raw) throw new Error("Ollama: empty response");
 
-      // DeepSeek R1 (and other reasoning models) emit their chain-of-thought
-      // wrapped in <think>...</think>. Strip it so the owner sees only the
-      // final answer, never the raw reasoning ("slop").
-      const text = stripReasoning(raw);
+      // Reasoning models wrap chain-of-thought in <think>...</think>. Strip it
+      // so the owner sees only the final answer, never the raw reasoning.
+      // If stripping leaves nothing (e.g. a cut-off all-reasoning reply), fall
+      // back to the raw text rather than returning an empty message.
+      const stripped = stripReasoning(raw);
+      const text = stripped || raw.trim();
 
       return { text, costUsd: 0 };
     } catch (err) {
