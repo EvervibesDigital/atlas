@@ -44,13 +44,23 @@ export class BrainRouter {
       .sort((a, b) => b.score - a.score);
 
     const fallbackFrom: string[] = [];
+    const failures: string[] = [];
     let lastError: unknown;
     for (const c of ranked) {
       const start = Date.now();
+      const isRealProvider = c.adapter.name !== "stub";
       try {
         const { text, costUsd } = await c.adapter.generate(c.model, req);
+
+        // If we only got an answer from the offline stub AFTER real providers
+        // failed, surface WHY — so a "[stub-1] …" reply is never a silent mystery.
+        const diagnostic =
+          !isRealProvider && failures.length
+            ? `⚠️ Live brains unavailable, using offline stub. Reasons:\n${failures.map((f) => `  • ${f}`).join("\n")}\n\n`
+            : "";
+
         const resp: BrainResponse = {
-          text,
+          text: diagnostic + text,
           provider: c.adapter.name,
           model: c.model.id,
           latencyMs: Date.now() - start,
@@ -58,11 +68,16 @@ export class BrainRouter {
           cached: false,
           fallbackFrom: fallbackFrom.length ? [...fallbackFrom] : undefined,
         };
-        this.cache.set(cacheKey, resp);
+        // Never cache a stub/diagnostic answer — we want the real one next time.
+        if (isRealProvider) this.cache.set(cacheKey, resp);
         return resp;
       } catch (err) {
         lastError = err;
         fallbackFrom.push(`${c.adapter.name}:${c.model.id}`);
+        const reason = err instanceof Error ? err.message : String(err);
+        failures.push(`${c.adapter.name}:${c.model.id} → ${reason.slice(0, 180)}`);
+        // Log to the server console so failures are never silently swallowed.
+        console.error(`[brain] ${c.adapter.name}:${c.model.id} failed: ${reason.slice(0, 300)}`);
       }
     }
     throw new Error(`Brain Router: all providers failed (${fallbackFrom.join(", ")}) — ${String(lastError)}`);
