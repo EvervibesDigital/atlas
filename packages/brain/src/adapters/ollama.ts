@@ -31,19 +31,26 @@ export function stripReasoning(raw: string): string {
 export class OllamaAdapter implements ProviderAdapter {
   name = "ollama";
 
-  // NOTE: On a CPU laptop, reasoning models (DeepSeek R1) generate hundreds of
-  // slow chain-of-thought tokens and blow past the request timeout on hard
-  // questions — causing a silent fallback to the stub ("[stub-1]" garbage).
-  // So for INTERACTIVE chat we use only Qwen: fast (~11s), no <think> overhead,
-  // strong general answers. R1 is kept installed for future nightly/deep work
-  // via a dedicated slow path — never the live chat.
+  // NOTE: This laptop has no usable GPU, so inference is CPU-only — model SIZE
+  // is the main speed lever. We use a small 3B model (llama3.2:3b) for live chat
+  // (fast on CPU), and keep the 7B Qwen as a slower "deep" fallback. Reasoning
+  // models (DeepSeek R1) are excluded from live chat: their long chain-of-thought
+  // is far too slow on CPU and times out into the stub ("[stub-1]" garbage).
   models: ModelSpec[] = [
     {
+      id: "llama3.2:3b",
+      label: "Llama 3.2 3B (Local · fast)",
+      // Small + fast on CPU. Wins the router for everyday chat.
+      caps: { reasoning: 0.72, coding: 0.68, research: 0.7, creativity: 0.72, speed: 0.97 },
+      costUsd: 0,
+      privacy: 1,
+      free: true,
+    },
+    {
       id: "qwen2.5-coder:7b",
-      label: "Qwen2.5 7B (Local)",
-      // High across the board so it wins the router for BOTH simple and hard
-      // chat needs — the only local model fast enough for real-time use here.
-      caps: { reasoning: 0.82, coding: 0.85, research: 0.78, creativity: 0.72, speed: 0.9 },
+      label: "Qwen2.5 7B (Local · deep)",
+      // Smarter but ~2-3x slower on CPU. Only picked if the 3B is unavailable.
+      caps: { reasoning: 0.8, coding: 0.85, research: 0.76, creativity: 0.7, speed: 0.4 },
       costUsd: 0,
       privacy: 1,
       free: true,
@@ -74,9 +81,12 @@ export class OllamaAdapter implements ProviderAdapter {
           ],
           temperature: 0.7,
           // Cap tokens so replies finish quickly on CPU (a long generation is
-          // what times out and triggers stub fallback). 1024 is plenty for chat.
-          max_tokens: Math.min(req.maxTokens ?? 1024, 1024),
+          // what times out and triggers stub fallback). 640 is plenty for chat.
+          max_tokens: Math.min(req.maxTokens ?? 640, 640),
           top_p: 0.9,
+          // Keep the model resident for 30 min so back-to-back messages don't
+          // pay the multi-second reload cost each time.
+          keep_alive: "30m",
         }),
         signal: controller.signal,
       });
