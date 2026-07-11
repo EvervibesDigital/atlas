@@ -12,7 +12,7 @@ export function createCodebasePlugin(): Plugin {
     manifest: { name: "codebase", version: "0.1.0", capabilities: ["codebase"], permissions: ["call:brain", "call:memory"], role: "executor" },
     register(ctx) {
       ctx.provide("codebase", async (payload) => {
-        const cmd = payload as { op: "learn" | "importChats" | "heal"; dir: string; name?: string };
+        const cmd = payload as { op: "learn" | "importChats" | "heal" | "generate"; dir: string; name?: string; spec?: string };
 
         if (cmd.op === "heal") {
           // Self-healing: detect errors, suggest fixes, verify, commit.
@@ -58,6 +58,62 @@ export function createCodebasePlugin(): Plugin {
           }
           await ctx.emit("codebase.healed", { fixed: fixed.filter((f) => f.fixed).length, total: errors.length });
           return { healed: fixed.filter((f) => f.fixed).length, errors: fixed };
+        }
+
+        if (cmd.op === "generate") {
+          // Self-generation: ATLAS writes new agents/skills based on a spec.
+          // Example spec: "Write an agent that finds Upwork gigs matching my skills"
+          if (!cmd.spec) throw new Error("generate requires 'spec' parameter");
+
+          const codeSpec = `You are ATLAS's code generator. Based on this spec, write a complete, production-ready TypeScript agent that:
+${cmd.spec}
+
+Return ONLY the agent code (no markdown, no explanations). The agent must:
+1. Follow the existing plugin pattern (async function, ctx.call for services)
+2. Handle errors gracefully
+3. Emit events for monitoring
+4. Call memory/brain/other services as needed
+5. Be self-contained (minimal dependencies)`;
+
+          let generatedCode = "";
+          try {
+            const r = (await ctx.call("brain", {
+              prompt: codeSpec,
+              system: "You are ATLAS's TypeScript code generator. Write perfect, deployable code.",
+              needs: { coding: 0.95, reasoning: 0.8 },
+              maxTokens: 2000,
+              task: "codebase.generate",
+            })) as { text: string };
+            generatedCode = r.text.trim();
+            if (generatedCode.startsWith("```")) generatedCode = generatedCode.split("\n").slice(1, -1).join("\n");
+          } catch (e) {
+            throw new Error(`brain failed to generate: ${(e as Error).message}`);
+          }
+
+          // Write the generated agent to a file (owners can review before activating).
+          const filename = `agent-${Date.now()}.ts`;
+          const filepath = `${cmd.dir}/${filename}`;
+          try {
+            // In a real impl, this would use node:fs to write the file.
+            // For now, return the code so the owner can decide whether to save it.
+            try {
+              await ctx.call("memory", {
+                op: "remember",
+                input: {
+                  kind: "artifact",
+                  content: `Generated agent (${cmd.spec.slice(0, 50)}...): ${generatedCode.slice(0, 200)}...`,
+                  metadata: { type: "generated-agent", spec: cmd.spec },
+                },
+              });
+            } catch {
+              /* memory optional */
+            }
+          } catch (e) {
+            throw new Error(`failed to save agent: ${(e as Error).message}`);
+          }
+
+          await ctx.emit("codebase.generated", { filename, lines: generatedCode.split("\n").length });
+          return { filename, code: generatedCode, needsReview: true };
         }
 
         if (cmd.op === "importChats") {

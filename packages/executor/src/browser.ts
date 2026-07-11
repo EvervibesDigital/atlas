@@ -1,4 +1,4 @@
-import { chromium, Browser, Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 
 /**
  * Headless browser automation: navigate, scrape, click, fill forms, download.
@@ -110,10 +110,11 @@ export class BrowserExecutor {
     try {
       page.setDefaultTimeout(timeout);
       await page.goto(url, { waitUntil: "networkidle" });
-      const links = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll("a[href]"))
-          .map((a) => (a as HTMLAnchorElement).href)
-          .filter((href) => href && (href.startsWith("http") || href.startsWith("/")));
+      const links: string[] = await page.evaluate(() => {
+        const anchors = Array.from((globalThis as any).document.querySelectorAll("a[href]"));
+        return anchors
+          .map((a: any) => a.href)
+          .filter((href: any) => href && (href.startsWith("http") || href.startsWith("/")));
       });
       return [...new Set(links)]; // dedupe
     } finally {
