@@ -70,6 +70,11 @@ export class OllamaAdapter implements ProviderAdapter {
     const endpoint = getEndpoint();
 
     try {
+      // Ollama can be slow (model loading, inference on CPU).
+      // Give it up to 120 seconds — it's worth the wait for unlimited free brain.
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
+
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -83,7 +88,10 @@ export class OllamaAdapter implements ProviderAdapter {
           max_tokens: req.maxTokens ?? 2048,
           top_p: 0.9,
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeout);
 
       if (!response.ok) {
         const text = await response.text();
