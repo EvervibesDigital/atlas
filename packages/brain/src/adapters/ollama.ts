@@ -39,9 +39,11 @@ export class OllamaAdapter implements ProviderAdapter {
   models: ModelSpec[] = [
     {
       id: "llama3.2:3b",
-      label: "Llama 3.2 3B (Local · fast)",
-      // Small + fast on CPU. Wins the router for everyday chat.
-      caps: { reasoning: 0.72, coding: 0.68, research: 0.7, creativity: 0.72, speed: 0.97 },
+      label: "Llama 3.2 3B (Local)",
+      // Speed cap reflects WALL-CLOCK reality on this GPU-less machine: local
+      // inference is slow (15-40s), so a cloud provider like Groq (when its key
+      // is present) rightly outscores it for chat. Still easily beats the stub.
+      caps: { reasoning: 0.72, coding: 0.68, research: 0.7, creativity: 0.72, speed: 0.5 },
       costUsd: 0,
       privacy: 1,
       free: true,
@@ -49,8 +51,8 @@ export class OllamaAdapter implements ProviderAdapter {
     {
       id: "qwen2.5-coder:7b",
       label: "Qwen2.5 7B (Local · deep)",
-      // Smarter but ~2-3x slower on CPU. Only picked if the 3B is unavailable.
-      caps: { reasoning: 0.8, coding: 0.85, research: 0.76, creativity: 0.7, speed: 0.4 },
+      // Smarter but even slower on CPU. Backup for local deep work.
+      caps: { reasoning: 0.8, coding: 0.85, research: 0.76, creativity: 0.7, speed: 0.3 },
       costUsd: 0,
       privacy: 1,
       free: true,

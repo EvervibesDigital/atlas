@@ -26,8 +26,12 @@ export function createBrainPlugin(): Plugin {
     async register(ctx) {
       const groqKey = await ctx.secret("GROQ_API_KEY");
 
-      // Router priority: local Ollama (unlimited) → Groq (1K req/day free) → stub (offline).
-      // No fallback to lower-quality models (Gemini, OpenRouter) — consistency over coverage.
+      // The router scores by capability, not list order. Given the honest speed
+      // caps (Groq is fast; local is slow on this GPU-less machine), the effect is:
+      //   Groq 70B (fast, free 1K/day)  → chosen when a key is present
+      //   local Ollama (unlimited)      → takes over when Groq errors/limits out
+      //   stub (offline)                → last resort only
+      // Gemini/OpenRouter removed so there's never a switch to a low-quality model.
       const adapters: ProviderAdapter[] = [
         new OllamaAdapter(),
         new StubAdapter(),
