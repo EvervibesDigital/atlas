@@ -6,38 +6,94 @@ export const PAGE = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ATLAS Control Panel</title>
 <style>
-  :root { --bg:#0f0e17; --card:#1b1a2b; --ink:#e6e6f0; --mut:#9a97b8; --acc:#7c3aed; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
+  :root {
+    --bg:#04060d; --bg2:#070b16; --card:rgba(16,22,40,.66); --ink:#e8ecff; --mut:#8894b8;
+    --acc:#7c3aed; --acc2:#22d3ee; --line:rgba(124,131,180,.16);
+    --ok:#34d399; --warn:#f59e0b; --bad:#f43f5e;
+    --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --glow: 0 0 24px rgba(34,211,238,.28);
+  }
   * { box-sizing: border-box; }
-  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--ink); }
-  header { padding:18px 24px; border-bottom:1px solid #2a2840; display:flex; align-items:center; gap:12px; }
-  header h1 { font-size:18px; margin:0; } header .tag { color:var(--mut); font-size:13px; }
-  main { max-width:820px; margin:0 auto; padding:24px; }
-  .card { background:var(--card); border:1px solid #2a2840; border-radius:12px; padding:20px; margin-bottom:18px; }
-  h2 { font-size:15px; margin:0 0 12px; }
-  label { display:block; font-size:13px; color:var(--mut); margin:10px 0 4px; }
-  input, textarea, select { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #34324f; background:#12111f; color:var(--ink); font-size:14px; }
-  button { background:var(--acc); color:#fff; border:0; padding:10px 16px; border-radius:8px; font-size:14px; cursor:pointer; margin-top:12px; }
-  button.sec { background:#2a2840; }
+  body {
+    margin:0; font-family: system-ui, -apple-system, sans-serif; color:var(--ink);
+    background:
+      radial-gradient(1100px 700px at 78% -8%, rgba(124,58,237,.20), transparent 60%),
+      radial-gradient(900px 620px at 12% 108%, rgba(34,211,238,.14), transparent 60%),
+      linear-gradient(180deg, var(--bg2), var(--bg));
+    background-attachment: fixed; min-height:100vh;
+  }
+  /* Animated supercomputer grid underlay */
+  body::before {
+    content:""; position:fixed; inset:-2px; z-index:0; pointer-events:none; opacity:.5;
+    background-image:
+      linear-gradient(rgba(124,131,180,.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(124,131,180,.07) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(circle at 50% 40%, #000 55%, transparent 100%);
+    animation: drift 24s linear infinite;
+  }
+  @keyframes drift { to { background-position: 46px 46px, 46px 46px; } }
+  header, main { position:relative; z-index:1; }
+  header {
+    padding:16px 26px; display:flex; align-items:center; gap:14px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg, rgba(10,14,26,.7), transparent);
+    backdrop-filter: blur(10px);
+  }
+  header h1 {
+    font-size:20px; margin:0; letter-spacing:.14em; font-family:var(--mono); font-weight:700;
+    background:linear-gradient(92deg,#c4b5fd,#22d3ee 70%); -webkit-background-clip:text;
+    background-clip:text; color:transparent; text-shadow:0 0 30px rgba(124,58,237,.4);
+  }
+  header .tag { color:var(--mut); font-size:12px; font-family:var(--mono); letter-spacing:.04em; }
+  .live { display:inline-flex; align-items:center; gap:7px; margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--acc2); letter-spacing:.16em; }
+  .live i { width:9px; height:9px; border-radius:50%; background:var(--acc2); box-shadow:0 0 12px var(--acc2); animation:pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{ opacity:1; transform:scale(1);} 50%{ opacity:.35; transform:scale(.7);} }
+  main { max-width:900px; margin:0 auto; padding:26px; }
+  .card {
+    background:var(--card); border:1px solid var(--line); border-radius:16px; padding:22px; margin-bottom:18px;
+    backdrop-filter: blur(14px) saturate(1.1);
+    box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 18px 50px -28px rgba(0,0,0,.9);
+  }
+  h2 { font-size:14px; margin:0 0 14px; font-family:var(--mono); letter-spacing:.06em; text-transform:uppercase; color:#cdd4f5; }
+  label { display:block; font-size:12px; color:var(--mut); margin:10px 0 4px; font-family:var(--mono); letter-spacing:.03em; }
+  input, textarea, select {
+    width:100%; padding:11px 13px; border-radius:10px; border:1px solid rgba(124,131,180,.22);
+    background:rgba(4,7,14,.7); color:var(--ink); font-size:14px; transition:border-color .15s, box-shadow .15s;
+  }
+  input:focus, textarea:focus, select:focus { outline:none; border-color:var(--acc2); box-shadow:var(--glow); }
+  button {
+    background:linear-gradient(92deg,var(--acc),#6d28d9); color:#fff; border:0; padding:10px 17px;
+    border-radius:10px; font-size:14px; cursor:pointer; margin-top:12px; letter-spacing:.02em;
+    transition:transform .12s, box-shadow .2s, filter .2s;
+  }
+  button:hover { transform:translateY(-1px); box-shadow:0 0 22px rgba(124,58,237,.5); filter:brightness(1.08); }
+  button.sec { background:rgba(124,131,180,.12); border:1px solid var(--line); }
+  button.sec:hover { box-shadow:0 0 18px rgba(34,211,238,.25); }
   button.mini { padding:6px 10px; font-size:12px; margin:0; }
-  nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
-  nav button { background:#2a2840; margin:0; }
-  nav button.active { background:var(--acc); }
-  .row { display:flex; gap:10px; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid #26243c; }
-  .pill { font-size:12px; padding:2px 8px; border-radius:999px; }
-  .on { background:rgba(34,197,94,.15); color:var(--ok); } .off { background:rgba(154,151,184,.15); color:var(--mut); }
+  nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+  nav button { background:rgba(124,131,180,.1); border:1px solid var(--line); margin:0; font-family:var(--mono); font-size:12px; letter-spacing:.03em; }
+  nav button.active { background:linear-gradient(92deg,var(--acc),var(--acc2)); box-shadow:var(--glow); border-color:transparent; }
+  .row { display:flex; gap:10px; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--line); }
+  .pill { font-size:11px; padding:3px 9px; border-radius:999px; font-family:var(--mono); letter-spacing:.04em; }
+  .on { background:rgba(52,211,153,.14); color:var(--ok); box-shadow:0 0 12px rgba(52,211,153,.2); } .off { background:rgba(136,148,184,.12); color:var(--mut); }
   .hide { display:none; }
-  pre { background:#12111f; padding:14px; border-radius:8px; overflow:auto; font-size:12px; color:#c9c7e0; }
-  .note { font-size:12px; color:var(--mut); margin-top:8px; line-height:1.5; }
+  pre { background:rgba(4,7,14,.8); padding:14px; border-radius:10px; overflow:auto; font-size:12px; color:#bfe9f5; border:1px solid var(--line); }
+  .note { font-size:12px; color:var(--mut); margin-top:8px; line-height:1.55; }
   .err { color:var(--bad); font-size:13px; margin-top:8px; }
   @keyframes flow { to { stroke-dashoffset: 0; } }
   #mapSvg .node text { transition: opacity .15s; }
   #mapSvg.focus .nerve:not(.hot), #mapSvg.focus .sig:not(.hot) { stroke-opacity:.05; }
   #mapSvg .nerve.hot { stroke-opacity:.9 !important; stroke-width:1.6; }
   #mapSvg .sig.hot { stroke-opacity:1 !important; stroke-width:3; }
+  /* Chat bubbles — terminal glass */
+  #chatBox .bub { max-width:82%; padding:11px 14px; border-radius:14px; margin:8px 0; font-size:14px; line-height:1.5; white-space:pre-wrap; word-wrap:break-word; }
+  #chatBox .bub.user { margin-left:auto; background:linear-gradient(92deg,rgba(124,58,237,.9),rgba(109,40,217,.85)); border:1px solid rgba(124,58,237,.5); }
+  #chatBox .bub.bot { background:rgba(10,16,30,.8); border:1px solid var(--line); box-shadow:0 0 18px -6px rgba(34,211,238,.3); }
 </style>
 </head>
 <body>
-<header><h1>🛰️ ATLAS</h1><span class="tag">Control Panel · localhost only</span></header>
+<header><h1>ATLAS</h1><span class="tag">AUTONOMOUS OS · localhost secure</span><span class="live"><i></i>SYSTEM ONLINE</span></header>
 <main>
 
   <div id="lock" class="card">
@@ -68,13 +124,13 @@ export const PAGE = `<!doctype html>
 
     <section id="tab-chat" class="card">
       <h2>Talk to ATLAS</h2>
-      <div id="chatBox" style="max-height:420px;overflow-y:auto;padding:6px 2px;"></div>
-      <div style="display:flex;gap:8px;margin-top:10px;">
-        <input id="chatIn" placeholder="Ask ATLAS anything — or tap the mic to talk…" style="flex:1" />
+      <div id="chatBox" style="height:min(68vh,760px);overflow-y:auto;padding:10px 4px;"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:flex-end;">
+        <textarea id="chatIn" rows="3" placeholder="Ask ATLAS anything — or tap the mic to talk…" style="flex:1;resize:vertical;min-height:52px;"></textarea>
         <button id="chatMic" class="sec" style="margin-top:0" title="Speak">🎤</button>
         <button id="chatSend" style="margin-top:0">Send</button>
       </div>
-      <div class="note" id="chatMeta">Free models via your keys — the Brain auto-switches providers if one hits a limit. Every chat is saved to ATLAS's memory, so talking to it literally trains it.</div>
+      <div class="note" id="chatMeta">Running on your local DeepSeek R1 brain — unlimited, free, private. Groq's 70B handles the hard questions. Every chat is saved to ATLAS's memory, so talking to it literally trains it.</div>
     </section>
 
     <section id="tab-map" class="card hide">
@@ -388,8 +444,7 @@ async function researchBiz(id){ $("learnOut").classList.remove("hide"); $("learn
 const chatHistory = [];
 function bubble(role, text){
   const d = document.createElement("div");
-  d.style.cssText = "margin:8px 0;padding:10px 14px;border-radius:12px;max-width:85%;white-space:pre-wrap;font-size:14px;line-height:1.5;" +
-    (role==="user" ? "background:var(--acc);color:#fff;margin-left:auto;" : "background:#12111f;border:1px solid #2a2840;");
+  d.className = "bub " + (role==="user" ? "user" : "bot");
   d.textContent = text;
   $("chatBox").appendChild(d);
   $("chatBox").scrollTop = $("chatBox").scrollHeight;
@@ -409,7 +464,7 @@ async function sendChat(){
   } catch(e){ thinking.textContent = "⚠ " + e.message; }
 }
 $("chatSend").onclick = sendChat;
-$("chatIn").addEventListener("keydown", (e) => { if (e.key==="Enter") sendChat(); });
+$("chatIn").addEventListener("keydown", (e) => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } });
 
 // 🎤 speech-to-text (browser Web Speech API — free, no server cost)
 (function(){

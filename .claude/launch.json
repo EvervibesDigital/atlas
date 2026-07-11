@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "atlas-panel",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["ui"],
+      "port": 4317
+    }
+  ]
+}
