@@ -90,6 +90,13 @@ export const PAGE = `<!doctype html>
   #chatBox .bub { max-width:82%; padding:11px 14px; border-radius:14px; margin:8px 0; font-size:14px; line-height:1.5; white-space:pre-wrap; word-wrap:break-word; }
   #chatBox .bub.user { margin-left:auto; background:linear-gradient(92deg,rgba(124,58,237,.9),rgba(109,40,217,.85)); border:1px solid rgba(124,58,237,.5); }
   #chatBox .bub.bot { background:rgba(10,16,30,.8); border:1px solid var(--line); box-shadow:0 0 18px -6px rgba(34,211,238,.3); }
+  .chatItem { padding:8px 10px; border-radius:9px; font-size:13px; color:var(--mut); cursor:pointer; margin:2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:6px; }
+  .chatItem:hover { background:rgba(124,58,237,.12); color:#fff; }
+  .chatItem.active { background:rgba(124,58,237,.22); color:#fff; border:1px solid rgba(124,58,237,.4); }
+  .chatItem .del { margin-left:auto; opacity:0; font-size:12px; flex-shrink:0; }
+  .chatItem:hover .del { opacity:.6; }
+  .chatItem .del:hover { opacity:1; }
+  .projGroup { font-size:11px; color:var(--acc); text-transform:uppercase; letter-spacing:.06em; margin:10px 0 3px; padding-left:4px; }
 </style>
 </head>
 <body>
@@ -122,15 +129,28 @@ export const PAGE = `<!doctype html>
       <button id="lockNow" class="sec" style="margin-left:auto">Lock</button>
     </nav>
 
-    <section id="tab-chat" class="card">
-      <h2>Talk to ATLAS</h2>
-      <div id="chatBox" style="height:min(68vh,760px);overflow-y:auto;padding:10px 4px;"></div>
-      <div style="display:flex;gap:8px;margin-top:10px;align-items:flex-end;">
-        <textarea id="chatIn" rows="3" placeholder="Ask ATLAS anything — or tap the mic to talk…" style="flex:1;resize:vertical;min-height:52px;"></textarea>
-        <button id="chatMic" class="sec" style="margin-top:0" title="Speak">🎤</button>
-        <button id="chatSend" style="margin-top:0">Send</button>
+    <section id="tab-chat" class="card" style="padding:0;overflow:hidden;">
+      <div style="display:flex;min-height:min(74vh,800px);">
+        <aside id="chatSide" style="width:236px;flex-shrink:0;border-right:1px solid var(--line);padding:14px 12px;overflow-y:auto;background:rgba(6,10,20,.45);">
+          <button id="newChat" style="width:100%;margin:0 0 14px">✚ New Chat</button>
+          <div id="projList"></div>
+          <div style="font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.09em;margin:16px 0 6px">Recent chats</div>
+          <div id="chatList"></div>
+        </aside>
+        <div style="flex:1;display:flex;flex-direction:column;padding:16px 18px;min-width:0;">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:4px;">
+            <h2 id="chatTitle" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Talk to ATLAS</h2>
+            <span id="chatProj" class="note" style="margin:0;flex-shrink:0;"></span>
+          </div>
+          <div id="chatBox" style="flex:1;overflow-y:auto;padding:10px 4px;"></div>
+          <div style="display:flex;gap:8px;margin-top:10px;align-items:flex-end;">
+            <textarea id="chatIn" rows="3" placeholder="Ask ATLAS anything — or tap the mic to talk…" style="flex:1;resize:vertical;min-height:52px;"></textarea>
+            <button id="chatMic" class="sec" style="margin-top:0" title="Speak">🎤</button>
+            <button id="chatSend" style="margin-top:0">Send</button>
+          </div>
+          <div class="note" id="chatMeta">Groq's 70B answers fast; your local Llama 3.2 is the unlimited fallback. Every chat is saved — talking to ATLAS trains it.</div>
+        </div>
       </div>
-      <div class="note" id="chatMeta">Running on your local DeepSeek R1 brain — unlimited, free, private. Groq's 70B handles the hard questions. Every chat is saved to ATLAS's memory, so talking to it literally trains it.</div>
     </section>
 
     <section id="tab-map" class="card hide">
@@ -316,7 +336,7 @@ $("lockBtn").onclick = async () => {
     const res = await api(h.initialized ? "/api/unlock" : "/api/setup", "POST", { masterPassword: pw });
     TOKEN = res.token;
     $("lock").classList.add("hide"); $("app").classList.remove("hide");
-    loadStatus(); loadProviders(); loadCreds();
+    loadStatus(); loadProviders(); loadCreds(); loadChats();
     bubble("bot", "ATLAS online. Ask me anything — business strategy, content ideas, or what I've been working on. Everything we discuss becomes part of my memory.");
     $("chatIn").focus();
   } catch (e) { $("lockErr").textContent = e.message; }
@@ -440,8 +460,9 @@ async function addBiz(){ try { await api("/api/businesses","POST",{name:$("bizNa
 async function researchBiz(id){ $("learnOut").classList.remove("hide"); $("learnOut").textContent="Studying…";
   try { const r = await api("/api/businesses/"+encodeURIComponent(id)+"/research","POST"); $("learnOut").textContent = r.notes ? ("🏢 "+r.business.name+"\\n\\n"+r.notes) : ("Skipped: "+(r.skipped||"")); loadBiz(); } catch(e){ $("learnOut").textContent="⚠ "+e.message; } }
 
-// ── Chat ──
-const chatHistory = [];
+// ── Chat + sessions (Claude-like sidebar) ──
+let chatHistory = [];
+let currentSessionId = null;
 function bubble(role, text){
   const d = document.createElement("div");
   d.className = "bub " + (role==="user" ? "user" : "bot");
@@ -450,20 +471,73 @@ function bubble(role, text){
   $("chatBox").scrollTop = $("chatBox").scrollHeight;
   return d;
 }
+
+// Render the sidebar: chats grouped by project, then loose chats.
+async function loadChats(){
+  let data; try { data = await api("/api/chats"); } catch { return; }
+  const byProj = {};
+  for (const s of data.sessions){ (byProj[s.project||""] = byProj[s.project||""]||[]).push(s); }
+  const chatList = $("chatList"); chatList.innerHTML="";
+  const projList = $("projList"); projList.innerHTML="";
+  // Projects first (with their chats), then the loose "Recent" list gets the rest.
+  const projNames = Object.keys(byProj).filter(p=>p).sort();
+  for (const p of projNames){
+    const h=document.createElement("div"); h.className="projGroup"; h.textContent="📁 "+p; projList.appendChild(h);
+    for (const s of byProj[p]) projList.appendChild(chatRow(s));
+  }
+  for (const s of (byProj[""]||[])) chatList.appendChild(chatRow(s));
+  if(!(byProj[""]||[]).length) chatList.innerHTML='<div class="note" style="margin:4px">No loose chats yet.</div>';
+}
+function chatRow(s){
+  const d=document.createElement("div");
+  d.className="chatItem"+(s.id===currentSessionId?" active":"");
+  d.innerHTML='<span style="overflow:hidden;text-overflow:ellipsis">'+ (s.title||"New chat").replace(/</g,"&lt;") +'</span><span class="del" title="Delete">✕</span>';
+  d.querySelector("span").onclick=()=>openChat(s.id);
+  d.onclick=(e)=>{ if(!e.target.classList.contains("del")) openChat(s.id); };
+  d.querySelector(".del").onclick=async(e)=>{ e.stopPropagation(); if(!confirm("Delete this chat?"))return; await api("/api/chats/"+s.id,"DELETE"); if(s.id===currentSessionId){currentSessionId=null;$("chatBox").innerHTML="";$("chatTitle").textContent="Talk to ATLAS";$("chatProj").textContent="";} loadChats(); };
+  return d;
+}
+async function openChat(id){
+  const s = await api("/api/chats/"+id);
+  currentSessionId = id;
+  chatHistory = s.messages.map(m=>({role:m.role,text:m.text}));
+  $("chatBox").innerHTML="";
+  for (const m of s.messages) bubble(m.role, m.text);
+  $("chatTitle").textContent = s.title||"Chat";
+  $("chatProj").textContent = s.project ? "📁 "+s.project : "";
+  loadChats();
+}
+async function newChat(){
+  const s = await api("/api/chats","POST",{});
+  currentSessionId = s.id;
+  chatHistory = [];
+  $("chatBox").innerHTML="";
+  $("chatTitle").textContent = "New chat";
+  $("chatProj").textContent = "";
+  bubble("bot","New chat started. What are we working on?");
+  loadChats();
+  $("chatIn").focus();
+}
 async function sendChat(){
   const msg = $("chatIn").value.trim();
   if (!msg) return;
+  // Auto-create a session on first message so nothing is lost.
+  if (!currentSessionId){ try { const s=await api("/api/chats","POST",{}); currentSessionId=s.id; } catch{} }
   $("chatIn").value = "";
   bubble("user", msg);
   const thinking = bubble("bot", "…thinking");
   try {
-    const r = await api("/api/chat","POST",{ message: msg, history: chatHistory });
+    const r = await api("/api/chat","POST",{ message: msg, history: chatHistory, sessionId: currentSessionId });
     thinking.textContent = r.reply;
     chatHistory.push({role:"user",text:msg},{role:"bot",text:r.reply});
-    $("chatMeta").textContent = "Answered by "+r.provider+" ("+r.model+") in "+(r.latencyMs/1000).toFixed(1)+"s · saved to memory";
+    const secs = (r.latencyMs/1000).toFixed(1);
+    const warn = r.provider==="stub" ? " ⚠️ (see reply for why the live brains failed)" : "";
+    $("chatMeta").textContent = "Answered by "+r.provider+" ("+r.model+") in "+secs+"s · saved"+warn;
+    loadChats(); // refresh titles/order
   } catch(e){ thinking.textContent = "⚠ " + e.message; }
 }
 $("chatSend").onclick = sendChat;
+$("newChat").onclick = newChat;
 $("chatIn").addEventListener("keydown", (e) => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } });
 
 // 🎤 speech-to-text (browser Web Speech API — free, no server cost)
