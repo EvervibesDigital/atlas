@@ -6,7 +6,10 @@ import type { BrainRequest, ProviderAdapter, ModelSpec } from "../types";
  */
 
 const getEndpoint = (): string => {
-  const base = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+  // Use 127.0.0.1 (IPv4) not "localhost": Node's fetch resolves localhost to
+  // IPv6 ::1 first, waits ~13s for it to fail (Ollama binds IPv4 only), THEN
+  // falls back. That delay alone can push a reply past downstream timeouts.
+  const base = process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434";
   return `${base}/v1/chat/completions`;
 };
 
@@ -36,23 +39,15 @@ export class OllamaAdapter implements ProviderAdapter {
   // (fast on CPU), and keep the 7B Qwen as a slower "deep" fallback. Reasoning
   // models (DeepSeek R1) are excluded from live chat: their long chain-of-thought
   // is far too slow on CPU and times out into the stub ("[stub-1]" garbage).
+  // Exactly ONE local model exposed: the fast 3B. If we also listed the 7B, the
+  // router would pick it for any non-trivial question (it weights reasoning, and
+  // "speed" isn't in the needs for real questions) — landing on 40s replies. One
+  // model = the fast one always wins locally. Depth comes from Groq when present.
   models: ModelSpec[] = [
     {
       id: "llama3.2:3b",
       label: "Llama 3.2 3B (Local)",
-      // Speed cap reflects WALL-CLOCK reality on this GPU-less machine: local
-      // inference is slow (15-40s), so a cloud provider like Groq (when its key
-      // is present) rightly outscores it for chat. Still easily beats the stub.
-      caps: { reasoning: 0.72, coding: 0.68, research: 0.7, creativity: 0.72, speed: 0.5 },
-      costUsd: 0,
-      privacy: 1,
-      free: true,
-    },
-    {
-      id: "qwen2.5-coder:7b",
-      label: "Qwen2.5 7B (Local · deep)",
-      // Smarter but even slower on CPU. Backup for local deep work.
-      caps: { reasoning: 0.8, coding: 0.85, research: 0.76, creativity: 0.7, speed: 0.3 },
+      caps: { reasoning: 0.72, coding: 0.68, research: 0.7, creativity: 0.72, speed: 0.6 },
       costUsd: 0,
       privacy: 1,
       free: true,
@@ -82,9 +77,9 @@ export class OllamaAdapter implements ProviderAdapter {
             { role: "user" as const, content: req.prompt },
           ],
           temperature: 0.7,
-          // Cap tokens so replies finish quickly on CPU (a long generation is
-          // what times out and triggers stub fallback). 640 is plenty for chat.
-          max_tokens: Math.min(req.maxTokens ?? 640, 640),
+          // Cap tokens so replies finish quickly on CPU — generation length is
+          // the main cost without a GPU. 400 keeps local replies reasonably snappy.
+          max_tokens: Math.min(req.maxTokens ?? 400, 400),
           top_p: 0.9,
           // Keep the model resident for 30 min so back-to-back messages don't
           // pay the multi-second reload cost each time.
