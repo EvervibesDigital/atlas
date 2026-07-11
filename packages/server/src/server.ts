@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Atlas } from "@atlas/core";
 import { buildAtlas, checkReadiness } from "@atlas/app";
 import { Vault } from "@atlas/vault";
+import { TaskQueue } from "../../orchestrator/src/task-queue.ts";
 import { SessionStore } from "./sessions";
 import { PAGE } from "./html";
 
@@ -242,6 +243,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   const lockoutMs = opts.lockoutMs ?? 15 * 60 * 1000;
   const vault = new Vault(vaultFile);
   const sessions = new SessionStore(`${dataDir}/chats.json`);
+  const queue = new TaskQueue();
   let token: string | null = null;
   let atlas: Atlas | null = null;
   let failedUnlocks = 0;
@@ -552,6 +554,38 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       }
       await writeFile(envFile, [...kept, ...exported].join("\n") + "\n", "utf8");
       return send(res, 200, { ok: true, exported: exported.length });
+    }
+
+    // ── Task queue (async work with approval gates) ──
+    if (method === "GET" && path === "/api/tasks") {
+      return send(res, 200, {
+        tasks: queue.list(),
+        pendingApprovals: queue.pendingApprovals(),
+        stats: { total: queue.list().length, executing: queue.list().filter((t: any) => t.status === "executing").length },
+      });
+    }
+    if (method === "GET" && path.startsWith("/api/tasks/")) {
+      const taskId = decodeURIComponent(path.slice("/api/tasks/".length));
+      const t = queue.get(taskId);
+      return t ? send(res, 200, t) : send(res, 404, { error: "no such task" });
+    }
+    if (method === "POST" && path.startsWith("/api/tasks/") && path.endsWith("/approve")) {
+      const taskId = decodeURIComponent(path.slice("/api/tasks/".length, -"/approve".length));
+      try {
+        await queue.approve(taskId);
+        return send(res, 200, { ok: true, task: queue.get(taskId) });
+      } catch (e) {
+        return send(res, 400, { error: (e as Error).message });
+      }
+    }
+    if (method === "POST" && path.startsWith("/api/tasks/") && path.endsWith("/reject")) {
+      const taskId = decodeURIComponent(path.slice("/api/tasks/".length, -"/reject".length));
+      try {
+        queue.reject(taskId);
+        return send(res, 200, { ok: true, task: queue.get(taskId) });
+      } catch (e) {
+        return send(res, 400, { error: (e as Error).message });
+      }
     }
 
     if (method === "GET" && path === "/api/status") {
