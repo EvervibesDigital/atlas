@@ -49,10 +49,8 @@ export const PAGE = `<!doctype html>
   .live { display:inline-flex; align-items:center; gap:7px; margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--acc2); letter-spacing:.16em; }
   .live i { width:9px; height:9px; border-radius:50%; background:var(--acc2); box-shadow:0 0 12px var(--acc2); animation:pulse 1.8s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{ opacity:1; transform:scale(1);} 50%{ opacity:.35; transform:scale(.7);} }
-  main { max-width:900px; margin:0 auto; padding:26px; display:flex; flex-direction:column; min-height:100vh; }
-  main > .hide { display:none; }
-  main > section:not(.hide) { flex:1; display:flex; flex-direction:column; }
-  #tab-chat { min-height:calc(100vh - 120px); }
+  main { max-width:900px; margin:0 auto; padding:26px; }
+  #tab-chat { max-height:90vh; }
   .card {
     background:var(--card); border:1px solid var(--line); border-radius:16px; padding:22px; margin-bottom:18px;
     backdrop-filter: blur(14px) saturate(1.1);
