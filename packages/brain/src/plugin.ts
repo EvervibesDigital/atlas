@@ -1,10 +1,9 @@
 import type { Plugin } from "@atlas/core";
 import type { BrainRequest, ProviderAdapter } from "./types";
 import { BrainRouter } from "./router";
+import { OllamaAdapter } from "./adapters/ollama";
 import { StubAdapter } from "./adapters/stub";
 import { GroqAdapter } from "./adapters/groq";
-import { OpenRouterAdapter } from "./adapters/openrouter";
-import { GeminiAdapter } from "./adapters/gemini";
 
 /**
  * Brain plugin — exposes the "brain" service other plugins call to generate
@@ -26,14 +25,13 @@ export function createBrainPlugin(): Plugin {
 
     async register(ctx) {
       const groqKey = await ctx.secret("GROQ_API_KEY");
-      const openRouterKey = await ctx.secret("OPENROUTER_API_KEY");
-      const geminiKey = await ctx.secret("GEMINI_API_KEY");
 
+      // Router priority: local Ollama (unlimited) → Groq (1K req/day free) → stub (offline).
+      // No fallback to lower-quality models (Gemini, OpenRouter) — consistency over coverage.
       const adapters: ProviderAdapter[] = [
+        new OllamaAdapter(),
         new StubAdapter(),
         new GroqAdapter(groqKey),
-        new OpenRouterAdapter(openRouterKey),
-        new GeminiAdapter(geminiKey),
       ];
 
       const router = new BrainRouter(adapters);
