@@ -47,6 +47,8 @@
     "@atlas/advisors": "workspace:*",
     "@atlas/search": "workspace:*",
     "@atlas/email": "workspace:*",
+    "@atlas/newsletter": "workspace:*",
+    "@atlas/setup": "workspace:*",
     "@atlas/orchestrator": "workspace:*"
   }
 }

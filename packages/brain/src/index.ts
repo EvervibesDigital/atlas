@@ -12,4 +12,5 @@ export * from "./adapters/groq";
 export * from "./adapters/anthropic";
 export * from "./adapters/openrouter";
 export * from "./adapters/gemini";
+export * from "./adapters/huggingface";
 export * from "./plugin";

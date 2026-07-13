@@ -8,6 +8,9 @@
 export interface DailyReport {
   date: string;
   topic: string;
+  /** Lessons recalled from memory at the start of the cycle (closes the learn
+   * loop — past successes/failures/findings that informed today's decisions). */
+  lessons: string[];
   brief: { summary: string; recommendations: unknown[] };
   /** "The 3 things that matter today" — the top priorities from the brief. */
   topPriorities: unknown[];

@@ -4,12 +4,16 @@ import { randomUUID } from "node:crypto";
 import type { Atlas } from "@atlas/core";
 import { buildAtlas, checkReadiness } from "@atlas/app";
 import { Vault } from "@atlas/vault";
-import { TaskQueue } from "../../orchestrator/src/task-queue.ts";
+import { TaskQueue } from "../../orchestrator/src/task-queue";
 import { SessionStore } from "./sessions";
 import { PAGE } from "./html";
+import { getSelfImprovementTarget, generateSelfImprovementDraft, applySelfImprovementPatch, type SelfImprovementRequest, type SelfImprovementDraft } from "./self-improve";
 
 const KNOWN_PROVIDERS = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"];
 const CRED_PREFIX = "cred:";
+
+// Self-improvement drafts pending Mat's review (in-memory store for this session)
+const selfImprovementDrafts = new Map<string, SelfImprovementDraft>();
 
 /**
  * Parse pasted key text into name/value pairs. Accepts many formats on separate
@@ -27,6 +31,9 @@ export function parseKeyLines(text: string): Array<{ name: string; value: string
     // A bare whitespace separator only counts for KEY-style (SCREAMING_SNAKE)
     // names, so prose lines aren't mistaken for keys.
     if (/^\s$/.test(m[2]!) && !/^[A-Z][A-Z0-9_]*$/.test(name)) continue;
+    // Don't mistake a pasted URL ("https://…") for a key named "http"/"https":
+    // the "://" makes the scheme look like NAME:value. Skip these.
+    if (/^https?$/i.test(name) && m[3]!.startsWith("//")) continue;
     const value = m[3]!.trim().replace(/^["']|["']$/g, "").trim();
     if (value) out.push({ name, value });
   }
@@ -51,6 +58,7 @@ const KEY_SPECS: KeySpec[] = [
   { re: /sk-or-v1-[A-Za-z0-9]{20,}/g, name: "OPENROUTER_API_KEY", label: "OpenRouter", category: "llm", free: true },
   { re: /gsk_[A-Za-z0-9]{30,}/g, name: "GROQ_API_KEY", label: "Groq", category: "llm", free: true },
   { re: /AIza[A-Za-z0-9_-]{30,}/g, name: "GEMINI_API_KEY", label: "Google Gemini", category: "llm", free: true },
+  { re: /hf_[A-Za-z0-9]{30,}/g, name: "HUGGINGFACE_API_KEY", label: "HuggingFace", category: "llm", free: true },
   { re: /sbp_[a-f0-9]{40}/g, name: "SUPABASE_TOKEN", label: "Supabase", category: "database", free: true },
   { re: /(?:ghp|github_pat)_[A-Za-z0-9_]{20,}/g, name: "GITHUB_TOKEN", label: "GitHub", category: "dev", free: true },
   { re: /(?:vck|vcp)_[A-Za-z0-9]{20,}/g, name: "VERCEL_TOKEN", label: "Vercel", category: "hosting", free: true },
@@ -267,6 +275,22 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       skillsFile: `${dataDir}/skills.json`,
       forgeDir: "./forge",
     });
+    warmOllama(); // fire-and-forget: preload the local model so the first
+    // offline reply isn't a 25s cold start (no-op if Ollama isn't running).
+  }
+
+  // Preload the local Ollama model into memory. keep_alive holds it resident so
+  // subsequent replies are fast. Fully non-blocking and best-effort.
+  function warmOllama(): void {
+    const base = process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434";
+    fetch(`${base}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "llama3.2:3b", prompt: "hi", stream: false, keep_alive: "30m" }),
+      signal: AbortSignal.timeout(60000),
+    }).catch(() => {
+      /* Ollama not running or slow — offline fallback still works, just cold */
+    });
   }
 
   async function ensureAtlas(): Promise<Atlas> {
@@ -386,27 +410,77 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "GET" && path === "/api/secrets") {
       const names = vault.list().filter((k) => !k.startsWith(CRED_PREFIX));
       const providers = Object.fromEntries(KNOWN_PROVIDERS.map((p) => [p, names.includes(p)]));
-      return send(res, 200, { names, providers });
+      // Custom/unknown keys (any NAME that's not in KNOWN_PROVIDERS)
+      const customKeys = names.filter((n) => !KNOWN_PROVIDERS.includes(n));
+      return send(res, 200, { names, providers, customKeys });
     }
     if (method === "POST" && path === "/api/secrets") {
       const { name, value } = await readBody(req);
       if (!name || !value) return send(res, 400, { error: "name and value required" });
       await vault.set(String(name), String(value));
-      await rebuildAtlas();
+      // Rebuild in the background so HTTP response returns immediately.
+      setImmediate(rebuildAtlas);
       return send(res, 200, { ok: true });
     }
     if (method === "POST" && path === "/api/secrets/bulk") {
       const { text } = await readBody(req);
       const pairs = parseKeyLines(String(text ?? ""));
       for (const p of pairs) await vault.set(p.name, p.value);
-      if (pairs.length) await rebuildAtlas();
+      // Rebuild in the background so HTTP response returns immediately
+      // (rebuilding can take 10-30s with Ollama; don't block the browser).
+      if (pairs.length) setImmediate(rebuildAtlas);
       return send(res, 200, { saved: pairs.length, names: pairs.map((p) => p.name) });
     }
     if (method === "DELETE" && path.startsWith("/api/secrets/")) {
       const name = decodeURIComponent(path.slice("/api/secrets/".length));
       const ok = await vault.delete(name);
-      await rebuildAtlas();
+      // Rebuild in the background so HTTP response returns immediately.
+      setImmediate(rebuildAtlas);
       return send(res, 200, { ok });
+    }
+
+    // Live key validation — calls each provider with the stored key and reports
+    // valid / INVALID / missing. Reveals nothing but validity (localhost only).
+    if (method === "GET" && path === "/api/keys/test") {
+      const get = (n: string): string => (vault.unlocked ? (vault.get(n) ?? process.env[n] ?? "") : (process.env[n] ?? ""));
+      const probe = async (name: string, fn: (k: string) => Promise<Response>): Promise<{ name: string; status: string; detail: string }> => {
+        const k = get(name);
+        if (!k) return { name, status: "missing", detail: "no key saved" };
+        try {
+          const r = await fn(k);
+          if (r.ok) return { name, status: "valid", detail: "provider accepted the key" };
+          return { name, status: "INVALID", detail: `provider rejected it (HTTP ${r.status})` };
+        } catch (e) {
+          return { name, status: "unreachable", detail: String((e as Error).message).slice(0, 80) };
+        }
+      };
+      const t = (ms: number) => AbortSignal.timeout(ms);
+      const results = await Promise.all([
+        probe("GEMINI_API_KEY", (k) => fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${k}`, { signal: t(8000) })),
+        probe("GROQ_API_KEY", (k) => fetch("https://api.groq.com/openai/v1/models", { headers: { Authorization: `Bearer ${k}` }, signal: t(8000) })),
+        probe("HUGGINGFACE_API_KEY", (k) => fetch("https://huggingface.co/api/whoami-v2", { headers: { Authorization: `Bearer ${k}` }, signal: t(8000) })),
+        probe("TAVILY_API_KEY", (k) => fetch("https://api.tavily.com/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: k, query: "ping", max_results: 1 }), signal: t(8000) })),
+        probe("OPENROUTER_API_KEY", (k) => fetch("https://openrouter.ai/api/v1/auth/key", { headers: { Authorization: `Bearer ${k}` }, signal: t(8000) })),
+        probe("ANTHROPIC_API_KEY", (k) => fetch("https://api.anthropic.com/v1/models", { headers: { "x-api-key": k, "anthropic-version": "2023-06-01" }, signal: t(8000) })),
+      ]);
+      return send(res, 200, { results, testedAt: new Date().toISOString() });
+    }
+
+    // Smart key detection: paste raw text, get back detected keys with metadata + values
+    if (method === "POST" && path === "/api/detect-keys") {
+      const { text } = await readBody(req);
+      const detected = detectSecrets(String(text ?? ""));
+      const saved = new Set(vault.list());
+      const results = detected.map((d) => ({
+        name: d.name,
+        label: d.label,
+        category: d.category,
+        free: d.free,
+        sensitive: d.sensitive,
+        value: d.value, // Already extracted by detectSecrets
+        alreadySaved: saved.has(d.name),
+      }));
+      return send(res, 200, { detected: results, total: results.length });
     }
 
     if (method === "GET" && path === "/api/credentials") {
@@ -429,6 +503,91 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const platform = decodeURIComponent(path.slice("/api/credentials/".length));
       const ok = await vault.delete(CRED_PREFIX + platform);
       return send(res, 200, { ok });
+    }
+
+    // Self-improvement endpoints (ATLAS modifies itself)
+    if (method === "POST" && path === "/api/self-improve") {
+      const improveReq = (await readBody(req)) as unknown;
+      const selfReq = improveReq as SelfImprovementRequest;
+      if (!selfReq.target || !selfReq.goal) return send(res, 400, { error: "target and goal required" });
+
+      // Read the current code
+      const target = await getSelfImprovementTarget(selfReq.target);
+      if (!target) return send(res, 404, { error: `unknown target: ${selfReq.target}` });
+
+      // Generate draft using the local brain (Ollama only, free)
+      const a = await ensureAtlas();
+      const draft = await generateSelfImprovementDraft(selfReq, target.code, async (cmd: unknown) => {
+        return (await a.invoke("brain", cmd)) as { text: string };
+      });
+
+      if (!draft) return send(res, 500, { error: "failed to generate draft" });
+
+      // Store it for Mat to review
+      const id = randomUUID();
+      selfImprovementDrafts.set(id, draft);
+
+      return send(res, 200, { id, draft });
+    }
+
+    if (method === "GET" && path === "/api/self-improve/drafts") {
+      const drafts = Array.from(selfImprovementDrafts.entries()).map(([id, draft]) => ({
+        id,
+        target: draft.target,
+        goal: draft.goal,
+        confidence: draft.confidence,
+        estimatedImpact: draft.estimatedImpact,
+        explanation: draft.explanation.slice(0, 100),
+      }));
+      return send(res, 200, { drafts });
+    }
+
+    if (method === "GET" && path.startsWith("/api/self-improve/drafts/")) {
+      const id = path.slice("/api/self-improve/drafts/".length);
+      const draft = selfImprovementDrafts.get(id);
+      if (!draft) return send(res, 404, { error: "draft not found" });
+      return send(res, 200, { id, draft });
+    }
+
+    if (method === "POST" && path === "/api/self-improve/apply") {
+      const { id, approved } = await readBody(req);
+      const draft = selfImprovementDrafts.get(String(id ?? ""));
+      if (!draft) return send(res, 404, { error: "draft not found" });
+      if (!approved) return send(res, 200, { ok: false, message: "draft rejected" });
+
+      // Apply safely: backup → write → typecheck → auto-rollback on failure.
+      const result = await applySelfImprovementPatch(draft.target, draft.suggestedPatch);
+      if (!result.ok) return send(res, 500, { error: result.error });
+
+      // Clean up the draft and rebuild
+      selfImprovementDrafts.delete(String(id ?? ""));
+      setImmediate(rebuildAtlas);
+
+      return send(res, 200, { ok: true, message: `Applied to ${draft.target} — ${result.verified}. Rebuilding...` });
+    }
+
+    // Proposals → Task Queue (close the learning loop)
+    if (method === "GET" && path === "/api/proposals") {
+      const a = await ensureAtlas();
+      const proposals = (await a.invoke("learning", { op: "proposals" })) as unknown[];
+      return send(res, 200, { proposals: proposals || [] });
+    }
+
+    if (method === "POST" && path === "/api/proposals/adopt") {
+      const { category, problem, suggestion } = await readBody(req);
+      if (!suggestion) return send(res, 400, { error: "suggestion required" });
+      const a = await ensureAtlas();
+      // Adoption is REAL: the directive goes into the same memory that the
+      // chat and the daily cycle (step 1b) search before deciding anything.
+      await a.invoke("memory", {
+        op: "remember",
+        input: {
+          kind: "directive",
+          content: `ADOPTED DIRECTIVE (${String(category ?? "general")}): ${String(suggestion)} Context: ${String(problem ?? "")}`.slice(0, 800),
+          metadata: { source: "proposal", category: String(category ?? "general") },
+        },
+      });
+      return send(res, 200, { ok: true, message: "Adopted — stored as a standing directive. Chat and the daily cycle recall it when relevant." });
     }
 
     if (method === "POST" && path === "/api/chat") {

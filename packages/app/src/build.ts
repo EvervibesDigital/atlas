@@ -1,7 +1,7 @@
 import { Atlas } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
 import { createBrainPlugin } from "@atlas/brain";
-import { createMemoryPlugin, type MemoryStore } from "@atlas/memory";
+import { createMemoryPlugin, HuggingFaceEmbedder, type MemoryStore, type Embedder } from "@atlas/memory";
 import { createApprovalsPlugin, ApprovalGateway } from "@atlas/approvals";
 import { createExecutivePlugin } from "@atlas/executive";
 import { createPersonasPlugin } from "@atlas/personas";
@@ -35,6 +35,8 @@ import { createForgePlugin, loadActivePlugins } from "@atlas/forge";
 import { createCuriosityPlugin, createRedTeamPlugin, createLegacyPlugin, createArchaeologistPlugin, createJanitorPlugin } from "@atlas/advisors";
 import { createSearchPlugin } from "@atlas/search";
 import { createEmailPlugin } from "@atlas/email";
+import { createNewsletterPlugin } from "@atlas/newsletter";
+import { createSetupPlugin } from "@atlas/setup";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
@@ -65,8 +67,21 @@ export interface AtlasOptions {
 export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   const atlas = new Atlas({ guardian: new Guardian() });
 
+  // Embedder selection. Default = offline TokenEmbedder (matches existing
+  // memory.json). Real HF semantic embeddings are DOUBLE-gated: a key must be
+  // present AND ATLAS_USE_HF_EMBEDDER must be truthy, because HF vectors (384-d)
+  // live in a different space than token vectors and are not comparable. When
+  // enabled we also switch to a dedicated store file so the two never mix.
+  let embedder: Embedder | undefined;
+  let memoryFile = opts.memoryFile;
+  const hfKey = process.env.HUGGINGFACE_API_KEY;
+  if (hfKey && process.env.ATLAS_USE_HF_EMBEDDER) {
+    embedder = new HuggingFaceEmbedder(hfKey);
+    if (memoryFile) memoryFile = memoryFile.replace(/\.json$/, ".hf.json");
+  }
+
   await atlas.use(createBrainPlugin());
-  await atlas.use(createMemoryPlugin({ store: opts.memoryStore, file: opts.memoryFile }));
+  await atlas.use(createMemoryPlugin({ store: opts.memoryStore, embedder, file: memoryFile }));
   await atlas.use(createApprovalsPlugin({ gateway: opts.approvalsGateway, file: opts.approvalsFile }));
   await atlas.use(createExecutivePlugin());
   await atlas.use(createPersonasPlugin());
@@ -94,9 +109,11 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createLegacyPlugin());
   await atlas.use(createArchaeologistPlugin());
   await atlas.use(createJanitorPlugin());
-  // Find things on the internet + ATLAS's own email.
+  // Find things on the internet + ATLAS's own email + newsletters + autonomous setup.
   await atlas.use(createSearchPlugin());
   await atlas.use(createEmailPlugin());
+  await atlas.use(createNewsletterPlugin());
+  await atlas.use(createSetupPlugin());
 
   // Phase 4 — departments
   await atlas.use(createResearchPlugin());

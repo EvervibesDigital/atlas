@@ -47,6 +47,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         "call:search",
         "call:connectors",
         "call:janitor",
+        "call:newsletter",
       ],
       role: "planner",
     },
@@ -62,6 +63,17 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         const persona = await optional<{ contentPillars?: string[] }>(ctx, "personas", { op: "get", handle: personaHandle });
         const daySeed = Math.floor(Date.now() / 86_400_000);
         const topic = cmd.topic ?? deriveTopic(persona?.contentPillars ?? [], daySeed);
+
+        // 1b. RECALL — close the learning loop. Before deciding anything, pull
+        // the most relevant lessons ATLAS has stored (past successes/failures,
+        // newsletter findings, learnings) for today's topic. Without this the
+        // cycle only ever WRITES to memory and never learns from it.
+        const recalled = (await optional<Array<{ record: { content: string; kind: string } }>>(ctx, "memory", {
+          op: "search",
+          query: `${topic} lessons, what worked, what failed, opportunities`,
+          options: { limit: 5, minScore: 0.12 },
+        })) ?? [];
+        const lessons = recalled.map((r) => r.record.content);
 
         // 2. Assess the businesses.
         const brief = (await optional<{ summary: string; recommendations: unknown[] }>(ctx, "business", { op: "brief" })) ?? {
@@ -105,6 +117,10 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           freeTools: (await optional<unknown>(ctx, "search", { op: "freeApis", topic: "content automation, AI agents, and social posting" })) ?? null,
           github: (await optional<unknown>(ctx, "connectors", { op: "sync", which: "github" })) ?? null,
           tidy: (await optional<unknown>(ctx, "janitor", { op: "tidy" })) ?? null,
+          // Daily knowledge ingestion: read the tech newsletters and summarize
+          // each into shared memory (via the web service's learn op). This is
+          // what future cycles RECALL at step 1b — the ingestion→recall loop.
+          newsletters: (await optional<unknown>(ctx, "newsletter", { op: "readDaily" })) ?? null,
         };
 
         // 7. Gather advice + the approval list for the report.
@@ -114,6 +130,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         const report: DailyReport = {
           date: new Date().toISOString(),
           topic,
+          lessons,
           brief,
           topPriorities: brief.recommendations.slice(0, 3),
           reel: { hook: reel.hook, caption: reel.caption },

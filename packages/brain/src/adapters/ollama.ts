@@ -34,19 +34,19 @@ export function stripReasoning(raw: string): string {
 export class OllamaAdapter implements ProviderAdapter {
   name = "ollama";
 
-  // NOTE: This laptop has no usable GPU, so inference is CPU-only — model SIZE
-  // is the main speed lever. We use a small 3B model (llama3.2:3b) for live chat
-  // (fast on CPU), and keep the 7B Qwen as a slower "deep" fallback. Reasoning
-  // models (DeepSeek R1) are excluded from live chat: their long chain-of-thought
-  // is far too slow on CPU and times out into the stub ("[stub-1]" garbage).
-  // Exactly ONE local model exposed: the fast 3B. If we also listed the 7B, the
-  // router would pick it for any non-trivial question (it weights reasoning, and
-  // "speed" isn't in the needs for real questions) — landing on 40s replies. One
-  // model = the fast one always wins locally. Depth comes from Groq when present.
+  // This laptop is CPU-only, so model SIZE is the main speed lever. We expose
+  // exactly ONE small, fast model (llama3.2:3b) for local inference. Deep/coding
+  // work is handled by the cloud adapters (Gemini/Groq/HuggingFace) when a key
+  // is present; Ollama is the always-available offline floor. Exposing the 7B/30B
+  // here would let the router pick a 30–90s reply for ordinary questions — the
+  // exact slowness we fixed before. One fast model = predictable local latency.
   models: ModelSpec[] = [
     {
       id: "llama3.2:3b",
-      label: "Llama 3.2 3B (Local)",
+      label: "Llama 3.2 3B (Local, offline)",
+      // speed kept modest so a keyed cloud model (higher quality) wins when
+      // available; when no cloud key exists, Ollama is the only real option and
+      // wins regardless. privacy 1 = fully local.
       caps: { reasoning: 0.72, coding: 0.68, research: 0.7, creativity: 0.72, speed: 0.6 },
       costUsd: 0,
       privacy: 1,

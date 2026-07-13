@@ -149,6 +149,9 @@ importers:
       '@atlas/negotiation':
         specifier: workspace:*
         version: link:../negotiation
+      '@atlas/newsletter':
+        specifier: workspace:*
+        version: link:../newsletter
       '@atlas/opportunity':
         specifier: workspace:*
         version: link:../opportunity
@@ -167,6 +170,9 @@ importers:
       '@atlas/search':
         specifier: workspace:*
         version: link:../search
+      '@atlas/setup':
+        specifier: workspace:*
+        version: link:../setup
       '@atlas/simulation':
         specifier: workspace:*
         version: link:../simulation
@@ -371,6 +377,15 @@ importers:
         specifier: workspace:*
         version: link:../guardian
 
+  packages/executor:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+      playwright:
+        specifier: ^1.48.0
+        version: 1.61.1
+
   packages/experiments:
     dependencies:
       '@atlas/core':
@@ -465,6 +480,12 @@ importers:
         specifier: workspace:*
         version: link:../guardian
 
+  packages/newsletter:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/opportunity:
     dependencies:
       '@atlas/core':
@@ -558,6 +579,12 @@ importers:
       '@atlas/vault':
         specifier: workspace:*
         version: link:../vault
+
+  packages/setup:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/simulation:
     dependencies:
@@ -1174,6 +1201,11 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
+  fsevents@2.3.2:
+    resolution: {integrity: sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA==}
+    engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
+    os: [darwin]
+
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -1239,6 +1271,16 @@ packages:
 
   pino@10.3.1:
     resolution: {integrity: sha512-r34yH/GlQpKZbU1BvFFqOjhISRo1MNx1tWYsYvmj6KIRHSPMT2+yHOEb1SG6NMvRoHRF0a07kCOox/9yakl1vg==}
+    hasBin: true
+
+  playwright-core@1.61.1:
+    resolution: {integrity: sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  playwright@1.61.1:
+    resolution: {integrity: sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==}
+    engines: {node: '>=18'}
     hasBin: true
 
   postcss@8.5.16:
@@ -1766,6 +1808,9 @@ snapshots:
 
   expect-type@1.4.0: {}
 
+  fsevents@2.3.2:
+    optional: true
+
   fsevents@2.3.3:
     optional: true
 
@@ -1837,6 +1882,14 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 4.2.0
+
+  playwright-core@1.61.1: {}
+
+  playwright@1.61.1:
+    dependencies:
+      playwright-core: 1.61.1
+    optionalDependencies:
+      fsevents: 2.3.2
 
   postcss@8.5.16:
     dependencies:

@@ -1,0 +1,1 @@
+export { createNewsletterPlugin } from "./plugin";

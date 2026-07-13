@@ -126,6 +126,7 @@ export const PAGE = `<!doctype html>
       <button data-tab="logins">Platform Logins</button>
       <button data-tab="run">Run</button>
       <button data-tab="actions">⚡ Actions</button>
+      <button data-tab="proposals">💡 Proposals</button>
       <button data-tab="approvals">Approvals</button>
       <button id="lockNow" class="sec" style="margin-left:auto">Lock</button>
     </nav>
@@ -149,7 +150,7 @@ export const PAGE = `<!doctype html>
             <button id="chatMic" class="sec" style="margin-top:0" title="Speak">🎤</button>
             <button id="chatSend" style="margin-top:0">Send</button>
           </div>
-          <div class="note" id="chatMeta">Groq's 70B answers fast; your local Llama 3.2 is the unlimited fallback. Every chat is saved — talking to ATLAS trains it.</div>
+          <div class="note" id="chatMeta">ATLAS picks the best free model you have keys for (Gemini/Groq/HuggingFace) and falls back to your local Llama 3.2 — private and unlimited. Each reply shows which model answered. Every chat is saved to memory.</div>
         </div>
       </div>
     </section>
@@ -182,9 +183,28 @@ export const PAGE = `<!doctype html>
 
     <section id="tab-grow" class="card hide">
       <h2>ATLAS grows itself</h2>
-      <div class="note">Two ways ATLAS adds to itself — both on your free LLMs, no Claude Code. <b>Skills</b> = new capabilities as data (safe, instant). <b>Forge</b> = ATLAS writes a real new plugin (gated: it backs up + waits for your approval before going live).</div>
+      <div class="note">Three ways ATLAS improves itself — all on your free LLMs, no token cost. <b>Self-improve</b> = ATLAS reads its own code + suggests changes (you approve). <b>Skills</b> = new capabilities as data (safe, instant). <b>Forge</b> = new plugin (gated + reviewed).</div>
 
-      <h2 style="margin-top:16px">Skills</h2>
+      <h2 style="margin-top:16px">🔧 Self-Improve (ATLAS modifies itself)</h2>
+      <div class="note">Ask ATLAS to improve a specific system (memory, brain, learning, etc). It reads its own code using only your free local brain (Ollama) and suggests a concrete change.</div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <select id="improveTarget" style="flex:1">
+          <option value="memory">Memory (storage &amp; recall)</option>
+          <option value="memory-search">Memory search (semantic matching)</option>
+          <option value="brain">Brain router (model selection)</option>
+          <option value="learning">Learning (outcome tracking)</option>
+          <option value="learning-proposals">Proposals (behavior suggestions)</option>
+          <option value="orchestrator">Daily cycle (overall planning)</option>
+          <option value="chat">Chat (how ATLAS talks to you)</option>
+          <option value="codebase">Codebase scanner (project understanding)</option>
+        </select>
+      </div>
+      <input id="improveGoal" placeholder="What should improve? E.g. 'faster recalls' or 'better reasoning'" style="margin-top:6px; width:100%" />
+      <button onclick="requestSelfImprovement()" style="margin-top:6px">💭 Suggest improvement</button>
+      <div id="improveOut" class="note" style="margin-top:10px"></div>
+      <div id="improveDrafts" style="margin-top:14px"></div>
+
+      <h2 style="margin-top:20px">Skills</h2>
       <input id="skName" placeholder="Skill name, e.g. Competitor pricing analysis" />
       <input id="skPurpose" placeholder="What it should be expert at" style="margin-top:6px" />
       <button onclick="createSkill()">✨ Invent skill</button>
@@ -251,12 +271,20 @@ export const PAGE = `<!doctype html>
     </section>
 
     <section id="tab-keys" class="card hide">
-      <h2>Paste all your keys at once</h2>
+      <h2>🔑 Smart Key Detection</h2>
+      <div class="note">Paste any API key (raw key, one per line). ATLAS detects the service, shows you what it found, then saves it.</div>
+      <textarea id="detectKeys" rows="5" placeholder="AIzaSy...&#10;gsk_...&#10;hf_...&#10;tvly-..." style="margin-top:8px;font-family:monospace"></textarea>
+      <button onclick="detectAndShow()">🔍 Detect keys</button>
+      <div id="detectOut" style="margin-top:12px"></div>
+
+      <h2 style="margin-top:20px">Paste all your keys at once (legacy)</h2>
       <div class="note">Paste one per line — any of these formats work: <code>NAME=value</code>, <code>NAME: value</code>, or <code>NAME value</code>. Blank lines and # comments are ignored. Then click Save all.</div>
       <textarea id="bulkKeys" rows="7" placeholder="GROQ_API_KEY=gsk_...&#10;GEMINI_API_KEY=...&#10;OPENROUTER_API_KEY=...&#10;GITHUB_TOKEN=ghp_...&#10;VERCEL_TOKEN=...&#10;SUPABASE_TOKEN=sbp_..." style="margin-top:8px;font-family:monospace"></textarea>
       <button onclick="bulkSave()">💾 Save all keys</button>
       <button class="sec" onclick="exportEnv()">🌙 Enable overnight runs</button>
+      <button class="sec" onclick="testKeys()">🧪 Test my keys (live)</button>
       <div id="bulkOut" class="note"></div>
+      <div id="keyTestOut" class="note" style="margin-top:8px"></div>
 
       <h2 style="margin-top:20px">Status</h2>
       <div id="providers"></div>
@@ -306,6 +334,13 @@ export const PAGE = `<!doctype html>
       <button class="sec" onclick="loadActions()">Refresh</button>
     </section>
 
+    <section id="tab-proposals" class="card hide">
+      <h2>💡 ATLAS's Proposals (what it learned)</h2>
+      <div class="note">When a category keeps underperforming, ATLAS proposes a fix. Click ✅ Adopt to make it a standing directive — it's stored in memory and recalled by the chat and every daily cycle.</div>
+      <div id="proposalsList" class="note" style="margin-top:10px">Loading…</div>
+      <button class="sec" onclick="loadProposals()">Refresh</button>
+    </section>
+
     <section id="tab-approvals" class="card hide">
       <h2>Awaiting your approval</h2>
       <div id="approvals">None loaded.</div>
@@ -347,8 +382,9 @@ $("lockNow").onclick = async () => { try{ await api("/api/lock","POST"); }catch{
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button[data-tab]").forEach(x=>x.classList.remove("active"));
   b.classList.add("active");
-  ["chat","map","learn","connect","grow","vault","status","keys","logins","run","actions","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
+  ["chat","map","learn","connect","grow","vault","status","keys","logins","run","actions","proposals","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
   if (b.dataset.tab==="approvals") loadApprovals();
+  if (b.dataset.tab==="proposals") loadProposals();
   if (b.dataset.tab==="chat") $("chatIn").focus();
   if (b.dataset.tab==="learn") loadBiz();
   if (b.dataset.tab==="actions") loadActions();
@@ -568,14 +604,75 @@ async function loadStatus() {
   } catch(e){ $("statusBox").textContent = e.message; }
 }
 async function loadProviders() {
-  const s = await api("/api/secrets");
-  $("providers").innerHTML = Object.entries(s.providers).map(([k,v]) =>
-    "<div class='row'><span>"+k+"</span><span class='pill "+(v?"on":"off")+"'>"+(v?"set":"missing")+"</span></div>").join("");
+  try {
+    const s = await api("/api/secrets");
+    const providers = s.providers || {};
+    const customKeys = s.customKeys || [];
+    const providerRows = Object.entries(providers).map(([k,v]) =>
+      "<div class='row'><span>"+k+"</span><span class='pill "+(v?"on":"off")+"'>"+(v?"set":"missing")+"</span></div>").join("");
+    const customRows = customKeys.map(k =>
+      "<div class='row'><span>"+k+"</span><span class='pill on'>custom</span><button class='mini sec' onclick='deleteKey(\\""+k+"\\")'>remove</button></div>").join("");
+    const header = providerRows ? "<div class='note'>Known providers:</div>" : "";
+    const customHeader = customRows ? "<div class='note' style='margin-top:12px'>Custom keys (unknown services):</div>" : "";
+    $("providers").innerHTML = header + providerRows + customHeader + customRows;
+  } catch(e) { $("providers").textContent = "Error: "+e.message; }
 }
 async function saveKey(){ try { await api("/api/secrets","POST",{name:$("keyName").value, value:$("keyVal").value}); $("keyVal").value=""; loadProviders(); loadStatus(); } catch(e){ alert(e.message);} }
 async function exportEnv(){ try { const r = await api("/api/export-env","POST"); alert("Done — "+r.exported+" key(s) enabled for overnight runs on this computer."); } catch(e){ alert(e.message);} }
+
+// Self-improvement (ATLAS modifies itself)
+async function requestSelfImprovement(){ const target=$("improveTarget").value; const goal=$("improveGoal").value;
+  if(!target||!goal) return alert("Select a target and goal");
+  $("improveOut").textContent="Thinking (using local brain, no token cost)…";
+  try { const r=await api("/api/self-improve","POST",{target,goal});
+    $("improveOut").innerHTML="<b>✅ Draft ready</b> (confidence: "+(r.draft.confidence*100|0)+"%)<div class='note' style='margin-top:8px'>"+r.draft.explanation+"</div>";
+    $("improveDrafts").innerHTML="<div class='row' style='align-items:flex-start;border:1px solid var(--acc);padding:8px;border-radius:4px;margin-top:8px'><span><b>"+r.draft.target+"</b><br><code style='font-size:11px'>"+r.draft.estimatedImpact+"</code></span><div><button onclick='reviewDraft(\\""+r.id+"\\")'>Review code</button> <button class='sec' onclick='rejectDraft(\\""+r.id+"\\")'>Reject</button></div></div>";
+  } catch(e){ $("improveOut").textContent="⚠ "+e.message; } }
+async function reviewDraft(id){ try { const r=await api("/api/self-improve/drafts/"+id);
+  const code=r.draft.suggestedPatch.split("\\n").slice(0,20).join("\\n");
+  $("improveDrafts").innerHTML+="<pre style='background:var(--bg2);padding:8px;margin-top:8px;font-size:11px;border-left:2px solid var(--acc)'>"+code+"…</pre><button onclick='applyDraft(\\""+id+"\\")' style='margin-top:8px'>✅ Approve &amp; apply</button>";
+} catch(e){ alert(e.message); } }
+async function applyDraft(id){ try { await api("/api/self-improve/apply","POST",{id,approved:true});
+  $("improveDrafts").textContent="✅ Improvement applied! Rebuilding ATLAS…"; $("improveGoal").value="";
+  setTimeout(()=>{ $("improveOut").textContent=""; $("improveDrafts").textContent=""; }, 3000);
+} catch(e){ alert(e.message); } }
+async function rejectDraft(id){ $("improveDrafts").textContent="Rejected. Ask for another idea."; $("improveGoal").value=""; }
+
+// Proposals dashboard (learning → adopted directives)
+let proposalsCache=[];
+async function loadProposals(){ try { const r=await api("/api/proposals"); proposalsCache=r.proposals||[];
+  const props=proposalsCache.map((p,i)=>"<div class='row'><span><b>"+p.problem+"</b><br><span class='note'>"+p.suggestion+"</span></span><div><button onclick='adoptProposal("+i+")'>✅ Adopt</button></div></div>").join("");
+  $("proposalsList").innerHTML=props||"<div class='note'>No proposals yet. ATLAS raises one when a category keeps failing (needs 3+ recorded outcomes under 50% success) — they appear here as it operates.</div>";
+} catch(e){ $("proposalsList").textContent="⚠ "+e.message; } }
+async function adoptProposal(i){ const p=proposalsCache[i]; if(!p) return;
+  try { const r=await api("/api/proposals/adopt","POST",{category:p.category,problem:p.problem,suggestion:p.suggestion});
+    alert(r.message||"Adopted"); loadProposals();
+  } catch(e){ alert(e.message); } }
+
+let detectedKeysCache=[];
+async function detectAndShow(){ const text=$("detectKeys").value; if(!text.trim()) return; $("detectOut").textContent="Detecting…";
+  try { const r=await api("/api/detect-keys","POST",{text}); detectedKeysCache=r.detected||[]; const html=(r.detected||[]).map((d,i)=>
+    "<div class='row' style='align-items:center'><input type='checkbox' id='ck"+i+"' data-idx='"+i+"' checked /><span><b>"+d.label+"</b> <code>"+d.name+"</code> <span class='note'>"+d.category+(d.free?" · free":"")+(d.sensitive?" · sensitive":"")+(d.alreadySaved?" · will UPDATE the saved one":" · new")+
+    "</span></span></div>").join("");
+    if(!html) { $("detectOut").textContent="⚠ No keys detected. Paste raw API keys (AIzaSy..., gsk_..., hf_..., etc.)"; return; }
+    $("detectOut").innerHTML=html+"<div style='margin-top:12px'><button onclick='saveDetected()'>💾 Save selected keys</button> ("+r.total+" detected)</div>"; } catch(e){ $("detectOut").textContent="⚠ "+e.message; } }
+async function saveDetected(){ const indices=Array.from(document.querySelectorAll("#detectOut input[type=checkbox]:checked")).map(c=>parseInt(c.dataset.idx||"0"));
+  if(!indices.length) return alert("Select at least one key");
+  $("detectOut").textContent="Saving…";
+  try { let saved=0;
+    for(const idx of indices) { const d=detectedKeysCache[idx]; if(!d) continue; await api("/api/secrets","POST",{name:d.name,value:d.value}); saved++; }
+    $("detectOut").textContent="✅ Saved "+saved+" key(s)"; $("detectKeys").value=""; detectedKeysCache=[]; loadProviders(); loadStatus();
+  } catch(e){ $("detectOut").textContent="⚠ "+e.message; } }
 async function bulkSave(){ const text=$("bulkKeys").value; if(!text.trim()) return; $("bulkOut").textContent="Saving…";
-  try { const r=await api("/api/secrets/bulk","POST",{text}); $("bulkOut").textContent="✅ Saved "+r.saved+" key(s): "+(r.names||[]).join(", "); $("bulkKeys").value=""; loadProviders(); loadStatus(); } catch(e){ $("bulkOut").textContent="⚠ "+e.message; } }
+  try { const r=await api("/api/secrets/bulk","POST",{text}); const unknown=(r.names||[]).filter(n=>!["GROQ_API_KEY","GEMINI_API_KEY","OPENROUTER_API_KEY","ANTHROPIC_API_KEY","HUGGINGFACE_API_KEY","TAVILY_API_KEY","GITHUB_TOKEN"].includes(n)); $("bulkOut").innerHTML="✅ Saved "+r.saved+" key(s)"+(unknown.length?" ("+unknown.length+" custom)":""); $("bulkKeys").value=""; loadProviders(); loadStatus(); } catch(e){ $("bulkOut").textContent="⚠ "+e.message; } }
+async function deleteKey(name){ if(!confirm("Remove "+name+"?")) return; try { await api("/api/secrets/"+name,"DELETE"); loadProviders(); } catch(e){ alert(e.message); } }
+async function testKeys(){ $("keyTestOut").textContent="Testing each key against its real provider…";
+  try { const r=await api("/api/keys/test");
+    $("keyTestOut").innerHTML=(r.results||[]).map(x=>{
+      const cls=x.status==="valid"?"on":"off";
+      return "<div class='row'><span>"+x.name+"</span><span class='pill "+cls+"'>"+x.status+"</span><span class='note'>"+x.detail+"</span></div>";
+    }).join("");
+  } catch(e){ $("keyTestOut").textContent="⚠ "+e.message; } }
 async function loadCreds(){ const c = await api("/api/credentials");
   $("creds").innerHTML = (c.credentials.length? c.credentials : []).map(x =>
     "<div class='row'><span><b>"+x.platform+"</b> — "+x.username+"</span><button class='mini sec' onclick=\\"delCred('"+x.platform+"')\\">remove</button></div>").join("") || "<div class='note'>No logins saved yet.</div>";
