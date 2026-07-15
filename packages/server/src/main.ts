@@ -19,8 +19,11 @@ function openBrowser(url: string): void {
 /** `pnpm ui` — start the ATLAS control panel on localhost. */
 const panel = createControlPanel();
 const port = Number(process.env.ATLAS_UI_PORT ?? 4317);
+// Default stays loopback-only (laptop). Cloud deploys set ATLAS_HOST=0.0.0.0
+// so the reverse proxy (Traefik) can reach the container.
+const host = process.env.ATLAS_HOST ?? "127.0.0.1";
 
-panel.listen(port).then((p) => {
+panel.listen(port, host).then((p) => {
   const url = `http://127.0.0.1:${p}`;
   console.log("\n🛰️  ATLAS Control Panel is running.");
   console.log(`   Open  →  ${url}`);
