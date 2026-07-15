@@ -122,7 +122,6 @@ export const PAGE = `<!doctype html>
       <button data-tab="connect">🔌 Connect</button>
       <button data-tab="grow">🔨 Grow</button>
       <button data-tab="vault">🧰 Vault</button>
-      <button data-tab="status">Status</button>
       <button data-tab="keys">🔑 Keys & Logins</button>
       <button data-tab="run">⚙️ Run</button>
       <button data-tab="actions">⚡ Actions</button>
@@ -591,7 +590,9 @@ $("lockNow").onclick = async () => { try{ await api("/api/lock","POST"); }catch{
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button[data-tab]").forEach(x=>x.classList.remove("active"));
   b.classList.add("active");
-  ["chat","map","businesses","learn","connect","grow","vault","status","keys","run","actions","proposals","approvals","media-factory"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
+  // Null-safe: a missing tab div must never crash the switcher (a single
+  // throw here blanks EVERY tab — see 2026-07-16 "all tabs blank" incident).
+  ["chat","map","businesses","learn","connect","grow","vault","keys","run","actions","proposals","approvals","media-factory"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="proposals") loadProposals();
   if (b.dataset.tab==="chat") $("chatIn").focus();
@@ -966,6 +967,7 @@ $("chatIn").addEventListener("keydown", (e) => { if (e.key==="Enter" && !e.shift
 })();
 
 async function loadStatus() {
+  if (!$("statusBox")) return; // status section removed 2026-07-16; callers remain
   try { const s = await api("/api/status");
     $("statusBox").innerHTML =
       row("Plugins active", s.pluginCount) + row("Brain", s.brainMode) +
