@@ -6,6 +6,8 @@ import { HuggingFaceAdapter } from "./adapters/huggingface";
 import { OllamaAdapter } from "./adapters/ollama";
 import { StubAdapter } from "./adapters/stub";
 import { GroqAdapter } from "./adapters/groq";
+import { AnthropicAdapter } from "./adapters/anthropic";
+import { OpenRouterAdapter } from "./adapters/openrouter";
 
 /**
  * Brain plugin — exposes the "brain" service other plugins call to generate
@@ -29,18 +31,24 @@ export function createBrainPlugin(): Plugin {
       const geminiKey = await ctx.secret("GEMINI_API_KEY");
       const groqKey = await ctx.secret("GROQ_API_KEY");
       const huggingFaceKey = await ctx.secret("HUGGINGFACE_API_KEY");
+      const anthropicKey = await ctx.secret("ANTHROPIC_API_KEY");
+      const openRouterKey = await ctx.secret("OPENROUTER_API_KEY");
 
       // The router scores by capability + honest caps, not list order. Only
       // adapters whose keys are present are `available()`; the rest sit idle.
       //   Gemini 3.5 Flash — free, generous rate limit (needs GEMINI_API_KEY)
       //   Groq 70B         — free, very fast, ~1K req/day (needs GROQ_API_KEY)
       //   HuggingFace      — free tier, 45K+ specialized models (needs HUGGINGFACE_API_KEY)
+      //   Anthropic        — premium models (needs ANTHROPIC_API_KEY)
+      //   OpenRouter       — free and paid backup models (needs OPENROUTER_API_KEY)
       //   Ollama           — local, offline, unlimited; always available
       //   stub             — last-resort offline echo so ATLAS never hard-fails
       const adapters: ProviderAdapter[] = [
         new GeminiAdapter(geminiKey),
         new GroqAdapter(groqKey),
         new HuggingFaceAdapter(huggingFaceKey),
+        new AnthropicAdapter(anthropicKey),
+        new OpenRouterAdapter(openRouterKey),
         new OllamaAdapter(),
         new StubAdapter(),
       ];

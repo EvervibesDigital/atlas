@@ -3,3 +3,4 @@ packages:
   - "packages/plugins/*"
 allowBuilds:
   esbuild: true
+  ffmpeg-static: true

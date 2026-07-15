@@ -82,13 +82,26 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         };
 
         // 3. Create today's Reel (required — creative + brain must be present).
-        const reel = (await ctx.call("creative", { op: "writeReel", personaHandle, topic })) as ReelLike & { hook: string; caption: string };
+        // 3. Create today's Reel (required — creative + brain must be present).
+        const reel = (await ctx.call("creative", { op: "writeReel", personaHandle, topic })) as ReelLike & { hook: string; caption: string; voice: string; scenes: Array<{ text: string; imageUrl: string }> };
+
+        // 3b. Render the vertical video to produce a real MP4!
+        let videoRef = cmd.videoRef ?? null;
+        if (!videoRef) {
+          try {
+            console.log(`[orchestrator] Rendering video for topic: ${topic}`);
+            const renderResult = await ctx.call("publishing", { op: "render", spec: reel }) as { videoPath: string };
+            videoRef = renderResult.videoPath;
+          } catch (err) {
+            console.error("[orchestrator] Video rendering failed, proceeding without videoRef:", err);
+          }
+        }
 
         // 4. Sanity-check the plan with the Strategy Council.
         const council = (await optional<{ consensus: string; recommendation: string }>(ctx, "strategy", { op: "convene", decision: `Post a Reel about ${topic}` })) ?? null;
 
-        // 5. Queue it — Publishing gates on Mat's approval; posts nothing.
-        const publish = (await ctx.call("publishing", { op: "publish", input: reelToPublishInput(reel, cmd.videoRef ?? null) })) as {
+        // 5. Queue it — Publishing gates on Mat's approval.
+        const publish = (await ctx.call("publishing", { op: "publish", input: reelToPublishInput(reel, videoRef) })) as {
           status: string;
           detail: string;
           approvalId?: string;

@@ -3,6 +3,7 @@ import type { Approval } from "@atlas/approvals";
 import type { PublishCommand, PublishInput, PublishResult } from "./types";
 import { validateForInstagram } from "./instagram";
 import { DryRunPublisher, type Publisher } from "./publisher";
+import { VideoRenderer } from "./video-renderer";
 
 /**
  * Publishing plugin — exposes the "publishing" service for Instagram Reels.
@@ -30,6 +31,7 @@ export function createPublishingPlugin(opts: { publisher?: Publisher } = {}): Pl
     register(ctx) {
       // Pending posts, keyed by the approval they're waiting on.
       const jobs = new Map<string, PublishInput>();
+      const renderer = new VideoRenderer({ tempDir: "./data/temp" });
 
       // When Mat approves, run the publisher for the matching job.
       ctx.on("approval.granted", async (payload) => {
@@ -43,6 +45,11 @@ export function createPublishingPlugin(opts: { publisher?: Publisher } = {}): Pl
 
       ctx.provide("publishing", async (payload) => {
         const cmd = payload as PublishCommand;
+
+        if (cmd.op === "render") {
+          const videoPath = await renderer.render(cmd.spec);
+          return { videoPath };
+        }
 
         if (cmd.op === "validate") {
           const check = validateForInstagram(cmd.input);

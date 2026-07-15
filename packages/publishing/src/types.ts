@@ -37,4 +37,7 @@ export interface BrowserStep {
   note?: string;
 }
 
-export type PublishCommand = { op: "publish"; input: PublishInput } | { op: "validate"; input: PublishInput };
+export type PublishCommand =
+  | { op: "publish"; input: PublishInput }
+  | { op: "validate"; input: PublishInput }
+  | { op: "render"; spec: { voice: string; scenes: Array<{ text: string; imageUrl: string }> } };

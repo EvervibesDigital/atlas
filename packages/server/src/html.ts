@@ -117,32 +117,41 @@ export const PAGE = `<!doctype html>
     <nav>
       <button data-tab="chat" class="active">💬 Chat</button>
       <button data-tab="map">🧠 Map</button>
+      <button data-tab="businesses">💼 Businesses</button>
       <button data-tab="learn">🎓 Learn</button>
       <button data-tab="connect">🔌 Connect</button>
       <button data-tab="grow">🔨 Grow</button>
       <button data-tab="vault">🧰 Vault</button>
       <button data-tab="status">Status</button>
-      <button data-tab="keys">API Keys</button>
-      <button data-tab="logins">Platform Logins</button>
-      <button data-tab="run">Run</button>
+      <button data-tab="keys">🔑 Keys & Logins</button>
+      <button data-tab="run">⚙️ Run</button>
       <button data-tab="actions">⚡ Actions</button>
       <button data-tab="proposals">💡 Proposals</button>
       <button data-tab="approvals">Approvals</button>
+      <button data-tab="media-factory">🎬 Media Factory</button>
       <button id="lockNow" class="sec" style="margin-left:auto">Lock</button>
     </nav>
 
     <section id="tab-chat" class="card" style="padding:0;overflow:hidden;">
-      <div style="display:flex;min-height:min(74vh,800px);">
+      <div style="display:flex;height:min(74vh,800px);">
         <aside id="chatSide" style="width:236px;flex-shrink:0;border-right:1px solid var(--line);padding:14px 12px;overflow-y:auto;background:rgba(6,10,20,.45);">
           <button id="newChat" style="width:100%;margin:0 0 14px">✚ New Chat</button>
           <div id="projList"></div>
           <div style="font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.09em;margin:16px 0 6px">Recent chats</div>
           <div id="chatList"></div>
+          <div style="font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.09em;margin:24px 0 6px">🗑️ Recently Deleted</div>
+          <div id="deletedList"></div>
         </aside>
         <div style="flex:1;display:flex;flex-direction:column;padding:16px 18px;min-width:0;">
-          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:4px;">
-            <h2 id="chatTitle" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Talk to ATLAS</h2>
-            <span id="chatProj" class="note" style="margin:0;flex-shrink:0;"></span>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;width:100%">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1;">
+              <h2 id="chatTitle" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Talk to ATLAS</h2>
+              <button id="renameChatBtn" class="mini sec" style="padding:2px 6px;margin:0;display:none;" title="Rename Chat">✏️ Rename</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+              <span id="chatProj" class="note" style="margin:0;"></span>
+              <button id="moveProjBtn" class="mini sec" style="padding:2px 6px;margin:0;display:none;" title="Move to Project">📁 Project</button>
+            </div>
           </div>
           <div id="chatBox" style="flex:1;overflow-y:auto;padding:10px 4px;"></div>
           <div style="display:flex;gap:8px;margin-top:10px;align-items:flex-end;">
@@ -254,71 +263,121 @@ export const PAGE = `<!doctype html>
       <label style="margin-top:14px">Import our Claude chat history (folder with .jsonl transcripts)</label>
       <div style="display:flex;gap:8px;"><input id="histDir" placeholder="C:\\Users\\matbr\\.claude\\projects\\C--Users-matbr-claudecode1" style="flex:1" /><button style="margin-top:0" onclick="importHistory()">Import</button></div>
       <div class="note">Reads the local Claude Code transcripts of everything we've built and files them into ATLAS's memory.</div>
-
-      <h2 style="margin-top:22px">Your businesses</h2>
-      <div id="bizList" class="note">Loading…</div>
-      <label style="margin-top:10px">Add a business</label>
-      <input id="bizName" placeholder="Business name" />
-      <input id="bizUrl" placeholder="https://its-website.com (so ATLAS can study it)" style="margin-top:6px" />
-      <input id="bizGoal" placeholder="Goal, e.g. grow to $5k/mo" style="margin-top:6px" />
-      <button onclick="addBiz()">Add business</button>
-      <div class="note">ATLAS studies one business site each night automatically and files notes to memory. Signing up / posting / installing stays behind your approval.</div>
     </section>
 
-    <section id="tab-status" class="card hide">
-      <h2>Readiness</h2><div id="statusBox">Loading…</div>
-      <button class="sec" onclick="loadStatus()">Refresh</button>
+    <section id="tab-businesses" class="card hide">
+      <div style="display:flex; height:min(70vh, 700px); gap:16px;">
+        <aside style="width:260px; flex-shrink:0; border-right:1px solid var(--line); padding-right:16px; overflow-y:auto; display:flex; flex-direction:column; justify-content:space-between;">
+          <div>
+            <h2>Your Businesses</h2>
+            <div id="bizList" style="margin-top:10px; display:flex; flex-direction:column; gap:8px;">Loading…</div>
+          </div>
+          <div style="border-top:1px solid var(--line); padding-top:12px; margin-top:16px;">
+            <h3>Add a business</h3>
+            <input id="bizName" placeholder="Business name" style="width:100%" />
+            <input id="bizUrl" placeholder="https://its-website.com" style="margin-top:6px; width:100%" />
+            <input id="bizGoal" placeholder="Goal, e.g. grow to $5k/mo" style="margin-top:6px; width:100%" />
+            <button onclick="addBiz()" style="width:100%; margin-top:8px;">Add business</button>
+          </div>
+        </aside>
+        <main style="flex:1; overflow-y:auto; padding-left:8px;">
+          <div id="bizDetailPlaceholder" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--mut);">
+            <span style="font-size:48px;">💼</span>
+            <p>Select a business from the sidebar to view details, goal status, and trigger research.</p>
+          </div>
+          <div id="bizDetailBox" style="display:none; flex-direction:column; gap:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <h2 id="bizDetailName" style="margin:0;">Business Name</h2>
+              <span id="bizDetailStage" class="pill on" style="text-transform:uppercase;">Idea</span>
+            </div>
+            <div>
+              <strong>Goal:</strong>
+              <p id="bizDetailGoal" style="margin:4px 0 0 0; color:var(--txt);">No goal set.</p>
+            </div>
+            <div>
+              <strong>Website:</strong>
+              <p style="margin:4px 0 0 0;"><a id="bizDetailUrl" href="#" target="_blank" style="color:var(--acc);">https://example.com</a></p>
+            </div>
+            <div style="border-top:1px solid var(--line); padding-top:14px; margin-top:10px;">
+              <h3>Research &amp; Learnings</h3>
+              <div class="note">ATLAS runs an automated study on your business website each night to gather insights, competitor profiles, and growth targets.</div>
+              <button class="mini" id="bizStudyBtn" style="margin-top:8px;">⚡ Study Website Now</button>
+              <pre id="bizDetailStudyOut" class="hide" style="margin-top:12px; white-space:pre-wrap; background:rgba(0,0,0,0.2); padding:10px; border-radius:4px; border-left:3px solid var(--acc); max-height:300px; overflow-y:auto; font-family:monospace;"></pre>
+            </div>
+          </div>
+        </main>
+      </div>
     </section>
 
     <section id="tab-keys" class="card hide">
-      <h2>🔑 Smart Key Detection</h2>
-      <div class="note">Paste any API key (raw key, one per line). ATLAS detects the service, shows you what it found, then saves it.</div>
-      <textarea id="detectKeys" rows="5" placeholder="AIzaSy...&#10;gsk_...&#10;hf_...&#10;tvly-..." style="margin-top:8px;font-family:monospace"></textarea>
-      <button onclick="detectAndShow()">🔍 Detect keys</button>
-      <div id="detectOut" style="margin-top:12px"></div>
+      <h2>🔑 Encrypted Secrets &amp; Credentials Vault</h2>
+      <div class="note">Store all credentials locally and securely. Values are encrypted on disk using your master password and never leave this device.</div>
 
-      <h2 style="margin-top:20px">Paste all your keys at once (legacy)</h2>
-      <div class="note">Paste one per line — any of these formats work: <code>NAME=value</code>, <code>NAME: value</code>, or <code>NAME value</code>. Blank lines and # comments are ignored. Then click Save all.</div>
-      <textarea id="bulkKeys" rows="7" placeholder="GROQ_API_KEY=gsk_...&#10;GEMINI_API_KEY=...&#10;OPENROUTER_API_KEY=...&#10;GITHUB_TOKEN=ghp_...&#10;VERCEL_TOKEN=...&#10;SUPABASE_TOKEN=sbp_..." style="margin-top:8px;font-family:monospace"></textarea>
-      <button onclick="bulkSave()">💾 Save all keys</button>
-      <button class="sec" onclick="exportEnv()">🌙 Enable overnight runs</button>
-      <button class="sec" onclick="testKeys()">🧪 Test my keys (live)</button>
-      <div id="bulkOut" class="note"></div>
-      <div id="keyTestOut" class="note" style="margin-top:8px"></div>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 14px;">
+        <!-- Left Side: API Keys & Secrets -->
+        <div style="border-right: 1px solid var(--line); padding-right: 20px;">
+          <h3>Smart API Key Input</h3>
+          <div class="note">Paste raw API keys (one per line). ATLAS will auto-detect the service and save it.</div>
+          <textarea id="detectKeys" rows="4" placeholder="AIzaSy...&#10;gsk_...&#10;hf_...&#10;tvly-..." style="margin-top:8px;font-family:monospace;width:100%;"></textarea>
+          <button onclick="detectAndShow()" style="width:100%;">🔍 Detect &amp; Save keys</button>
+          <div id="detectOut" style="margin-top:12px"></div>
 
-      <h2 style="margin-top:20px">Status</h2>
-      <div id="providers"></div>
-      <label>Key name</label>
-      <select id="keyName">
-        <option>GROQ_API_KEY</option><option>GEMINI_API_KEY</option>
-        <option>OPENROUTER_API_KEY</option><option>ANTHROPIC_API_KEY</option>
-      </select>
-      <label>Key value</label>
-      <input id="keyVal" type="password" placeholder="paste the key" />
-      <button onclick="saveKey()">Save key (encrypted)</button>
-      <button class="sec" onclick="exportEnv()">🌙 Enable overnight runs (copy keys to this computer)</button>
-      <div class="note">Keys are encrypted with your master password and used to power the Brain. Grab free ones: console.groq.com · aistudio.google.com · openrouter.ai<br/><br/>🌙 "Enable overnight runs" copies your keys into a local file so ATLAS can work at night without your password. That file stays on this computer only and is never uploaded — but it is not encrypted, so only do this on your own laptop.</div>
-    </section>
+          <h3 style="margin-top:20px">Bulk Save (legacy/plaintext env)</h3>
+          <textarea id="bulkKeys" rows="4" placeholder="GROQ_API_KEY=gsk_...&#10;GEMINI_API_KEY=...&#10;OPENROUTER_API_KEY=..." style="margin-top:8px;font-family:monospace;width:100%;"></textarea>
+          <button onclick="bulkSave()" style="width:100%;">💾 Save all keys</button>
+          <button class="sec" onclick="testKeys()" style="width:100%;margin-top:6px;">🧪 Test my keys (live)</button>
+          <div id="bulkOut" class="note"></div>
+          <div id="keyTestOut" class="note" style="margin-top:8px"></div>
 
-    <section id="tab-logins" class="card hide">
-      <h2>Platform logins</h2>
-      <div id="creds"></div>
-      <label>Platform</label>
-      <input id="cPlat" placeholder="instagram" />
-      <label>Username / email</label>
-      <input id="cUser" placeholder="you@example.com" />
-      <label>Password</label>
-      <input id="cPass" type="password" placeholder="stored encrypted" />
-      <label>Notes (optional)</label>
-      <input id="cNote" placeholder="2FA backup codes, etc." />
-      <button onclick="saveCred()">Save login (encrypted)</button>
-      <div class="note">⚠️ Stored encrypted, locally, never uploaded. Note: some platforms (e.g. Instagram) may flag automated password logins — we may later switch to a saved login session for safety. ATLAS never posts without your approval.</div>
+          <h3 style="margin-top:20px">Active API Providers</h3>
+          <div id="providers"></div>
+          <label>Manual key name</label>
+          <select id="keyName" style="width:100%;">
+            <option>GROQ_API_KEY</option><option>GEMINI_API_KEY</option>
+            <option>OPENROUTER_API_KEY</option><option>ANTHROPIC_API_KEY</option>
+            <option>ELEVENLABS_API_KEY</option><option>FAL_API_KEY</option>
+          </select>
+          <label>Key value</label>
+          <input id="keyVal" type="password" placeholder="paste key value" style="width:100%;" />
+          <button onclick="saveKey()" style="width:100%;margin-top:8px;">Save key</button>
+          <button class="sec" onclick="exportEnv()" style="width:100%;margin-top:6px;">🌙 Enable overnight runs (copy keys to this computer)</button>
+        </div>
+
+        <!-- Right Side: Platform Logins -->
+        <div>
+          <h3>Stored Platform Logins</h3>
+          <div id="creds" style="margin-bottom:12px;"></div>
+          <label>Platform</label>
+          <input id="cPlat" placeholder="instagram" style="width:100%;" />
+          <label>Username / email</label>
+          <input id="cUser" placeholder="you@example.com" style="width:100%;" />
+          <label>Password</label>
+          <input id="cPass" type="password" placeholder="stored encrypted" style="width:100%;" />
+          <label>Notes (optional)</label>
+          <input id="cNote" placeholder="2FA backup codes, etc." style="width:100%;" />
+          <button onclick="saveCred()" style="width:100%;margin-top:8px;">Save login</button>
+        </div>
+      </div>
     </section>
 
     <section id="tab-run" class="card hide">
-      <h2>Run one autonomous day</h2>
-      <button onclick="runCycle()">▶ Run daily cycle (posts nothing)</button>
-      <pre id="report" class="hide"></pre>
+      <h2>⚙️ Run Automation</h2>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div style="border-right: 1px solid var(--line); padding-right: 20px;">
+          <h3>Manual Run</h3>
+          <button onclick="runCycle()" style="width:100%;">▶ Run daily cycle (posts nothing)</button>
+          <pre id="report" class="hide" style="margin-top:12px; max-height:400px; overflow-y:auto; background:rgba(0,0,0,0.2); padding:10px; border-radius:4px; font-family:monospace; white-space:pre-wrap;"></pre>
+        </div>
+        <div>
+          <h3>⏰ Hourly Automation Daemon</h3>
+          <div class="note">Enable this to let ATLAS run its autonomous business cycles (research, script drafting, asset generation, metrics gathering) in the background every hour.</div>
+          <div style="display:flex; align-items:center; gap:10px; margin-top:12px; background:rgba(255,255,255,0.05); padding:12px; border-radius:4px;">
+            <input type="checkbox" id="automationToggle" style="width:auto; margin:0;" onchange="toggleAutomation()" />
+            <label for="automationToggle" style="font-weight:bold; margin:0; cursor:pointer;">Enable Hourly background automation</label>
+          </div>
+          <div id="automationStatus" class="note" style="margin-top:12px;">Status: Stopped</div>
+        </div>
+      </div>
     </section>
 
     <section id="tab-actions" class="card hide">
@@ -344,7 +403,157 @@ export const PAGE = `<!doctype html>
     <section id="tab-approvals" class="card hide">
       <h2>Awaiting your approval</h2>
       <div id="approvals">None loaded.</div>
-      <button class="sec" onclick="loadApprovals()">Refresh</button>
+    </section>
+
+    <section id="tab-media-factory" class="card hide" style="max-width: 1200px;">
+      <h2>🎬 Virtual Media Factory</h2>
+      <p class="note" style="margin-bottom: 20px;">Manage, orchestrate, and monetize your AI creator network. Generate target concepts, strategy calendars, scripts, and analyze business performance.</p>
+      
+      <div style="display:flex; gap: 20px; min-height: 550px;">
+        <!-- Left Sidebar: Creators List -->
+        <aside style="width: 250px; flex-shrink: 0; border-right: 1px solid var(--line); padding-right: 15px;">
+          <button style="width:100%; margin-bottom: 15px;" onclick="openCreatorCreateModal()">✚ Create Creator</button>
+          <div id="mfCreatorsList" style="display: flex; flex-direction: column; gap: 8px;">
+            <div class="note">Loading creators...</div>
+          </div>
+        </aside>
+
+        <!-- Right Content Detail Box -->
+        <div id="mfDetailBox" style="flex: 1; display: none; flex-direction: column; gap: 15px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 10px;">
+            <div>
+              <h3 id="mfCreatorName" style="margin:0;">Creator Name</h3>
+              <code id="mfCreatorHandle" style="font-size: 13px; color: var(--acc);">@handle</code>
+            </div>
+            <div>
+              <button class="mini sec" onclick="deleteCurrentCreator()">Delete Profile</button>
+            </div>
+          </div>
+
+          <!-- Tab Navigation for Detail -->
+          <div style="display: flex; gap: 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px;">
+            <button class="mini" onclick="setMFSubTab('identity')">Identity</button>
+            <button class="mini" onclick="setMFSubTab('memory')">Memory Book</button>
+            <button class="mini" onclick="setMFSubTab('strategy')">Strategy Board</button>
+            <button class="mini" onclick="setMFSubTab('production')">Production Pipeline</button>
+            <button class="mini" onclick="setMFSubTab('monetization')">Monetization</button>
+            <button class="mini" onclick="setMFSubTab('analytics')">BI Analytics</button>
+          </div>
+
+          <!-- Detail Sections -->
+          <div id="mfSubTab-identity" class="mfSubTab">
+            <h4>Identity Blueprint</h4>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
+              <div>
+                <label>Age Range / Gender</label>
+                <div id="mfIdentityAgeGender" class="row">Loading...</div>
+                <label>Appearance Profile</label>
+                <div id="mfIdentityAppearance" class="note" style="white-space: pre-wrap;">Loading...</div>
+                <label>Personality Traits</label>
+                <div id="mfIdentityTraits" style="display:flex; gap:5px; flex-wrap:wrap; margin-top:5px;">Loading...</div>
+              </div>
+              <div>
+                <label>Speaking Style</label>
+                <div id="mfIdentitySpeaking" class="row">Loading...</div>
+                <label>Humor Style</label>
+                <div id="mfIdentityHumor" class="row">Loading...</div>
+                <label>Background Story</label>
+                <div id="mfIdentityBackground" class="note" style="white-space: pre-wrap;">Loading...</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="mfSubTab-memory" class="mfSubTab hide">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+              <h4>Memory &amp; Evolution Book</h4>
+              <button class="mini" onclick="openAddMemoryModal()">✚ Add Memory Record</button>
+            </div>
+            <div id="mfMemoriesList" style="display:flex; flex-direction:column; gap:8px; max-height: 350px; overflow-y:auto;">
+              <div class="note">No memories saved. Add one to refine identity consistency.</div>
+            </div>
+          </div>
+
+          <div id="mfSubTab-strategy" class="mfSubTab hide">
+            <h4>Content Strategy Board</h4>
+            
+            <div style="border: 1px solid var(--line); padding: 15px; border-radius: 6px; margin-bottom: 15px; background: rgba(255,255,255,0.02)">
+              <h5>🔍 Audience Intelligence &amp; Trend Scout</h5>
+              <div style="display:flex; gap:10px; margin-bottom:10px;">
+                <input id="scoutNiche" placeholder="Enter target niche (e.g. lifestyle fitness, passive income, travel)..." style="flex:1; margin-top:0;" />
+                <button onclick="runScoutAgent()" style="margin-top:0;">Run Scout Agent</button>
+              </div>
+              <div id="scoutResults" class="note hide" style="white-space: pre-wrap; padding: 10px; border: 1px dashed var(--line); border-radius: 4px;"></div>
+            </div>
+
+            <div style="border: 1px solid var(--line); padding: 15px; border-radius: 6px; background: rgba(255,255,255,0.02)">
+              <h5>📅 Content Strategy Planner</h5>
+              <div style="display:flex; gap:10px; margin-bottom:10px;">
+                <input id="planTrends" placeholder="Summarize trending focus (e.g. Summer routines, high volume workouts)..." style="flex:1; margin-top:0;" />
+                <button onclick="runPlanAgent()" style="margin-top:0;">Generate Weekly Strategy</button>
+              </div>
+              <div id="planResults" class="note hide"></div>
+            </div>
+          </div>
+
+          <div id="mfSubTab-production" class="mfSubTab hide">
+            <h4>Content Production Pipeline</h4>
+            <div id="mfProductionList" style="display:flex; flex-direction:column; gap:10px; max-height: 400px; overflow-y:auto;">
+              <div class="note">No items planned. Use Strategy Board to generate weekly ideas.</div>
+            </div>
+          </div>
+
+          <div id="mfSubTab-monetization" class="mfSubTab hide">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+              <h4>Monetization &amp; Links</h4>
+              <button class="mini" onclick="openAddPartnershipModal()">✚ Add Monetization Deal</button>
+            </div>
+            <div id="mfPartnershipsList" style="display:flex; flex-direction:column; gap:8px;">
+              <div class="note">No monetization partnerships configured.</div>
+            </div>
+          </div>
+
+          <div id="mfSubTab-analytics" class="mfSubTab hide">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+              <h4>BI Analytics Dashboard</h4>
+              <button class="mini sec" onclick="injectDemoAnalytics()">🧪 Simulate Performance Data</button>
+            </div>
+            
+            <!-- KPIs -->
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 15px;">
+              <div class="row" style="flex-direction:column; align-items:flex-start; padding: 10px; border-radius:4px; border: 1px solid var(--line);">
+                <span class="note" style="font-size: 11px;">Total Views</span>
+                <span id="kpiViews" style="font-size: 20px; font-weight:bold;">0</span>
+              </div>
+              <div class="row" style="flex-direction:column; align-items:flex-start; padding: 10px; border-radius:4px; border: 1px solid var(--line);">
+                <span class="note" style="font-size: 11px;">Total Likes</span>
+                <span id="kpiLikes" style="font-size: 20px; font-weight:bold;">0</span>
+              </div>
+              <div class="row" style="flex-direction:column; align-items:flex-start; padding: 10px; border-radius:4px; border: 1px solid var(--line);">
+                <span class="note" style="font-size: 11px;">Total Link Clicks</span>
+                <span id="kpiClicks" style="font-size: 20px; font-weight:bold;">0</span>
+              </div>
+              <div class="row" style="flex-direction:column; align-items:flex-start; padding: 10px; border-radius:4px; border: 1px solid var(--line);">
+                <span class="note" style="font-size: 11px;">Total Revenue</span>
+                <span id="kpiRevenue" style="font-size: 20px; font-weight:bold; color: var(--acc);">$0.00</span>
+              </div>
+            </div>
+
+            <!-- Business Intelligence Advice Box -->
+            <div style="border: 1px solid var(--acc); padding: 12px; border-radius: 4px; background: rgba(34,211,238,0.03); margin-top: 10px;">
+              <h5>💡 Business Intelligence Recommendation</h5>
+              <div id="mfBIRecommendation" class="note">Analyzing statistics... generate more content data to populate decision guidance indicators.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Placeholder when no creator is selected -->
+        <div id="mfPlaceholderBox" style="flex: 1; display: flex; align-items: center; justify-content: center; border: 1px dashed var(--line); border-radius: 6px;">
+          <div class="note" style="text-align:center;">
+            <h3>No Virtual Creator Selected</h3>
+            <p>Select a creator from the left menu or create a new profile to get started.</p>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 </main>
@@ -372,7 +581,7 @@ $("lockBtn").onclick = async () => {
     const res = await api(h.initialized ? "/api/unlock" : "/api/setup", "POST", { masterPassword: pw });
     TOKEN = res.token;
     $("lock").classList.add("hide"); $("app").classList.remove("hide");
-    loadStatus(); loadProviders(); loadCreds(); loadChats();
+    loadStatus(); loadProviders(); loadCreds(); loadChats(); loadAutomationStatus();
     bubble("bot", "ATLAS online. Ask me anything — business strategy, content ideas, or what I've been working on. Everything we discuss becomes part of my memory.");
     $("chatIn").focus();
   } catch (e) { $("lockErr").textContent = e.message; }
@@ -382,15 +591,18 @@ $("lockNow").onclick = async () => { try{ await api("/api/lock","POST"); }catch{
 document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button[data-tab]").forEach(x=>x.classList.remove("active"));
   b.classList.add("active");
-  ["chat","map","learn","connect","grow","vault","status","keys","logins","run","actions","proposals","approvals"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
+  ["chat","map","businesses","learn","connect","grow","vault","status","keys","run","actions","proposals","approvals","media-factory"].forEach(t => $("tab-"+t).classList.toggle("hide", t!==b.dataset.tab));
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="proposals") loadProposals();
   if (b.dataset.tab==="chat") $("chatIn").focus();
-  if (b.dataset.tab==="learn") loadBiz();
+  if (b.dataset.tab==="businesses") loadBiz();
   if (b.dataset.tab==="actions") loadActions();
   if (b.dataset.tab==="vault") loadTools();
   if (b.dataset.tab==="grow") loadSkills();
   if (b.dataset.tab==="map") renderMap();
+  if (b.dataset.tab==="keys") { loadCreds(); loadProviders(); }
+  if (b.dataset.tab==="run") loadAutomationStatus();
+  if (b.dataset.tab==="media-factory") loadCreators();
 });
 
 // ── Grow: skills + forge ──
@@ -490,12 +702,89 @@ async function bulkLearn(){ const text=$("bulkUrls").value; if(!text.trim()) ret
   try { const r=await api("/api/learn/bulk","POST",{text}); $("bulkLearnOut").textContent="Studied "+r.total+" site(s):\\n"+(r.results||[]).map(x=>(x.ok?"✅ ":"⚠ ")+x.url+(x.ok?" — "+(x.title||""):" ("+x.error+")")).join("\\n"); } catch(e){ $("bulkLearnOut").textContent="⚠ "+e.message; } }
 async function learnRepo(){ const repo=$("repoName").value.trim(); if(!repo) return; $("learnOut").classList.remove("hide"); $("learnOut").textContent="Analyzing "+repo+" …";
   try { const r = await api("/api/repo","POST",{repo}); $("learnOut").textContent = "📦 "+repo+"\\n\\n"+r.notes; } catch(e){ $("learnOut").textContent="⚠ "+e.message; } }
-async function loadBiz(){ try { const r = await api("/api/businesses"); const list = r.businesses||[];
-  $("bizList").innerHTML = list.length ? list.map(b => "<div class='row'><span><b>"+b.name+"</b> — "+(b.stage||"idea")+(b.url?" · "+b.url:"")+"</span>"+(b.url?"<button class='mini' onclick=\\"researchBiz('"+b.id+"')\\">study now</button>":"")+"</div>").join("") : "<div class='note'>No businesses yet. Add your first below.</div>";
-  } catch(e){ $("bizList").textContent=e.message; } }
-async function addBiz(){ try { await api("/api/businesses","POST",{name:$("bizName").value,url:$("bizUrl").value,goal:$("bizGoal").value}); ["bizName","bizUrl","bizGoal"].forEach(i=>$(i).value=""); loadBiz(); } catch(e){ alert(e.message);} }
-async function researchBiz(id){ $("learnOut").classList.remove("hide"); $("learnOut").textContent="Studying…";
-  try { const r = await api("/api/businesses/"+encodeURIComponent(id)+"/research","POST"); $("learnOut").textContent = r.notes ? ("🏢 "+r.business.name+"\\n\\n"+r.notes) : ("Skipped: "+(r.skipped||"")); loadBiz(); } catch(e){ $("learnOut").textContent="⚠ "+e.message; } }
+let activeBizId = null;
+
+async function loadBiz() {
+  try {
+    const r = await api("/api/businesses");
+    const list = r.businesses || [];
+    const container = $("bizList");
+    if (!list.length) {
+      container.innerHTML = \`<div class="note">No businesses yet. Add your first below.</div>\`;
+      $("bizDetailBox").style.display = "none";
+      $("bizDetailPlaceholder").style.display = "flex";
+      return;
+    }
+    container.innerHTML = list.map(b => \`
+      <div class="row" style="cursor:pointer; \${activeBizId === b.id ? 'border:1px solid var(--acc); background:rgba(34,211,238,0.08);' : ''}" onclick="selectBiz('\${b.id}')">
+        <span><b>\${b.name}</b><br><span style="font-size:11px;color:var(--mut);">\${b.stage || 'idea'}</span></span>
+      </div>
+    \`).join("");
+  } catch (e) {
+    $("bizList").innerHTML = \`<div class="err">\${e.message}</div>\`;
+  }
+}
+
+async function selectBiz(id) {
+  activeBizId = id;
+  $("bizDetailPlaceholder").style.display = "none";
+  $("bizDetailBox").style.display = "flex";
+  
+  loadBiz();
+  
+  try {
+    const r = await api("/api/businesses");
+    const biz = (r.businesses || []).find(b => b.id === id);
+    if (!biz) return;
+
+    $("bizDetailName").textContent = biz.name;
+    $("bizDetailStage").textContent = biz.stage || "idea";
+    $("bizDetailGoal").textContent = biz.goal || "No goal configured yet.";
+    
+    if (biz.url) {
+      $("bizDetailUrl").href = biz.url;
+      $("bizDetailUrl").textContent = biz.url;
+      $("bizDetailUrl").style.display = "inline";
+      $("bizStudyBtn").style.display = "inline-block";
+      $("bizStudyBtn").onclick = () => researchBiz(biz.id);
+    } else {
+      $("bizDetailUrl").style.display = "none";
+      $("bizStudyBtn").style.display = "none";
+    }
+
+    $("bizDetailStudyOut").classList.add("hide");
+    $("bizDetailStudyOut").textContent = "";
+  } catch (e) {
+    alert("Error loading business details: " + e.message);
+  }
+}
+
+async function addBiz() {
+  const name = $("bizName").value.trim();
+  const url = $("bizUrl").value.trim();
+  const goal = $("bizGoal").value.trim();
+  if (!name) return;
+  try {
+    await api("/api/businesses", "POST", { name, url, goal });
+    ["bizName", "bizUrl", "bizGoal"].forEach(i => $(i).value = "");
+    loadBiz();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function researchBiz(id) {
+  const out = $("bizDetailStudyOut");
+  out.classList.remove("hide");
+  out.textContent = "ATLAS Agent is studying your business website & compiling market research...";
+  try {
+    const r = await api("/api/businesses/" + encodeURIComponent(id) + "/research", "POST");
+    out.textContent = r.notes ? r.notes : ("Skipped: " + (r.skipped || ""));
+    loadBiz();
+  } catch (e) {
+    out.textContent = "Error: " + e.message;
+  }
+}
 
 // ── Chat + sessions (Claude-like sidebar) ──
 let chatHistory = [];
@@ -509,21 +798,36 @@ function bubble(role, text){
   return d;
 }
 
-// Render the sidebar: chats grouped by project, then loose chats.
+// Render the sidebar: chats grouped by project, loose chats, and recently deleted.
 async function loadChats(){
   let data; try { data = await api("/api/chats"); } catch { return; }
   const byProj = {};
-  for (const s of data.sessions){ (byProj[s.project||""] = byProj[s.project||""]||[]).push(s); }
+  const deletedChats = [];
+  for (const s of data.sessions){
+    if (s.deleted) {
+      deletedChats.push(s);
+    } else {
+      (byProj[s.project||""] = byProj[s.project||""]||[]).push(s);
+    }
+  }
   const chatList = $("chatList"); chatList.innerHTML="";
   const projList = $("projList"); projList.innerHTML="";
-  // Projects first (with their chats), then the loose "Recent" list gets the rest.
+  const delList = $("deletedList"); delList.innerHTML="";
+
+  // Projects first (with their chats)
   const projNames = Object.keys(byProj).filter(p=>p).sort();
   for (const p of projNames){
     const h=document.createElement("div"); h.className="projGroup"; h.textContent="📁 "+p; projList.appendChild(h);
     for (const s of byProj[p]) projList.appendChild(chatRow(s));
   }
+
+  // Loose chats
   for (const s of (byProj[""]||[])) chatList.appendChild(chatRow(s));
   if(!(byProj[""]||[]).length) chatList.innerHTML='<div class="note" style="margin:4px">No loose chats yet.</div>';
+
+  // Deleted chats
+  for (const s of deletedChats) delList.appendChild(deletedChatRow(s));
+  if(!deletedChats.length) delList.innerHTML='<div class="note" style="margin:4px">Trash is empty.</div>';
 }
 function chatRow(s){
   const d=document.createElement("div");
@@ -531,7 +835,26 @@ function chatRow(s){
   d.innerHTML='<span style="overflow:hidden;text-overflow:ellipsis">'+ (s.title||"New chat").replace(/</g,"&lt;") +'</span><span class="del" title="Delete">✕</span>';
   d.querySelector("span").onclick=()=>openChat(s.id);
   d.onclick=(e)=>{ if(!e.target.classList.contains("del")) openChat(s.id); };
-  d.querySelector(".del").onclick=async(e)=>{ e.stopPropagation(); if(!confirm("Delete this chat?"))return; await api("/api/chats/"+s.id,"DELETE"); if(s.id===currentSessionId){currentSessionId=null;$("chatBox").innerHTML="";$("chatTitle").textContent="Talk to ATLAS";$("chatProj").textContent="";} loadChats(); };
+  d.querySelector(".del").onclick=async(e)=>{ e.stopPropagation(); if(!confirm("Move this chat to Recently Deleted?"))return; await api("/api/chats/"+s.id,"DELETE"); if(s.id===currentSessionId){ openChat(s.id); } else { loadChats(); } };
+  return d;
+}
+function deletedChatRow(s){
+  const d=document.createElement("div");
+  d.className="chatItem"+(s.id===currentSessionId?" active":"");
+  d.innerHTML='<span style="overflow:hidden;text-overflow:ellipsis;text-decoration:line-through;color:var(--mut)">🗑️ '+ (s.title||"Deleted chat").replace(/</g,"&lt;") +'</span><span style="margin-left:auto;display:flex;gap:6px;"><span class="restore" title="Restore" style="cursor:pointer">↩️</span><span class="purge" title="Delete permanently" style="cursor:pointer;color:var(--bad)">✕</span></span>';
+  d.onclick=(e)=>{ if(!e.target.classList.contains("restore") && !e.target.classList.contains("purge")) openChat(s.id); };
+  d.querySelector(".restore").onclick=async(e)=>{
+    e.stopPropagation();
+    await api("/api/chats/"+s.id, "PATCH", { deleted: false });
+    if (s.id === currentSessionId) { openChat(s.id); } else { loadChats(); }
+  };
+  d.querySelector(".purge").onclick=async(e)=>{
+    e.stopPropagation();
+    if(!confirm("Permanently delete this chat forever?")) return;
+    await api("/api/chats/"+s.id + "?purge=true", "DELETE");
+    if(s.id===currentSessionId){currentSessionId=null;$("chatBox").innerHTML="";$("chatTitle").textContent="Talk to ATLAS";$("chatProj").textContent="";$("renameChatBtn").style.display="none";$("moveProjBtn").style.display="none";}
+    loadChats();
+  };
   return d;
 }
 async function openChat(id){
@@ -541,7 +864,30 @@ async function openChat(id){
   $("chatBox").innerHTML="";
   for (const m of s.messages) bubble(m.role, m.text);
   $("chatTitle").textContent = s.title||"Chat";
-  $("chatProj").textContent = s.project ? "📁 "+s.project : "";
+  
+  if (s.deleted) {
+    $("renameChatBtn").style.display = "none";
+    $("moveProjBtn").style.display = "none";
+    $("chatProj").textContent = "🗑️ Deleted";
+  } else {
+    $("chatProj").textContent = s.project ? "📁 "+s.project : "";
+    $("renameChatBtn").style.display = "inline-block";
+    $("moveProjBtn").style.display = "inline-block";
+    $("renameChatBtn").onclick = async () => {
+      const newTitle = prompt("Rename chat:", s.title || "");
+      if (newTitle !== null && newTitle.trim()) {
+        await api("/api/chats/"+id, "PATCH", { title: newTitle.trim() });
+        openChat(id);
+      }
+    };
+    $("moveProjBtn").onclick = async () => {
+      const newProj = prompt("Enter project name (empty for Inbox):", s.project || "");
+      if (newProj !== null) {
+        await api("/api/chats/"+id, "PATCH", { project: newProj.trim() });
+        openChat(id);
+      }
+    };
+  }
   loadChats();
 }
 async function newChat(){
@@ -551,6 +897,8 @@ async function newChat(){
   $("chatBox").innerHTML="";
   $("chatTitle").textContent = "New chat";
   $("chatProj").textContent = "";
+  $("renameChatBtn").style.display = "none";
+  $("moveProjBtn").style.display = "none";
   bubble("bot","New chat started. What are we working on?");
   loadChats();
   $("chatIn").focus();
@@ -558,7 +906,6 @@ async function newChat(){
 async function sendChat(){
   const msg = $("chatIn").value.trim();
   if (!msg) return;
-  // Auto-create a session on first message so nothing is lost.
   if (!currentSessionId){ try { const s=await api("/api/chats","POST",{}); currentSessionId=s.id; } catch{} }
   $("chatIn").value = "";
   bubble("user", msg);
@@ -570,7 +917,30 @@ async function sendChat(){
     const secs = (r.latencyMs/1000).toFixed(1);
     const warn = r.provider==="stub" ? " ⚠️ (see reply for why the live brains failed)" : "";
     $("chatMeta").textContent = "Answered by "+r.provider+" ("+r.model+") in "+secs+"s · saved"+warn;
-    loadChats(); // refresh titles/order
+    
+    // Update active chat title/buttons once auto-named
+    const activeSession = await api("/api/chats/" + currentSessionId);
+    if (activeSession && !activeSession.deleted) {
+      $("chatTitle").textContent = activeSession.title;
+      $("chatProj").textContent = activeSession.project ? "📁 " + activeSession.project : "";
+      $("renameChatBtn").style.display = "inline-block";
+      $("moveProjBtn").style.display = "inline-block";
+      $("renameChatBtn").onclick = async () => {
+        const newTitle = prompt("Rename chat:", activeSession.title || "");
+        if (newTitle !== null && newTitle.trim()) {
+          await api("/api/chats/"+currentSessionId, "PATCH", { title: newTitle.trim() });
+          openChat(currentSessionId);
+        }
+      };
+      $("moveProjBtn").onclick = async () => {
+        const newProj = prompt("Enter project name (empty for Inbox):", activeSession.project || "");
+        if (newProj !== null) {
+          await api("/api/chats/"+currentSessionId, "PATCH", { project: newProj.trim() });
+          openChat(currentSessionId);
+        }
+      };
+    }
+    loadChats();
   } catch(e){ thinking.textContent = "⚠ " + e.message; }
 }
 $("chatSend").onclick = sendChat;
@@ -691,6 +1061,419 @@ async function loadApprovals(){ try { const a = await api("/api/approvals");
   } catch(e){ $("approvals").textContent = e.message; } }
 async function decide(id, action){ await api("/api/approvals/"+encodeURIComponent(id)+"/"+action,"POST"); loadApprovals(); }
 function row(k,v){ return "<div class='row'><span>"+k+"</span><b>"+v+"</b></div>"; }
+// ── Virtual Media Factory Logic ──
+let activeCreatorId = null;
+let activeMFSubTab = "identity";
+
+async function loadCreators() {
+  try {
+    const list = await api("/api/media-factory/creators");
+    const container = $("mfCreatorsList");
+    if (!list.length) {
+      container.innerHTML = \`<div class="note">No virtual creators. Create your first profile below.</div>\`;
+      $("mfDetailBox").style.display = "none";
+      $("mfPlaceholderBox").style.display = "flex";
+      return;
+    }
+    container.innerHTML = list.map(c => \`
+      <div class="row" style="cursor:pointer; \${activeCreatorId === c.id ? 'border:1px solid var(--acc); background:rgba(34,211,238,0.08);' : ''}" onclick="selectCreator('\${c.id}')">
+        <span><b>\${c.name}</b><br><code style="font-size:11px;color:var(--mut);">@\${c.handle}</code></span>
+      </div>
+    \`).join("");
+  } catch (e) {
+    $("mfCreatorsList").innerHTML = \`<div class="err">\${e.message}</div>\`;
+  }
+}
+
+async function selectCreator(id) {
+  activeCreatorId = id;
+  $("mfPlaceholderBox").style.display = "none";
+  $("mfDetailBox").style.display = "flex";
+  
+  loadCreators();
+  
+  try {
+    const creators = await api("/api/media-factory/creators");
+    const creator = creators.find(c => c.id === id);
+    if (!creator) return;
+
+    $("mfCreatorName").textContent = creator.name;
+    $("mfCreatorHandle").textContent = \`@\${creator.handle}\`;
+    
+    $("mfIdentityAgeGender").innerHTML = \`<span><b>Age:</b> \${creator.age_range}</span> <span><b>Gender:</b> \${creator.gender}</span>\`;
+    $("mfIdentityAppearance").textContent = creator.appearance_profile.description || creator.appearance_profile;
+    $("mfIdentityTraits").innerHTML = creator.personality_traits.map(t => \`<span class="pill on" style="font-size:11px;">\${t}</span>\`).join(" ");
+    $("mfIdentitySpeaking").textContent = creator.speaking_style;
+    $("mfIdentityHumor").textContent = creator.humor_style;
+    $("mfIdentityBackground").textContent = creator.background_story;
+
+    triggerMFSubTabLoad();
+  } catch (e) {
+    alert("Error loading creator details: " + e.message);
+  }
+}
+
+function setMFSubTab(tabName) {
+  activeMFSubTab = tabName;
+  document.querySelectorAll(".mfSubTab").forEach(el => el.classList.add("hide"));
+  $("mfSubTab-" + tabName).classList.remove("hide");
+  triggerMFSubTabLoad();
+}
+
+function triggerMFSubTabLoad() {
+  if (!activeCreatorId) return;
+  if (activeMFSubTab === "memory") loadMemories();
+  if (activeMFSubTab === "production") loadContentItems();
+  if (activeMFSubTab === "monetization") loadPartnerships();
+  if (activeMFSubTab === "analytics") loadAnalytics();
+}
+
+async function openCreatorCreateModal() {
+  const name = prompt("Enter Virtual Creator Name (e.g. Maya Chen):");
+  if (!name) return;
+  const handle = prompt("Enter Handle (lowercase, no spaces, e.g. mayafit):");
+  if (!handle) return;
+  const age_range = prompt("Enter Age Range (e.g. 22-26):", "21-25");
+  if (!age_range) return;
+  const gender = prompt("Enter Gender (e.g. Female):", "Female");
+  if (!gender) return;
+  const description = prompt("Describe Physical Appearance & Style:");
+  if (!description) return;
+  const background = prompt("Enter Background Story:");
+  if (!background) return;
+  const speaking = prompt("Enter Speaking Style:", "Chill and conversational");
+  const humor = prompt("Enter Humor Style:", "Meme-oriented and lighthearted");
+  const brand = prompt("Enter Brand Positioning (e.g. Sustainable fitness guide):");
+
+  const c = {
+    name, handle, age_range, gender,
+    appearance_profile: { description },
+    personality_traits: ["motivated", "insightful", "witty"],
+    speaking_style: speaking,
+    humor_style: humor,
+    values_statement: "Empowering conscious digital lifestyles.",
+    background_story: background,
+    interests: ["fitness", "sustainability", "travel"],
+    content_pillars: ["daily_routines", "tips", "mindset"],
+    target_audience: { demographic: "18-35 digital natives" },
+    brand_positioning: brand
+  };
+
+  try {
+    const res = await api("/api/media-factory/creators", "POST", c);
+    activeCreatorId = res.id;
+    loadCreators();
+    selectCreator(res.id);
+  } catch (e) {
+    alert("Error creating creator: " + e.message);
+  }
+}
+
+async function deleteCurrentCreator() {
+  if (!activeCreatorId) return;
+  if (!confirm("Are you sure you want to delete this creator profile? All memories and content drafts will be deleted.")) return;
+  try {
+    await api("/api/media-factory/creators/" + activeCreatorId, "DELETE");
+    activeCreatorId = null;
+    loadCreators();
+  } catch (e) {
+    alert("Error deleting creator: " + e.message);
+  }
+}
+
+async function loadMemories() {
+  try {
+    const list = await api("/api/media-factory/memories/" + activeCreatorId);
+    const container = $("mfMemoriesList");
+    if (!list.length) {
+      container.innerHTML = \`<div class="note">No memories saved yet. Add a success/failure lesson below.</div>\`;
+      return;
+    }
+    container.innerHTML = list.map(m => \`
+      <div class="row">
+        <span><span class="pill \${m.kind === 'success' ? 'on' : 'off'}">\${m.kind}</span> \${m.content}</span>
+        <button class="mini sec" onclick="deleteMemory('\${m.id}')">✕</button>
+      </div>
+    \`).join("");
+  } catch (e) {
+    $("mfMemoriesList").innerHTML = \`<div class="err">\${e.message}</div>\`;
+  }
+}
+
+async function openAddMemoryModal() {
+  const kind = prompt("Enter Memory Kind ('success' | 'failure' | 'lesson'):", "success");
+  if (!kind || !["success", "failure", "lesson"].includes(kind)) return;
+  const content = prompt("Enter Memory Details (e.g., Short aesthetic Reels about packing gear get 3x higher comments):");
+  if (!content) return;
+
+  try {
+    await api("/api/media-factory/memories", "POST", { creator_id: activeCreatorId, kind, content });
+    loadMemories();
+  } catch (e) {
+    alert("Error adding memory: " + e.message);
+  }
+}
+
+async function deleteMemory(id) {
+  try {
+    await api("/api/media-factory/memories/" + id, "DELETE");
+    loadMemories();
+  } catch (e) {
+    alert("Error deleting memory: " + e.message);
+  }
+}
+
+async function runScoutAgent() {
+  const niche = $("scoutNiche").value.trim();
+  if (!niche) return;
+  $("scoutResults").classList.remove("hide");
+  $("scoutResults").textContent = "Audience scout agent is analyzing trends...";
+  try {
+    const res = await api("/api/media-factory/scout", "POST", { niche });
+    $("scoutResults").textContent = JSON.stringify(res, null, 2);
+  } catch (e) {
+    $("scoutResults").textContent = "Error: " + e.message;
+  }
+}
+
+async function runPlanAgent() {
+  const summary = $("planTrends").value.trim();
+  $("planResults").classList.remove("hide");
+  $("planResults").textContent = "Content planner agent is generating weekly schedule...";
+  try {
+    const list = await api("/api/media-factory/plan", "POST", { creatorId: activeCreatorId, trendsSummary: summary });
+    $("planResults").innerHTML = list.map((item, idx) => \`
+      <div style="border-bottom: 1px solid var(--line); padding: 8px 0;">
+        <strong>[\${item.platform.toUpperCase()}] \${item.title}</strong><br>
+        <span class="note" style="display:block; margin: 4px 0;">Hook: "\${item.hook}"</span>
+        <button class="mini" onclick="addCalendarToPipeline(\${idx}, '\${item.title.replace(/'/g,"")}', '\${item.platform}', '\${item.hook.replace(/'/g,"")}', '\${item.brief.replace(/'/g,"")}')">✚ Add to Production Pipeline</button>
+      </div>
+    \`).join("");
+  } catch (e) {
+    $("planResults").textContent = "Error: " + e.message;
+  }
+}
+
+async function addCalendarToPipeline(idx, title, platform, hook, brief) {
+  const item = {
+    creator_id: activeCreatorId,
+    title,
+    platform,
+    status: "draft",
+    hook,
+    script: "",
+    caption: "",
+    assets: { visual_brief: brief }
+  };
+  try {
+    await api("/api/media-factory/content", "POST", item);
+    alert("Successfully added to production queue!");
+    setMFSubTab("production");
+  } catch (e) {
+    alert("Error saving item: " + e.message);
+  }
+}
+
+async function loadContentItems() {
+  try {
+    const list = await api("/api/media-factory/content?creatorId=" + activeCreatorId);
+    const container = $("mfProductionList");
+    if (!list.length) {
+      container.innerHTML = \`<div class="note">No content planned yet. Go to Strategy Board to plan items.</div>\`;
+      return;
+    }
+    container.innerHTML = list.map(item => \`
+      <div style="border: 1px solid var(--line); padding: 12px; border-radius: 4px;">
+        <div style="display:flex; justify-content:space-between;">
+          <strong>[\${item.platform.toUpperCase()}] \${item.title}</strong>
+          <span class="pill \${item.status === 'published' ? 'on' : (item.status === 'review' ? 'on' : 'off')}" style="text-transform:uppercase;">\${item.status}</span>
+        </div>
+        <p class="note" style="margin: 6px 0;"><b>Hook:</b> "\${item.hook}"</p>
+        \${item.script ? \`<div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:4px; margin-top:8px; font-size:13px; font-family:monospace; border-left:3px solid var(--acc); white-space:pre-wrap;"><b>Voiceover:</b> \${item.script}</div>\` : ''}
+        \${item.caption ? \`<p class="note" style="margin-top:6px;"><b>Caption:</b> \${item.caption}</p>\` : ''}
+        <div style="margin-top: 10px; display:flex; gap: 6px;">
+          \${item.status === 'draft' ? \`<button class="mini" onclick="runProductionAgent('\${item.id}', '\${item.title.replace(/'/g,"")}', '\${item.hook.replace(/'/g,"")}', '\${(item.assets?.visual_brief || '').replace(/'/g,"")}', '\${item.platform}')">⚡ Run Prod Agent</button>\` : ''}
+          \${item.status === 'review' ? \`<button class="mini" onclick="requestHumanPublishApproval('\${item.id}', '\${item.title.replace(/'/g,"")}')">🔒 Send for Approval</button>\` : ''}
+          \${item.status === 'approved' ? \`<button class="mini" onclick="publishContent('\${item.id}')">🚀 Publish Live</button>\` : ''}
+          \${item.status !== 'published' ? \`<button class="mini sec" onclick="publishContent('\${item.id}')">Quick Publish (bypass)</button>\` : ''}
+        </div>
+      </div>
+    \`).join("");
+  } catch (e) {
+    $("mfProductionList").innerHTML = \`<div class="err">\${e.message}</div>\`;
+  }
+}
+
+async function runProductionAgent(id, title, hook, brief, platform) {
+  try {
+    alert("Running Content Production Agent... this will take a few seconds.");
+    const res = await api("/api/media-factory/produce", "POST", { creatorId: activeCreatorId, title, hook, brief, platform });
+    
+    await api("/api/media-factory/content/" + id, "PATCH", { status: "review" });
+    
+    await api("/api/media-factory/content", "POST", {
+      id,
+      creator_id: activeCreatorId,
+      title, platform,
+      status: "review",
+      hook,
+      script: res.script,
+      caption: res.caption,
+      hashtags: res.hashtags,
+      assets: { image_prompt: res.image_prompt, visual_brief: brief }
+    });
+    
+    loadContentItems();
+  } catch (e) {
+    alert("Production Agent failed: " + e.message);
+  }
+}
+
+async function requestHumanPublishApproval(id, title) {
+  try {
+    await api("/api/approvals", "POST", {
+      action: \`Publish Content Reel: "\${title}"\`,
+      payload: { contentId: id },
+      category: "media_factory_publish"
+    });
+    
+    await api("/api/media-factory/content/" + id, "PATCH", { status: "approved" });
+    alert("Sent approval task to Approvals tab!");
+    loadContentItems();
+  } catch (e) {
+    alert("Failed creating approval: " + e.message);
+  }
+}
+
+async function publishContent(id) {
+  try {
+    await api("/api/media-factory/content/" + id, "PATCH", { status: "published", publishedAt: new Date().toISOString() });
+    alert("Reel/Post marked as published and live!");
+    loadContentItems();
+  } catch (e) {
+    alert("Publishing failed: " + e.message);
+  }
+}
+
+async function loadPartnerships() {
+  try {
+    const list = await api("/api/media-factory/partnerships/" + activeCreatorId);
+    const container = $("mfPartnershipsList");
+    if (!list.length) {
+      container.innerHTML = \`<div class="note">No monetization partnerships configured yet.</div>\`;
+      return;
+    }
+    container.innerHTML = list.map(p => \`
+      <div class="row">
+        <span><b>\${p.name}</b> (\${p.kind}) &rarr; <a href="\${p.destination_url}" target="_blank">\${p.destination_url}</a></span>
+        <span class="pill \${p.active ? 'on' : 'off'}">\${p.active ? 'active' : 'inactive'}</span>
+      </div>
+    \`).join("");
+  } catch (e) {
+    $("mfPartnershipsList").innerHTML = \`<div class="err">\${e.message}</div>\`;
+  }
+}
+
+async function openAddPartnershipModal() {
+  const name = prompt("Enter Partnership/Product Name (e.g. FlexiFit Affiliate):");
+  if (!name) return;
+  const kind = prompt("Enter Kind ('affiliate' | 'sponsorship' | 'digital_product'):", "affiliate");
+  if (!kind) return;
+  const urlStr = prompt("Enter Destination URL:");
+  if (!urlStr) return;
+
+  try {
+    await api("/api/media-factory/partnerships", "POST", { creator_id: activeCreatorId, name, kind, destination_url: urlStr, promotional_scripts: [] });
+    loadPartnerships();
+  } catch (e) {
+    alert("Failed adding partnership: " + e.message);
+  }
+}
+
+async function loadAnalytics() {
+  try {
+    const list = await api("/api/media-factory/analytics/" + activeCreatorId);
+    if (!list.length) {
+      $("kpiViews").textContent = "0";
+      $("kpiLikes").textContent = "0";
+      $("kpiClicks").textContent = "0";
+      $("kpiRevenue").textContent = "$0.00";
+      $("mfBIRecommendation").textContent = "No analytics data. Click 'Simulate Performance Data' to populate test signals.";
+      return;
+    }
+    
+    let totalViews = 0, totalLikes = 0, totalClicks = 0, totalRev = 0;
+    list.forEach(s => {
+      totalViews += s.views;
+      totalLikes += s.likes;
+      totalClicks += s.clicks;
+      totalRev += parseFloat(s.revenue);
+    });
+
+    $("kpiViews").textContent = totalViews.toLocaleString();
+    $("kpiLikes").textContent = totalLikes.toLocaleString();
+    $("kpiClicks").textContent = totalClicks.toLocaleString();
+    $("kpiRevenue").textContent = "$" + totalRev.toFixed(2);
+
+    const convRate = totalViews > 0 ? (totalClicks / totalViews) * 100 : 0;
+    let rec = "";
+    if (convRate > 2.5) {
+      rec = \`📈 **SCALE UP:** Engagement and click conversion rate is excellent (\${convRate.toFixed(1)}%). Recommended to scale daily post output by +1 per day and increase direct affiliate pitch links.\`;
+    } else if (totalViews > 10000 && convRate < 0.8) {
+      rec = \`🔄 **PIVOT TOPICS:** High views (\${totalViews}) but low CTR (\${convRate.toFixed(1)}%). The audience is watching, but visual assets lack persuasive CTA overlays. Refine scripts to add strong bios and hook links.\`;
+    } else {
+      rec = \`🌱 **NURTURE PHASE:** Normal engagement levels detected. Keep running content production cycles consistent with visual pillars to establish baseline growth indicators.\`;
+    }
+    $("mfBIRecommendation").textContent = rec;
+  } catch (e) {
+    alert("Analytics load failed: " + e.message);
+  }
+}
+
+async function injectDemoAnalytics() {
+  if (!activeCreatorId) return;
+  const snap = {
+    creator_id: activeCreatorId,
+    views: Math.floor(Math.random() * 25000) + 5000,
+    likes: Math.floor(Math.random() * 3000) + 300,
+    comments: Math.floor(Math.random() * 400) + 30,
+    shares: Math.floor(Math.random() * 150) + 15,
+    clicks: Math.floor(Math.random() * 900) + 50,
+    revenue: parseFloat((Math.random() * 450).toFixed(2))
+  };
+  try {
+    await api("/api/media-factory/analytics", "POST", snap);
+    loadAnalytics();
+  } catch (e) {
+    alert("Simulation failed: " + e.message);
+  }
+}
+
+async function loadAutomationStatus() {
+  try {
+    const res = await api("/api/automation");
+    $("automationToggle").checked = res.enabled;
+    $("automationStatus").innerHTML = \`
+      <b>Status:</b> \${res.enabled ? '🟢 Active background daemon' : '🔴 Stopped'}<br>
+      <b>Last Run:</b> \${res.lastRun ? new Date(res.lastRun).toLocaleString() : 'Never'}<br>
+      <b>Running Cycle:</b> \${res.running ? '🔄 Yes' : 'No'}
+    \`;
+  } catch (e) {
+    console.error("Failed loading automation status:", e);
+  }
+}
+
+async function toggleAutomation() {
+  const enabled = $("automationToggle").checked;
+  try {
+    await api("/api/automation", "POST", { enabled });
+    loadAutomationStatus();
+  } catch (e) {
+    alert("Failed toggling automation: " + e.message);
+    $("automationToggle").checked = !enabled;
+  }
+}
+
 boot();
 </script>
 </body>

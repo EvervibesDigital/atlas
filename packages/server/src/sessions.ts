@@ -18,6 +18,7 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
   messages: ChatMessage[];
+  deleted?: boolean;
 }
 
 /** Lightweight summary for the sidebar (no message bodies). */
@@ -27,6 +28,7 @@ export interface SessionSummary {
   project: string;
   updatedAt: number;
   messageCount: number;
+  deleted?: boolean;
 }
 
 /**
@@ -62,7 +64,7 @@ export class SessionStore {
     await this.load();
     return [...this.sessions.values()]
       .sort((a, b) => b.updatedAt - a.updatedAt)
-      .map((s) => ({ id: s.id, title: s.title, project: s.project, updatedAt: s.updatedAt, messageCount: s.messages.length }));
+      .map((s) => ({ id: s.id, title: s.title, project: s.project, updatedAt: s.updatedAt, messageCount: s.messages.length, deleted: s.deleted }));
   }
 
   /** Distinct project names that currently have at least one chat. */
@@ -121,9 +123,28 @@ export class SessionStore {
     return true;
   }
 
-  async remove(id: string): Promise<boolean> {
+  async setDeleted(id: string, deleted: boolean): Promise<boolean> {
     await this.load();
-    const ok = this.sessions.delete(id);
+    const s = this.sessions.get(id);
+    if (!s) return false;
+    s.deleted = deleted;
+    s.updatedAt = Date.now();
+    await this.persist();
+    return true;
+  }
+
+  async remove(id: string, purge = false): Promise<boolean> {
+    await this.load();
+    const s = this.sessions.get(id);
+    if (!s) return false;
+    let ok = false;
+    if (purge) {
+      ok = this.sessions.delete(id);
+    } else {
+      s.deleted = true;
+      s.updatedAt = Date.now();
+      ok = true;
+    }
     if (ok) await this.persist();
     return ok;
   }

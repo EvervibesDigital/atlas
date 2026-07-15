@@ -5,9 +5,12 @@ import type { Atlas } from "@atlas/core";
 import { buildAtlas, checkReadiness } from "@atlas/app";
 import { Vault } from "@atlas/vault";
 import { TaskQueue } from "../../orchestrator/src/task-queue";
+import { LiveBrowserPublisher } from "@atlas/publishing";
 import { SessionStore } from "./sessions";
 import { PAGE } from "./html";
 import { getSelfImprovementTarget, generateSelfImprovementDraft, applySelfImprovementPatch, type SelfImprovementRequest, type SelfImprovementDraft } from "./self-improve";
+import { MediaFactoryDB, type VirtualCreator, type CreatorMemory, type ContentItem, type MonetizationPartnership, type AnalyticsSnapshot } from "./media-factory-db";
+import { MediaFactoryAgents } from "./media-factory-agents";
 
 const KNOWN_PROVIDERS = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"];
 const CRED_PREFIX = "cred:";
@@ -256,6 +259,10 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   let atlas: Atlas | null = null;
   let failedUnlocks = 0;
   let lockedUntil = 0;
+  let automationIntervalId: NodeJS.Timeout | null = null;
+  let lastAutomationRun: string | null = null;
+  let isAutomationRunning = false;
+  let isAutomationEnabled = false;
 
   async function rebuildAtlas(): Promise<void> {
     if (vault.unlocked) {
@@ -266,6 +273,14 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         }
       }
     }
+    
+    const livePublisher = new LiveBrowserPublisher({
+      getInstagramCreds: async () => {
+        const cred = vault.get("cred:instagram");
+        return cred ? JSON.parse(cred) : null;
+      }
+    });
+
     atlas = await buildAtlas({
       memoryFile: `${dataDir}/memory.json`,
       approvalsFile: `${dataDir}/approvals.json`,
@@ -274,6 +289,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       toolVaultFile: `${dataDir}/toolvault.json`,
       skillsFile: `${dataDir}/skills.json`,
       forgeDir: "./forge",
+      publisher: livePublisher,
     });
     warmOllama(); // fire-and-forget: preload the local model so the first
     // offline reply isn't a 25s cold start (no-op if Ollama isn't running).
@@ -369,6 +385,34 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, { token });
     }
 
+    // Live key validation — PUBLIC like /api/health (localhost-bound; reveals
+    // only whether each provider accepts the stored key, never the key itself).
+    // Sits above the session gate so it works even before browser login.
+    if (method === "GET" && path === "/api/keys/test") {
+      const get = (n: string): string => (vault.unlocked ? (vault.get(n) ?? process.env[n] ?? "") : (process.env[n] ?? ""));
+      const probe = async (name: string, fn: (k: string) => Promise<Response>): Promise<{ name: string; status: string; detail: string }> => {
+        const k = get(name);
+        if (!k) return { name, status: "missing", detail: "no key saved" };
+        try {
+          const r = await fn(k);
+          if (r.ok) return { name, status: "valid", detail: "provider accepted the key" };
+          return { name, status: "INVALID", detail: `provider rejected it (HTTP ${r.status})` };
+        } catch (e) {
+          return { name, status: "unreachable", detail: String((e as Error).message).slice(0, 80) };
+        }
+      };
+      const t = (ms: number) => AbortSignal.timeout(ms);
+      const results = await Promise.all([
+        probe("GEMINI_API_KEY", (k) => fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${k}`, { signal: t(8000) })),
+        probe("GROQ_API_KEY", (k) => fetch("https://api.groq.com/openai/v1/models", { headers: { Authorization: `Bearer ${k}` }, signal: t(8000) })),
+        probe("HUGGINGFACE_API_KEY", (k) => fetch("https://huggingface.co/api/whoami-v2", { headers: { Authorization: `Bearer ${k}` }, signal: t(8000) })),
+        probe("TAVILY_API_KEY", (k) => fetch("https://api.tavily.com/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: k, query: "ping", max_results: 1 }), signal: t(8000) })),
+        probe("OPENROUTER_API_KEY", (k) => fetch("https://openrouter.ai/api/v1/auth/key", { headers: { Authorization: `Bearer ${k}` }, signal: t(8000) })),
+        probe("ANTHROPIC_API_KEY", (k) => fetch("https://api.anthropic.com/v1/models", { headers: { "x-api-key": k, "anthropic-version": "2023-06-01" }, signal: t(8000) })),
+      ]);
+      return send(res, 200, { results, testedAt: new Date().toISOString() });
+    }
+
     // ── everything below requires an unlocked session ──
     if (!authed(req)) return send(res, 401, { error: "locked — unlock first" });
 
@@ -395,15 +439,17 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     }
     if (method === "PATCH" && path.startsWith("/api/chats/")) {
       const id = decodeURIComponent(path.slice("/api/chats/".length));
-      const { title, project } = await readBody(req);
+      const { title, project, deleted } = await readBody(req);
       if (typeof title === "string") await sessions.rename(id, title);
       if (typeof project === "string") await sessions.setProject(id, project);
+      if (typeof deleted === "boolean") await sessions.setDeleted(id, deleted);
       const s = await sessions.get(id);
       return s ? send(res, 200, s) : send(res, 404, { error: "no such chat" });
     }
     if (method === "DELETE" && path.startsWith("/api/chats/")) {
       const id = decodeURIComponent(path.slice("/api/chats/".length));
-      const ok = await sessions.remove(id);
+      const purge = url.searchParams.get("purge") === "true";
+      const ok = await sessions.remove(id, purge);
       return send(res, ok ? 200 : 404, { ok });
     }
 
@@ -439,33 +485,6 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, { ok });
     }
 
-    // Live key validation — calls each provider with the stored key and reports
-    // valid / INVALID / missing. Reveals nothing but validity (localhost only).
-    if (method === "GET" && path === "/api/keys/test") {
-      const get = (n: string): string => (vault.unlocked ? (vault.get(n) ?? process.env[n] ?? "") : (process.env[n] ?? ""));
-      const probe = async (name: string, fn: (k: string) => Promise<Response>): Promise<{ name: string; status: string; detail: string }> => {
-        const k = get(name);
-        if (!k) return { name, status: "missing", detail: "no key saved" };
-        try {
-          const r = await fn(k);
-          if (r.ok) return { name, status: "valid", detail: "provider accepted the key" };
-          return { name, status: "INVALID", detail: `provider rejected it (HTTP ${r.status})` };
-        } catch (e) {
-          return { name, status: "unreachable", detail: String((e as Error).message).slice(0, 80) };
-        }
-      };
-      const t = (ms: number) => AbortSignal.timeout(ms);
-      const results = await Promise.all([
-        probe("GEMINI_API_KEY", (k) => fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${k}`, { signal: t(8000) })),
-        probe("GROQ_API_KEY", (k) => fetch("https://api.groq.com/openai/v1/models", { headers: { Authorization: `Bearer ${k}` }, signal: t(8000) })),
-        probe("HUGGINGFACE_API_KEY", (k) => fetch("https://huggingface.co/api/whoami-v2", { headers: { Authorization: `Bearer ${k}` }, signal: t(8000) })),
-        probe("TAVILY_API_KEY", (k) => fetch("https://api.tavily.com/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: k, query: "ping", max_results: 1 }), signal: t(8000) })),
-        probe("OPENROUTER_API_KEY", (k) => fetch("https://openrouter.ai/api/v1/auth/key", { headers: { Authorization: `Bearer ${k}` }, signal: t(8000) })),
-        probe("ANTHROPIC_API_KEY", (k) => fetch("https://api.anthropic.com/v1/models", { headers: { "x-api-key": k, "anthropic-version": "2023-06-01" }, signal: t(8000) })),
-      ]);
-      return send(res, 200, { results, testedAt: new Date().toISOString() });
-    }
-
     // Smart key detection: paste raw text, get back detected keys with metadata + values
     if (method === "POST" && path === "/api/detect-keys") {
       const { text } = await readBody(req);
@@ -481,6 +500,64 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         alreadySaved: saved.has(d.name),
       }));
       return send(res, 200, { detected: results, total: results.length });
+    }
+
+    if (method === "GET" && path === "/api/automation") {
+      return send(res, 200, {
+        enabled: isAutomationEnabled,
+        lastRun: lastAutomationRun,
+        running: isAutomationRunning
+      });
+    }
+    if (method === "POST" && path === "/api/automation") {
+      try {
+        const { enabled } = await readBody(req) as any;
+        isAutomationEnabled = !!enabled;
+        if (isAutomationEnabled) {
+          if (!automationIntervalId) {
+            console.log("[AUTOMATION] Hourly automation loop started.");
+            automationIntervalId = setInterval(async () => {
+              if (isAutomationRunning) return;
+              try {
+                isAutomationRunning = true;
+                lastAutomationRun = new Date().toISOString();
+                console.log(`[AUTOMATION] Running automated hourly cycle at ${lastAutomationRun}...`);
+                const a = await ensureAtlas();
+                await a.invoke("orchestrator", { op: "runDailyCycle", videoRef: null });
+                console.log("[AUTOMATION] Automated hourly cycle complete.");
+              } catch (err) {
+                console.error("[AUTOMATION] Automated cycle failed:", err);
+              } finally {
+                isAutomationRunning = false;
+              }
+            }, 60 * 60 * 1000); // 1 hour
+            
+            // Trigger first run immediately so user has immediate feedback
+            setImmediate(async () => {
+              if (isAutomationRunning) return;
+              try {
+                isAutomationRunning = true;
+                lastAutomationRun = new Date().toISOString();
+                const a = await ensureAtlas();
+                await a.invoke("orchestrator", { op: "runDailyCycle", videoRef: null });
+              } catch (err) {
+                console.error("[AUTOMATION] First immediate cycle failed:", err);
+              } finally {
+                isAutomationRunning = false;
+              }
+            });
+          }
+        } else {
+          if (automationIntervalId) {
+            clearInterval(automationIntervalId);
+            automationIntervalId = null;
+            console.log("[AUTOMATION] Hourly automation loop stopped.");
+          }
+        }
+        return send(res, 200, { ok: true, enabled: isAutomationEnabled });
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
     }
 
     if (method === "GET" && path === "/api/credentials") {
@@ -503,6 +580,187 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const platform = decodeURIComponent(path.slice("/api/credentials/".length));
       const ok = await vault.delete(CRED_PREFIX + platform);
       return send(res, 200, { ok });
+    }
+
+    // === Virtual Media Factory Endpoints ===
+    if (method === "GET" && path === "/api/media-factory/creators") {
+      try {
+        const list = await MediaFactoryDB.listCreators();
+        return send(res, 200, list);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "POST" && path === "/api/media-factory/creators") {
+      try {
+        const data = await readBody(req) as any as VirtualCreator;
+        const created = await MediaFactoryDB.createCreator(data);
+        return send(res, 200, created);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "PATCH" && path.startsWith("/api/media-factory/creators/")) {
+      try {
+        const id = decodeURIComponent(path.slice("/api/media-factory/creators/".length));
+        const data = await readBody(req) as any as Partial<VirtualCreator>;
+        const updated = await MediaFactoryDB.updateCreator(id, data);
+        return send(res, 200, updated);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "DELETE" && path.startsWith("/api/media-factory/creators/")) {
+      try {
+        const id = decodeURIComponent(path.slice("/api/media-factory/creators/".length));
+        const ok = await MediaFactoryDB.deleteCreator(id);
+        return send(res, 200, { ok });
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+
+    if (method === "GET" && path.startsWith("/api/media-factory/memories/")) {
+      try {
+        const creatorId = decodeURIComponent(path.slice("/api/media-factory/memories/".length));
+        const list = await MediaFactoryDB.listMemories(creatorId);
+        return send(res, 200, list);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "POST" && path === "/api/media-factory/memories") {
+      try {
+        const data = await readBody(req) as any as CreatorMemory;
+        const created = await MediaFactoryDB.addMemory(data);
+        return send(res, 200, created);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "DELETE" && path.startsWith("/api/media-factory/memories/")) {
+      try {
+        const id = decodeURIComponent(path.slice("/api/media-factory/memories/".length));
+        const ok = await MediaFactoryDB.deleteMemory(id);
+        return send(res, 200, { ok });
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+
+    if (method === "GET" && path === "/api/media-factory/content") {
+      try {
+        const creatorId = url.searchParams.get("creatorId") || undefined;
+        const list = await MediaFactoryDB.listContentItems(creatorId);
+        return send(res, 200, list);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "POST" && path === "/api/media-factory/content") {
+      try {
+        const data = await readBody(req) as any as ContentItem;
+        const created = await MediaFactoryDB.createContentItem(data);
+        return send(res, 200, created);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "PATCH" && path.startsWith("/api/media-factory/content/")) {
+      try {
+        const id = decodeURIComponent(path.slice("/api/media-factory/content/".length));
+        const bodyData = await readBody(req) as any;
+        const status = bodyData?.status ? String(bodyData.status) : "";
+        const publishedAt = bodyData?.publishedAt ? String(bodyData.publishedAt) : undefined;
+        const updated = await MediaFactoryDB.updateContentItemStatus(id, status, publishedAt);
+        return send(res, 200, updated);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+
+    if (method === "POST" && path === "/api/media-factory/scout") {
+      try {
+        const bodyData = await readBody(req) as any;
+        const niche = bodyData?.niche;
+        if (!niche) return send(res, 400, { error: "niche is required" });
+        const a = await ensureAtlas();
+        const analysis = await MediaFactoryAgents.scoutAudience(a, String(niche));
+        return send(res, 200, analysis);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "POST" && path === "/api/media-factory/plan") {
+      try {
+        const bodyData = await readBody(req) as any;
+        const creatorId = bodyData?.creatorId;
+        const trendsSummary = bodyData?.trendsSummary;
+        if (!creatorId) return send(res, 400, { error: "creatorId is required" });
+        const creator = await MediaFactoryDB.getCreator(String(creatorId));
+        if (!creator) return send(res, 404, { error: "creator not found" });
+        const a = await ensureAtlas();
+        const calendar = await MediaFactoryAgents.generateContentCalendar(a, creator, String(trendsSummary || ""));
+        return send(res, 200, calendar);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "POST" && path === "/api/media-factory/produce") {
+      try {
+        const bodyData = await readBody(req) as any;
+        const creatorId = bodyData?.creatorId;
+        const title = bodyData?.title;
+        const hook = bodyData?.hook;
+        const brief = bodyData?.brief;
+        const platform = bodyData?.platform;
+        if (!creatorId || !title || !hook || !platform) return send(res, 400, { error: "creatorId, title, hook, platform required" });
+        const creator = await MediaFactoryDB.getCreator(String(creatorId));
+        if (!creator) return send(res, 404, { error: "creator not found" });
+        const a = await ensureAtlas();
+        const draft = await MediaFactoryAgents.produceContentDraft(a, creator, String(title), String(hook), String(brief || ""), String(platform));
+        return send(res, 200, draft);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+
+    if (method === "GET" && path.startsWith("/api/media-factory/partnerships/")) {
+      try {
+        const creatorId = decodeURIComponent(path.slice("/api/media-factory/partnerships/".length));
+        const list = await MediaFactoryDB.listPartnerships(creatorId);
+        return send(res, 200, list);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "POST" && path === "/api/media-factory/partnerships") {
+      try {
+        const data = await readBody(req) as any as MonetizationPartnership;
+        const created = await MediaFactoryDB.addPartnership(data);
+        return send(res, 200, created);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+
+    if (method === "GET" && path.startsWith("/api/media-factory/analytics/")) {
+      try {
+        const creatorId = decodeURIComponent(path.slice("/api/media-factory/analytics/".length));
+        const list = await MediaFactoryDB.getAnalytics(creatorId);
+        return send(res, 200, list);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "POST" && path === "/api/media-factory/analytics") {
+      try {
+        const data = await readBody(req) as any as AnalyticsSnapshot;
+        const created = await MediaFactoryDB.saveAnalyticsSnapshot(data);
+        return send(res, 200, created);
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
     }
 
     // Self-improvement endpoints (ATLAS modifies itself)
