@@ -12,6 +12,7 @@ import { createResearchPlugin } from "@atlas/research";
 import { createBusinessPlugin } from "@atlas/business";
 import { createGigFinderPlugin } from "@atlas/gigfinder";
 import { createKdpPlugin } from "@atlas/kdp";
+import { createMediaFactoryPlugin } from "@atlas/media-factory";
 import { createOpportunityPlugin } from "@atlas/opportunity";
 import { createTechDebtPlugin } from "@atlas/techdebt";
 import { createStrategyPlugin } from "@atlas/strategy";
@@ -134,6 +135,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createBusinessPlugin({ businessFile: opts.businessFile }));
   await atlas.use(createGigFinderPlugin({ gigFile: opts.gigFile }));
   await atlas.use(createKdpPlugin());
+  await atlas.use(createMediaFactoryPlugin());
 
   // Phase 5 — advanced systems
   await atlas.use(createOpportunityPlugin());

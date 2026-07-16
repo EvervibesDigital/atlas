@@ -149,6 +149,9 @@ importers:
       '@atlas/learning':
         specifier: workspace:*
         version: link:../learning
+      '@atlas/media-factory':
+        specifier: workspace:*
+        version: link:../media-factory
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
@@ -487,6 +490,19 @@ importers:
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
+
+  packages/media-factory:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
 
   packages/memory:
     dependencies:

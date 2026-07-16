@@ -10,8 +10,6 @@ import { LiveBrowserPublisher } from "@atlas/publishing";
 import { SessionStore } from "./sessions";
 import { PAGE } from "./html";
 import { getSelfImprovementTarget, generateSelfImprovementDraft, applySelfImprovementPatch, type SelfImprovementRequest, type SelfImprovementDraft } from "./self-improve";
-import { MediaFactoryDB, type VirtualCreator, type CreatorMemory, type ContentItem, type MonetizationPartnership, type AnalyticsSnapshot } from "./media-factory-db";
-import { MediaFactoryAgents } from "./media-factory-agents";
 
 const KNOWN_PROVIDERS = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"];
 const CRED_PREFIX = "cred:";
@@ -597,20 +595,20 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, { ok });
     }
 
-    // === Virtual Media Factory Endpoints ===
+    // === Virtual Media Factory Endpoints (bridges to the "mediaFactory" plugin) ===
     if (method === "GET" && path === "/api/media-factory/creators") {
       try {
-        const list = await MediaFactoryDB.listCreators();
-        return send(res, 200, list);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "listCreators" }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
     }
     if (method === "POST" && path === "/api/media-factory/creators") {
       try {
-        const data = await readBody(req) as any as VirtualCreator;
-        const created = await MediaFactoryDB.createCreator(data);
-        return send(res, 200, created);
+        const data = await readBody(req);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "createCreator", creator: data }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
@@ -618,9 +616,9 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "PATCH" && path.startsWith("/api/media-factory/creators/")) {
       try {
         const id = decodeURIComponent(path.slice("/api/media-factory/creators/".length));
-        const data = await readBody(req) as any as Partial<VirtualCreator>;
-        const updated = await MediaFactoryDB.updateCreator(id, data);
-        return send(res, 200, updated);
+        const data = await readBody(req);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "updateCreator", id, patch: data }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
@@ -628,8 +626,8 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "DELETE" && path.startsWith("/api/media-factory/creators/")) {
       try {
         const id = decodeURIComponent(path.slice("/api/media-factory/creators/".length));
-        const ok = await MediaFactoryDB.deleteCreator(id);
-        return send(res, 200, { ok });
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "deleteCreator", id }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
@@ -638,26 +636,17 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "GET" && path.startsWith("/api/media-factory/memories/")) {
       try {
         const creatorId = decodeURIComponent(path.slice("/api/media-factory/memories/".length));
-        const list = await MediaFactoryDB.listMemories(creatorId);
-        return send(res, 200, list);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "listMemories", creatorId }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
     }
     if (method === "POST" && path === "/api/media-factory/memories") {
       try {
-        const data = await readBody(req) as any as CreatorMemory;
-        const created = await MediaFactoryDB.addMemory(data);
-        return send(res, 200, created);
-      } catch (err) {
-        return send(res, 500, { error: (err as Error).message });
-      }
-    }
-    if (method === "DELETE" && path.startsWith("/api/media-factory/memories/")) {
-      try {
-        const id = decodeURIComponent(path.slice("/api/media-factory/memories/".length));
-        const ok = await MediaFactoryDB.deleteMemory(id);
-        return send(res, 200, { ok });
+        const data = await readBody(req);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "addMemory", memory: data }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
@@ -666,17 +655,17 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "GET" && path === "/api/media-factory/content") {
       try {
         const creatorId = url.searchParams.get("creatorId") || undefined;
-        const list = await MediaFactoryDB.listContentItems(creatorId);
-        return send(res, 200, list);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "listContent", creatorId }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
     }
     if (method === "POST" && path === "/api/media-factory/content") {
       try {
-        const data = await readBody(req) as any as ContentItem;
-        const created = await MediaFactoryDB.createContentItem(data);
-        return send(res, 200, created);
+        const data = await readBody(req);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "createContent", item: data }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
@@ -684,11 +673,9 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "PATCH" && path.startsWith("/api/media-factory/content/")) {
       try {
         const id = decodeURIComponent(path.slice("/api/media-factory/content/".length));
-        const bodyData = await readBody(req) as any;
-        const status = bodyData?.status ? String(bodyData.status) : "";
-        const publishedAt = bodyData?.publishedAt ? String(bodyData.publishedAt) : undefined;
-        const updated = await MediaFactoryDB.updateContentItemStatus(id, status, publishedAt);
-        return send(res, 200, updated);
+        const bodyData = await readBody(req);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "updateContentStatus", id, status: String(bodyData?.status ?? ""), publishedAt: bodyData?.publishedAt ? String(bodyData.publishedAt) : undefined }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
@@ -696,45 +683,47 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
 
     if (method === "POST" && path === "/api/media-factory/scout") {
       try {
-        const bodyData = await readBody(req) as any;
-        const niche = bodyData?.niche;
-        if (!niche) return send(res, 400, { error: "niche is required" });
+        const bodyData = await readBody(req);
+        if (!bodyData?.niche) return send(res, 400, { error: "niche is required" });
         const a = await ensureAtlas();
-        const analysis = await MediaFactoryAgents.scoutAudience(a, String(niche));
-        return send(res, 200, analysis);
+        return send(res, 200, await a.invoke("mediaFactory", { op: "scout", niche: String(bodyData.niche) }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
     }
     if (method === "POST" && path === "/api/media-factory/plan") {
       try {
-        const bodyData = await readBody(req) as any;
-        const creatorId = bodyData?.creatorId;
-        const trendsSummary = bodyData?.trendsSummary;
-        if (!creatorId) return send(res, 400, { error: "creatorId is required" });
-        const creator = await MediaFactoryDB.getCreator(String(creatorId));
-        if (!creator) return send(res, 404, { error: "creator not found" });
+        const bodyData = await readBody(req);
+        if (!bodyData?.creatorId) return send(res, 400, { error: "creatorId is required" });
         const a = await ensureAtlas();
-        const calendar = await MediaFactoryAgents.generateContentCalendar(a, creator, String(trendsSummary || ""));
-        return send(res, 200, calendar);
+        return send(res, 200, await a.invoke("mediaFactory", { op: "plan", creatorId: String(bodyData.creatorId), trendsSummary: bodyData.trendsSummary ? String(bodyData.trendsSummary) : undefined }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
     }
     if (method === "POST" && path === "/api/media-factory/produce") {
       try {
-        const bodyData = await readBody(req) as any;
-        const creatorId = bodyData?.creatorId;
-        const title = bodyData?.title;
-        const hook = bodyData?.hook;
-        const brief = bodyData?.brief;
-        const platform = bodyData?.platform;
-        if (!creatorId || !title || !hook || !platform) return send(res, 400, { error: "creatorId, title, hook, platform required" });
-        const creator = await MediaFactoryDB.getCreator(String(creatorId));
-        if (!creator) return send(res, 404, { error: "creator not found" });
+        const bodyData = await readBody(req);
+        if (!bodyData?.creatorId || !bodyData?.title || !bodyData?.hook || !bodyData?.platform) {
+          return send(res, 400, { error: "creatorId, title, hook, platform required" });
+        }
         const a = await ensureAtlas();
-        const draft = await MediaFactoryAgents.produceContentDraft(a, creator, String(title), String(hook), String(brief || ""), String(platform));
-        return send(res, 200, draft);
+        return send(res, 200, await a.invoke("mediaFactory", {
+          op: "produce",
+          creatorId: String(bodyData.creatorId),
+          title: String(bodyData.title),
+          hook: String(bodyData.hook),
+          brief: bodyData.brief ? String(bodyData.brief) : undefined,
+          platform: String(bodyData.platform),
+        }));
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "POST" && path === "/api/media-factory/auto-cycle") {
+      try {
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "autoCycle" }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
@@ -743,17 +732,17 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "GET" && path.startsWith("/api/media-factory/partnerships/")) {
       try {
         const creatorId = decodeURIComponent(path.slice("/api/media-factory/partnerships/".length));
-        const list = await MediaFactoryDB.listPartnerships(creatorId);
-        return send(res, 200, list);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "listPartnerships", creatorId }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
     }
     if (method === "POST" && path === "/api/media-factory/partnerships") {
       try {
-        const data = await readBody(req) as any as MonetizationPartnership;
-        const created = await MediaFactoryDB.addPartnership(data);
-        return send(res, 200, created);
+        const data = await readBody(req);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "addPartnership", partnership: data }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
@@ -762,17 +751,17 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "GET" && path.startsWith("/api/media-factory/analytics/")) {
       try {
         const creatorId = decodeURIComponent(path.slice("/api/media-factory/analytics/".length));
-        const list = await MediaFactoryDB.getAnalytics(creatorId);
-        return send(res, 200, list);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "getAnalytics", creatorId }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }
     }
     if (method === "POST" && path === "/api/media-factory/analytics") {
       try {
-        const data = await readBody(req) as any as AnalyticsSnapshot;
-        const created = await MediaFactoryDB.saveAnalyticsSnapshot(data);
-        return send(res, 200, created);
+        const data = await readBody(req);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "saveAnalytics", snapshot: data }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
       }

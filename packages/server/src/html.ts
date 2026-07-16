@@ -435,8 +435,12 @@ export const PAGE = `<!doctype html>
 
     <section id="tab-media-factory" class="card hide" style="max-width: 1200px;">
       <h2>🎬 Virtual Media Factory</h2>
-      <p class="note" style="margin-bottom: 20px;">Manage, orchestrate, and monetize your AI creator network. Generate target concepts, strategy calendars, scripts, and analyze business performance.</p>
-      
+      <p class="note" style="margin-bottom: 10px;">Manage, orchestrate, and monetize your AI creator network. Generate target concepts, strategy calendars, scripts, and analyze business performance.</p>
+      <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button onclick="mfRunAutoCycle()">▶️ Run auto-cycle now</button>
+        <span class="note" style="font-size:11px">Also runs automatically every cycle — plans a fresh calendar for a creator with an empty queue, or writes the next planned post's script. Content lands in "review" for you to approve; nothing is ever auto-posted.</span>
+      </div>
+
       <div style="display:flex; gap: 20px; min-height: 550px;">
         <!-- Left Sidebar: Creators List -->
         <aside style="width: 250px; flex-shrink: 0; border-right: 1px solid var(--line); padding-right: 15px;">
@@ -1153,6 +1157,14 @@ function row(k,v){ return "<div class='row'><span>"+k+"</span><b>"+v+"</b></div>
 // ── Virtual Media Factory Logic ──
 let activeCreatorId = null;
 let activeMFSubTab = "identity";
+
+async function mfRunAutoCycle(){ try { const r=await api("/api/media-factory/auto-cycle","POST");
+  if(r.skipped) alert("Skipped: "+r.skipped);
+  else if(r.action==="planned") alert("Planned "+r.itemsCreated+" new post(s) for "+r.creator);
+  else if(r.action==="produced") alert("Produced a draft for '"+r.title+"' ("+r.creator+") — now in review");
+  else alert(JSON.stringify(r));
+  if(activeCreatorId) loadContentItems();
+} catch(e){ alert(e.message); } }
 
 async function loadCreators() {
   try {

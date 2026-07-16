@@ -50,6 +50,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         "call:newsletter",
         "call:gigfinder",
         "call:kdp",
+        "call:mediaFactory",
       ],
       role: "planner",
     },
@@ -153,6 +154,12 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           // gracefully if KDP_CRON_SECRET isn't configured yet.
           kdpScan: (await optional<unknown>(ctx, "kdp", { op: "scan" })) ?? null,
           kdpGenerate: (await optional<unknown>(ctx, "kdp", { op: "generate", limit: 3 })) ?? null,
+          // Media Factory — "constantly creating": one autoCycle step per
+          // orchestrator run (plan a fresh calendar for a creator with an
+          // empty queue, or produce the next planned post's script). Never
+          // posts; everything lands in "review" for Mat to approve. No-ops
+          // gracefully if DATABASE_URL isn't configured yet.
+          mediaFactory: (await optional<unknown>(ctx, "mediaFactory", { op: "autoCycle" })) ?? null,
         };
 
         // 7. Gather advice + the approval list for the report.

@@ -1,13 +1,19 @@
 import pg from "pg";
 
-const CONNECTION_STRING = process.env.DATABASE_URL || "postgresql://postgres:Mbabahnhpbhb20!@db.shgvmapfgjeigglbqfil.supabase.co:5432/postgres";
-
 let pool: pg.Pool | null = null;
 
+/**
+ * DATABASE_URL is required from the environment — no hardcoded fallback.
+ * (A previous commit shipped a live Supabase password as a literal fallback
+ * string here; it's been rotated and removed. Never hardcode credentials —
+ * set DATABASE_URL via the vault/env instead.)
+ */
 function getPool(): pg.Pool {
   if (!pool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) throw new Error("media-factory-db: DATABASE_URL not set");
     pool = new pg.Pool({
-      connectionString: CONNECTION_STRING,
+      connectionString,
       ssl: { rejectUnauthorized: false }
     });
   }
@@ -203,11 +209,29 @@ export class MediaFactoryDB {
 
   static async updateContentItemStatus(id: string, status: string, publishedAt?: string): Promise<ContentItem> {
     const db = getPool();
-    const query = publishedAt 
+    const query = publishedAt
       ? "UPDATE public.content_items SET status = $1, published_at = $2, updated_at = NOW() WHERE id = $3 RETURNING *"
       : "UPDATE public.content_items SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *";
     const params = publishedAt ? [status, publishedAt, id] : [status, id];
     const res = await db.query(query, params);
+    return res.rows[0];
+  }
+
+  /** Persist a produced draft's script/caption/hashtags/assets and advance its status in one write. */
+  static async updateContentItemDraft(id: string, draft: { script?: string; caption?: string; hashtags?: string[]; assets?: any; status?: string }): Promise<ContentItem> {
+    const db = getPool();
+    const current = await this.getContentItem(id);
+    if (!current) throw new Error("Content item not found");
+    const merged = { ...current, ...draft, assets: { ...(current.assets || {}), ...(draft.assets || {}) } };
+    const query = `
+      UPDATE public.content_items SET
+        script = $1, caption = $2, hashtags = $3, assets = $4, status = $5, updated_at = NOW()
+      WHERE id = $6
+      RETURNING *
+    `;
+    const res = await db.query(query, [
+      merged.script, merged.caption, merged.hashtags || [], JSON.stringify(merged.assets || {}), merged.status || current.status, id,
+    ]);
     return res.rows[0];
   }
 

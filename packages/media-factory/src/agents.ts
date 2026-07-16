@@ -1,6 +1,6 @@
-import type { Atlas } from "@atlas/core";
-import { MediaFactoryDB } from "./media-factory-db";
-import type { VirtualCreator } from "./media-factory-db";
+export type BrainInvoker = (service: string, payload?: unknown) => Promise<unknown>;
+import { MediaFactoryDB } from "./db";
+import type { VirtualCreator } from "./db";
 
 function extractJSON<T>(text: string): T {
   const start = text.indexOf("{");
@@ -21,7 +21,7 @@ export class MediaFactoryAgents {
    * Audience Intelligence Agent
    * researches trends, competitor hooks, and recommends growth niches
    */
-  static async scoutAudience(atlas: Atlas, niche: string): Promise<any> {
+  static async scoutAudience(invoke: BrainInvoker, niche: string): Promise<any> {
     const system = `You are an expert Audience Intelligence Agent. Your job is to research growth opportunities and niches for a digital creator brand. Analyze target demographics, pain points, competitor styles, and recommend the highest-growth angles.
     
     Return ONLY a strict JSON object:
@@ -41,7 +41,7 @@ export class MediaFactoryAgents {
 
     const prompt = `Research and analyze the following niche area for high-growth digital creator opportunities: "${niche}".`;
 
-    const resp = (await atlas.invoke("brain", {
+    const resp = (await invoke("brain", {
       prompt,
       system,
       maxTokens: 1024,
@@ -73,7 +73,7 @@ export class MediaFactoryAgents {
    * generates content calendars, platform-specific plans, and titles
    * weaving a continuous personal storyline based on past posts
    */
-  static async generateContentCalendar(atlas: Atlas, creator: VirtualCreator, trendsSummary: string): Promise<any[]> {
+  static async generateContentCalendar(invoke: BrainInvoker, creator: VirtualCreator, trendsSummary: string): Promise<any[]> {
     let memoryPrompt = "";
     if (creator.id) {
       const memories = await MediaFactoryDB.listMemories(creator.id);
@@ -134,7 +134,7 @@ export class MediaFactoryAgents {
 
     Generate a 5-item content calendar matching this creator's profile and target audience. Keep the narrative fluid and connected to previous posts.`;
 
-    const resp = (await atlas.invoke("brain", {
+    const resp = (await invoke("brain", {
       prompt,
       system,
       maxTokens: 1536,
@@ -162,7 +162,7 @@ export class MediaFactoryAgents {
    * writes full scripts and captions matching the creator's voice
    * links the current post script back to previous storylines
    */
-  static async produceContentDraft(atlas: Atlas, creator: VirtualCreator, title: string, hook: string, brief: string, platform: string): Promise<any> {
+  static async produceContentDraft(invoke: BrainInvoker, creator: VirtualCreator, title: string, hook: string, brief: string, platform: string): Promise<any> {
     // Fetch last 3 posts to build continuous storyline memory
     let historyPrompt = "";
     if (creator.id) {
@@ -215,7 +215,7 @@ export class MediaFactoryAgents {
     Draft the final copy and visual prompt matching this creator's identity. 
     CRITICAL: You MUST link this post script back to the recent history or make a subtle, natural callback to the previous events/topics in their 'life' to maintain a continuous narrative storyline. The visuals must look hyperrealistic.`;
 
-    const resp = (await atlas.invoke("brain", {
+    const resp = (await invoke("brain", {
       prompt,
       system,
       maxTokens: 1024,
