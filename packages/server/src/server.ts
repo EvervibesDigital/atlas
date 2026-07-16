@@ -2,6 +2,7 @@ import { createServer as httpCreateServer, type IncomingMessage, type ServerResp
 import { readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { Atlas } from "@atlas/core";
+import type { ProviderAdapter } from "@atlas/brain";
 import { buildAtlas, checkReadiness } from "@atlas/app";
 import { Vault } from "@atlas/vault";
 import { TaskQueue } from "../../orchestrator/src/task-queue";
@@ -226,6 +227,8 @@ export function parseUrls(text: string): string[] {
 export interface ControlPanelOptions {
   vaultFile?: string;
   dataDir?: string;
+  /** Override the brain's provider list — tests use this to force deterministic offline-stub behavior. */
+  brainAdapters?: ProviderAdapter[];
   /** Where "Enable overnight runs" writes provider keys (default ./.env). */
   envFile?: string;
   /** Failed unlocks before a temporary lockout (default 5). */
@@ -324,6 +327,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     });
 
     atlas = await buildAtlas({
+      brainAdapters: opts.brainAdapters,
       memoryFile: `${dataDir}/memory.json`,
       approvalsFile: `${dataDir}/approvals.json`,
       metricsFile: `${dataDir}/metrics.json`,

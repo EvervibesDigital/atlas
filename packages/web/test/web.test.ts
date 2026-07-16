@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Atlas, type Plugin } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
 import { createMemoryPlugin, InMemoryStore } from "@atlas/memory";
-import { createBrainPlugin } from "@atlas/brain";
+import { createBrainPlugin, StubAdapter } from "@atlas/brain";
 import { stripHtml, fetchReadable, isBlockedHost, createWebPlugin, type FetchLike } from "../src/index";
 
 const fakeFetcher =
@@ -42,7 +42,7 @@ describe("web plugin (learn)", () => {
   it("fetches, analyzes, and stores notes to memory", async () => {
     const atlas = new Atlas({ guardian: new Guardian() });
     await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
-    await atlas.use(createBrainPlugin()); // offline stub brain
+    await atlas.use(createBrainPlugin({ adapters: [new StubAdapter()] })); // offline stub brain
     await atlas.use(createWebPlugin({ fetcher: fakeFetcher("<title>Acme AI</title><p>Acme sells AI tools for creators.</p>") }));
 
     let result: { url: string; title: string; notes: string } | undefined;

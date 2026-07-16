@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@atlas/app": "workspace:*",
+    "@atlas/brain": "workspace:*",
     "@atlas/core": "workspace:*",
     "@atlas/publishing": "workspace:*",
     "@atlas/vault": "workspace:*",

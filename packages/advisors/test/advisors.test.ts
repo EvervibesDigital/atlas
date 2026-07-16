@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Atlas, type Plugin } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
-import { createBrainPlugin } from "@atlas/brain";
+import { createBrainPlugin, StubAdapter } from "@atlas/brain";
 import { createMemoryPlugin, InMemoryStore } from "@atlas/memory";
 import { findDuplicates, summarizeMemory, createRedTeamPlugin, createLegacyPlugin } from "../src/index";
 
@@ -20,7 +20,7 @@ describe("red team + legacy through the kernel", () => {
   it("red team returns a critique", async () => {
     const atlas = new Atlas({ guardian: new Guardian() });
     await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
-    await atlas.use(createBrainPlugin());
+    await atlas.use(createBrainPlugin({ adapters: [new StubAdapter()] }));
     await atlas.use(createRedTeamPlugin());
     let out: { critique: string } | undefined;
     await atlas.use({
@@ -35,7 +35,7 @@ describe("red team + legacy through the kernel", () => {
   it("legacy learns a preference then advises", async () => {
     const atlas = new Atlas({ guardian: new Guardian() });
     await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
-    await atlas.use(createBrainPlugin());
+    await atlas.use(createBrainPlugin({ adapters: [new StubAdapter()] }));
     await atlas.use(createLegacyPlugin());
     let advice: { advice: string } | undefined;
     await atlas.use({

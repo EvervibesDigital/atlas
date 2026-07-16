@@ -1,12 +1,12 @@
 import { Atlas } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
-import { createBrainPlugin } from "@atlas/brain";
+import { createBrainPlugin, type ProviderAdapter } from "@atlas/brain";
 import { createMemoryPlugin, HuggingFaceEmbedder, type MemoryStore, type Embedder } from "@atlas/memory";
 import { createApprovalsPlugin, ApprovalGateway } from "@atlas/approvals";
 import { createExecutivePlugin } from "@atlas/executive";
 import { createPersonasPlugin } from "@atlas/personas";
 import { createCreativePlugin } from "@atlas/creative";
-import { createPublishingPlugin, type Publisher } from "@atlas/publishing";
+import { createPublishingPlugin, type Publisher, type Renderer } from "@atlas/publishing";
 import { createLearningPlugin, MetricsTracker } from "@atlas/learning";
 import { createResearchPlugin } from "@atlas/research";
 import { createBusinessPlugin } from "@atlas/business";
@@ -42,6 +42,8 @@ import { createSetupPlugin } from "@atlas/setup";
 import { createOrchestratorPlugin } from "@atlas/orchestrator";
 
 export interface AtlasOptions {
+  /** Override the brain's provider list — tests use this to force deterministic offline-stub behavior. */
+  brainAdapters?: ProviderAdapter[];
   memoryStore?: MemoryStore;
   memoryFile?: string;
   approvalsGateway?: ApprovalGateway;
@@ -60,6 +62,15 @@ export interface AtlasOptions {
    * live. This is the ONLY change needed to start actually posting.
    */
   publisher?: Publisher;
+  /**
+   * Video renderer for the orchestrator's auto-render step. Defaults to the
+   * real VideoRenderer (ElevenLabs/edge-tts + FFmpeg) — which depends on a
+   * Windows-specific edge-tts path and network image generation, so it is
+   * NOT viable on the Linux cloud deploy as shipped. Tests inject NoOpRenderer
+   * to stay fast and deterministic; the cloud deploy should too until a
+   * cross-platform renderer replaces it.
+   */
+  renderer?: Renderer;
 }
 
 /**
@@ -83,13 +94,13 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
     if (memoryFile) memoryFile = memoryFile.replace(/\.json$/, ".hf.json");
   }
 
-  await atlas.use(createBrainPlugin());
+  await atlas.use(createBrainPlugin({ adapters: opts.brainAdapters }));
   await atlas.use(createMemoryPlugin({ store: opts.memoryStore, embedder, file: memoryFile }));
   await atlas.use(createApprovalsPlugin({ gateway: opts.approvalsGateway, file: opts.approvalsFile }));
   await atlas.use(createExecutivePlugin());
   await atlas.use(createPersonasPlugin());
   await atlas.use(createCreativePlugin());
-  await atlas.use(createPublishingPlugin({ publisher: opts.publisher }));
+  await atlas.use(createPublishingPlugin({ publisher: opts.publisher, renderer: opts.renderer }));
   await atlas.use(createLearningPlugin({ metrics: opts.metricsTracker, metricsFile: opts.metricsFile }));
 
   // Web reader (loaded before Business so it can research business sites).

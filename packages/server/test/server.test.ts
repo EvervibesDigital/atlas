@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StubAdapter } from "@atlas/brain";
 import { createControlPanel, type ControlPanel } from "../src/server";
 
 let dir = "";
@@ -10,7 +11,7 @@ let base = "";
 
 async function start(): Promise<void> {
   dir = await mkdtemp(join(tmpdir(), "atlas-server-"));
-  panel = createControlPanel({ vaultFile: join(dir, "vault.enc.json"), dataDir: dir, envFile: join(dir, ".env") });
+  panel = createControlPanel({ vaultFile: join(dir, "vault.enc.json"), dataDir: dir, envFile: join(dir, ".env"), brainAdapters: [new StubAdapter()] });
   const port = await panel.listen(0);
   base = `http://127.0.0.1:${port}`;
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Atlas, type Plugin } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
-import { createBrainPlugin } from "@atlas/brain";
+import { createBrainPlugin, StubAdapter } from "@atlas/brain";
 import { createMemoryPlugin, InMemoryStore } from "@atlas/memory";
 import { parseSkillDraft, SkillRegistry, createSkillsPlugin, type Skill } from "../src/index";
 
@@ -20,7 +20,7 @@ describe("skills plugin", () => {
   it("invents a new skill and then runs it (offline stub brain)", async () => {
     const atlas = new Atlas({ guardian: new Guardian() });
     await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
-    await atlas.use(createBrainPlugin());
+    await atlas.use(createBrainPlugin({ adapters: [new StubAdapter()] }));
     await atlas.use(createSkillsPlugin({ registry: new SkillRegistry() }));
 
     let created: Skill | undefined;

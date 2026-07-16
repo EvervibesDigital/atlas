@@ -6,12 +6,29 @@ import ffmpegPath from "ffmpeg-static";
 
 const execAsync = promisify(exec);
 
+/** Anything that can turn a Reel spec into a rendered video file path. */
+export interface Renderer {
+  render(spec: { voice: string; voiceProvider?: string; voiceId?: string; scenes: Array<{ text: string; imageUrl: string; imagePrompt?: string }> }): Promise<string>;
+}
+
+/**
+ * SAFE DEFAULT for anywhere the real VideoRenderer isn't viable — tests, and
+ * any environment without its Windows-specific edge-tts path + network image
+ * generation (e.g. the Linux cloud deploy). Returns instantly, renders
+ * nothing. Mirrors DryRunPublisher's role for the render step.
+ */
+export class NoOpRenderer implements Renderer {
+  async render(): Promise<string> {
+    return "";
+  }
+}
+
 export interface VideoRendererOptions {
   tempDir: string;
   edgeTtsPath?: string;
 }
 
-export class VideoRenderer {
+export class VideoRenderer implements Renderer {
   private tempDir: string;
   private edgeTtsPath: string;
 

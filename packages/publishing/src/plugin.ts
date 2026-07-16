@@ -2,8 +2,25 @@ import type { Plugin } from "@atlas/core";
 import type { Approval } from "@atlas/approvals";
 import type { PublishCommand, PublishInput, PublishResult } from "./types";
 import { validateForInstagram } from "./instagram";
+import { existsSync } from "node:fs";
 import { DryRunPublisher, type Publisher } from "./publisher";
-import { VideoRenderer } from "./video-renderer";
+import { VideoRenderer, NoOpRenderer, type Renderer } from "./video-renderer";
+
+/**
+ * The real VideoRenderer needs a Windows-specific edge-tts.exe at a hardcoded
+ * path (see video-renderer.ts). On any machine without it — e.g. the Linux
+ * cloud deploy — it would hang/fail on every single automated cycle. Falling
+ * back to NoOpRenderer here means the cloud deploy degrades safely with zero
+ * config, while Mat's dev machine (where the path exists) keeps working as before.
+ */
+function defaultRenderer(): Renderer {
+  const edgeTtsPath = "C:\\Users\\matbr\\claudecode1\\waverider-bot\\.venv\\Scripts\\edge-tts.exe";
+  if (!existsSync(edgeTtsPath)) {
+    console.warn("[publishing] edge-tts not found at expected path — using NoOpRenderer (no video will be rendered). This is expected on the cloud deploy.");
+    return new NoOpRenderer();
+  }
+  return new VideoRenderer({ tempDir: "./data/temp" });
+}
 
 /**
  * Publishing plugin — exposes the "publishing" service for Instagram Reels.
@@ -16,7 +33,7 @@ import { VideoRenderer } from "./video-renderer";
  * The default Publisher is DryRunPublisher, so ATLAS is fully wired to post but
  * posts nothing until a live publisher is injected here.
  */
-export function createPublishingPlugin(opts: { publisher?: Publisher } = {}): Plugin {
+export function createPublishingPlugin(opts: { publisher?: Publisher; renderer?: Renderer } = {}): Plugin {
   const publisher = opts.publisher ?? new DryRunPublisher();
 
   return {
@@ -31,7 +48,7 @@ export function createPublishingPlugin(opts: { publisher?: Publisher } = {}): Pl
     register(ctx) {
       // Pending posts, keyed by the approval they're waiting on.
       const jobs = new Map<string, PublishInput>();
-      const renderer = new VideoRenderer({ tempDir: "./data/temp" });
+      const renderer = opts.renderer ?? defaultRenderer();
 
       // When Mat approves, run the publisher for the matching job.
       ctx.on("approval.granted", async (payload) => {

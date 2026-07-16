@@ -84,18 +84,24 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         };
 
         // 3. Create today's Reel (required — creative + brain must be present).
-        // 3. Create today's Reel (required — creative + brain must be present).
         const reel = (await ctx.call("creative", { op: "writeReel", personaHandle, topic })) as ReelLike & { hook: string; caption: string; voice: string; scenes: Array<{ text: string; imageUrl: string }> };
 
-        // 3b. Render the vertical video to produce a real MP4!
+        // 3b. Try to render a real MP4. Time-boxed: the renderer can involve
+        // network image/voice generation with no timeouts of its own, and a
+        // hang here must never stall the whole daily cycle. On failure or
+        // timeout, publishing falls back to "pending-render" (still queues
+        // everything else) rather than blocking.
         let videoRef = cmd.videoRef ?? null;
         if (!videoRef) {
           try {
             console.log(`[orchestrator] Rendering video for topic: ${topic}`);
-            const renderResult = await ctx.call("publishing", { op: "render", spec: reel }) as { videoPath: string };
-            videoRef = renderResult.videoPath;
+            const renderResult = (await Promise.race([
+              ctx.call("publishing", { op: "render", spec: reel }),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("render timed out after 30s")), 30_000)),
+            ])) as { videoPath: string };
+            videoRef = renderResult.videoPath || null;
           } catch (err) {
-            console.error("[orchestrator] Video rendering failed, proceeding without videoRef:", err);
+            console.error("[orchestrator] Video rendering failed or timed out, proceeding without videoRef:", err);
           }
         }
 

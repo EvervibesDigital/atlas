@@ -6,6 +6,7 @@ import { DEFAULT_PERSONA } from "@atlas/personas";
 import type { ReelSpec } from "@atlas/creative";
 import type { PublishInput, PublishResult } from "@atlas/publishing";
 import type { CategoryMetrics } from "@atlas/learning";
+import { StubAdapter } from "@atlas/brain";
 import { buildAtlas } from "../src/build";
 
 /**
@@ -17,7 +18,7 @@ import { buildAtlas } from "../src/build";
  */
 describe("Instagram Reels walking skeleton", () => {
   async function run() {
-    const atlas = await buildAtlas({ memoryStore: new InMemoryStore(), approvalsGateway: new ApprovalGateway() });
+    const atlas = await buildAtlas({ memoryStore: new InMemoryStore(), approvalsGateway: new ApprovalGateway(), brainAdapters: [new StubAdapter()] });
     const published: Array<{ result: PublishResult }> = [];
     atlas.events.on("reel.published", (e) => void published.push(e as { result: PublishResult }));
     return { atlas, published };

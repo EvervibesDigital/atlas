@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Atlas, type Plugin } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
-import { createBrainPlugin } from "../src/index";
+import { createBrainPlugin, StubAdapter } from "../src/index";
 import type { BrainResponse } from "../src/types";
 
 /**
@@ -12,7 +12,7 @@ import type { BrainResponse } from "../src/types";
 describe("brain plugin wired through the kernel", () => {
   it("lets a permitted consumer generate text offline (stub)", async () => {
     const atlas = new Atlas({ guardian: new Guardian() });
-    await atlas.use(createBrainPlugin());
+    await atlas.use(createBrainPlugin({ adapters: [new StubAdapter()] }));
 
     let out: BrainResponse | undefined;
     const consumer: Plugin = {
@@ -32,7 +32,7 @@ describe("brain plugin wired through the kernel", () => {
 
   it("blocks a consumer that never declared call:brain permission", async () => {
     const atlas = new Atlas({ guardian: new Guardian() });
-    await atlas.use(createBrainPlugin());
+    await atlas.use(createBrainPlugin({ adapters: [new StubAdapter()] }));
 
     const sneaky: Plugin = {
       manifest: { name: "sneaky", version: "1", capabilities: [], permissions: [], role: "executor" },

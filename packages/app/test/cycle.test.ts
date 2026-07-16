@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { InMemoryStore } from "@atlas/memory";
 import { ApprovalGateway } from "@atlas/approvals";
 import { MetricsTracker } from "@atlas/learning";
+import { StubAdapter } from "@atlas/brain";
+import { NoOpRenderer } from "@atlas/publishing";
 import { runDailyCycle } from "../src/cycle";
 
 /**
@@ -14,12 +16,15 @@ describe("autonomous daily cycle", () => {
       memoryStore: new InMemoryStore(),
       approvalsGateway: new ApprovalGateway(),
       metricsTracker: new MetricsTracker(),
+      brainAdapters: [new StubAdapter()],
+      renderer: new NoOpRenderer(),
     });
 
     expect(report.topic).toBeTruthy();
     expect(report.reel.hook.length).toBeGreaterThan(0);
     expect(report.council?.consensus).toBeTruthy();
-    // No rendered MP4 was supplied, so publishing waits for the render step.
+    // No rendered MP4 was supplied (NoOpRenderer renders nothing), so
+    // publishing waits for the render step.
     expect(report.publish.status).toBe("pending-render");
     expect(Array.isArray(report.pendingApprovals)).toBe(true);
   });
@@ -29,6 +34,7 @@ describe("autonomous daily cycle", () => {
       memoryStore: new InMemoryStore(),
       approvalsGateway: new ApprovalGateway(),
       metricsTracker: new MetricsTracker(),
+      brainAdapters: [new StubAdapter()],
       videoRef: "rendered/today.mp4",
     });
 

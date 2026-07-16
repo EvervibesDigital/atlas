@@ -3,7 +3,7 @@ import { Atlas, type Plugin } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
 import { createLearningPlugin, MetricsTracker } from "@atlas/learning";
 import { createMemoryPlugin, InMemoryStore } from "@atlas/memory";
-import { createBrainPlugin } from "@atlas/brain";
+import { createBrainPlugin, StubAdapter } from "@atlas/brain";
 import { createWebPlugin, type FetchLike } from "@atlas/web";
 import { prioritize, createBusinessPlugin, BusinessRegistry, type Recommendation, type Business } from "../src/index";
 
@@ -48,7 +48,7 @@ describe("business registry + research", () => {
   it("adds a business, researches its site, and stores notes", async () => {
     const atlas = new Atlas({ guardian: new Guardian() });
     await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
-    await atlas.use(createBrainPlugin());
+    await atlas.use(createBrainPlugin({ adapters: [new StubAdapter()] }));
     await atlas.use(createWebPlugin({ fetcher: fakeFetcher }));
     await atlas.use(createBusinessPlugin({ registry: new BusinessRegistry() }));
 

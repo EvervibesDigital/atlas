@@ -16,8 +16,14 @@ import { OpenRouterAdapter } from "./adapters/openrouter";
  * `brain.ready` announcing what's live.
  *
  * With no keys, only the offline stub is active — ATLAS still runs.
+ *
+ * `opts.adapters` overrides the auto-built provider list entirely. Tests use
+ * this to force deterministic offline-stub behavior — without it, a
+ * developer machine with `ollama serve` running would have Ollama outscore
+ * the stub and break assertions that expect `provider: "stub"`, since the
+ * router picks by real capability scoring, not by whether keys are configured.
  */
-export function createBrainPlugin(): Plugin {
+export function createBrainPlugin(opts: { adapters?: ProviderAdapter[] } = {}): Plugin {
   return {
     manifest: {
       name: "brain",
@@ -28,6 +34,13 @@ export function createBrainPlugin(): Plugin {
     },
 
     async register(ctx) {
+      if (opts.adapters) {
+        const router = new BrainRouter(opts.adapters);
+        ctx.provide("brain", (payload) => router.generate(payload as BrainRequest));
+        await ctx.emit("brain.ready", { providers: router.availableModels().map((c) => `${c.adapter.name}:${c.model.id}`) });
+        return;
+      }
+
       const geminiKey = await ctx.secret("GEMINI_API_KEY");
       const groqKey = await ctx.secret("GROQ_API_KEY");
       const huggingFaceKey = await ctx.secret("HUGGINGFACE_API_KEY");
