@@ -10,6 +10,7 @@ import { createPublishingPlugin, type Publisher } from "@atlas/publishing";
 import { createLearningPlugin, MetricsTracker } from "@atlas/learning";
 import { createResearchPlugin } from "@atlas/research";
 import { createBusinessPlugin } from "@atlas/business";
+import { createGigFinderPlugin } from "@atlas/gigfinder";
 import { createOpportunityPlugin } from "@atlas/opportunity";
 import { createTechDebtPlugin } from "@atlas/techdebt";
 import { createStrategyPlugin } from "@atlas/strategy";
@@ -47,6 +48,7 @@ export interface AtlasOptions {
   metricsTracker?: MetricsTracker;
   metricsFile?: string;
   businessFile?: string;
+  gigFile?: string;
   toolVaultFile?: string;
   skillsFile?: string;
   /** Directory ATLAS forges new plugins into (default ./forge). */
@@ -118,6 +120,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   // Phase 4 — departments
   await atlas.use(createResearchPlugin());
   await atlas.use(createBusinessPlugin({ businessFile: opts.businessFile }));
+  await atlas.use(createGigFinderPlugin({ gigFile: opts.gigFile }));
 
   // Phase 5 — advanced systems
   await atlas.use(createOpportunityPlugin());

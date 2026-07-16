@@ -131,6 +131,9 @@ importers:
       '@atlas/forge':
         specifier: workspace:*
         version: link:../forge
+      '@atlas/gigfinder':
+        specifier: workspace:*
+        version: link:../gigfinder
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
@@ -411,6 +414,15 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+
+  packages/gigfinder:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+      '@atlas/executor':
+        specifier: workspace:*
+        version: link:../executor
 
   packages/guardian:
     dependencies:

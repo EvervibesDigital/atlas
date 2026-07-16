@@ -263,6 +263,48 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   let lastAutomationRun: string | null = null;
   let isAutomationRunning = false;
   let isAutomationEnabled = false;
+  const automationStateFile = `${dataDir}/automation.json`;
+
+  async function runAutomationCycleOnce(): Promise<void> {
+    if (isAutomationRunning) return;
+    try {
+      isAutomationRunning = true;
+      lastAutomationRun = new Date().toISOString();
+      console.log(`[AUTOMATION] Running automated hourly cycle at ${lastAutomationRun}...`);
+      const a = await ensureAtlas();
+      await a.invoke("orchestrator", { op: "runDailyCycle", videoRef: null });
+      console.log("[AUTOMATION] Automated hourly cycle complete.");
+    } catch (err) {
+      console.error("[AUTOMATION] Automated cycle failed:", err);
+    } finally {
+      isAutomationRunning = false;
+    }
+  }
+
+  function startAutomationLoop(): void {
+    if (automationIntervalId) return;
+    console.log("[AUTOMATION] Hourly automation loop started.");
+    automationIntervalId = setInterval(runAutomationCycleOnce, 60 * 60 * 1000);
+    setImmediate(runAutomationCycleOnce); // first run right away for feedback
+  }
+
+  async function persistAutomationState(): Promise<void> {
+    try {
+      await writeFile(automationStateFile, JSON.stringify({ enabled: isAutomationEnabled }), "utf8");
+    } catch { /* persistence is best-effort */ }
+  }
+
+  // Survive restarts: if automation was ON before the process died (deploy,
+  // reboot, crash), resume it automatically — 24/7 means 24/7.
+  void readFile(automationStateFile, "utf8")
+    .then((raw) => {
+      if ((JSON.parse(raw) as { enabled?: boolean }).enabled) {
+        isAutomationEnabled = true;
+        startAutomationLoop();
+        console.log("[AUTOMATION] Resumed hourly automation from saved state.");
+      }
+    })
+    .catch(() => { /* no saved state yet */ });
 
   async function rebuildAtlas(): Promise<void> {
     if (vault.unlocked) {
@@ -286,6 +328,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       approvalsFile: `${dataDir}/approvals.json`,
       metricsFile: `${dataDir}/metrics.json`,
       businessFile: `${dataDir}/businesses.json`,
+      gigFile: `${dataDir}/gigs.json`,
       toolVaultFile: `${dataDir}/toolvault.json`,
       skillsFile: `${dataDir}/skills.json`,
       forgeDir: "./forge",
@@ -385,10 +428,11 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, { token });
     }
 
-    // Live key validation — PUBLIC like /api/health (localhost-bound; reveals
-    // only whether each provider accepts the stored key, never the key itself).
-    // Sits above the session gate so it works even before browser login.
+    // Live key validation — reveals only whether each provider accepts the
+    // stored key, never the key itself. Session-gated: ATLAS is internet-facing
+    // now, and this endpoint triggers outbound provider calls.
     if (method === "GET" && path === "/api/keys/test") {
+      if (!authed(req)) return send(res, 401, { error: "locked — unlock first" });
       const get = (n: string): string => (vault.unlocked ? (vault.get(n) ?? process.env[n] ?? "") : (process.env[n] ?? ""));
       const probe = async (name: string, fn: (k: string) => Promise<Response>): Promise<{ name: string; status: string; detail: string }> => {
         const k = get(name);
@@ -514,46 +558,13 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         const { enabled } = await readBody(req) as any;
         isAutomationEnabled = !!enabled;
         if (isAutomationEnabled) {
-          if (!automationIntervalId) {
-            console.log("[AUTOMATION] Hourly automation loop started.");
-            automationIntervalId = setInterval(async () => {
-              if (isAutomationRunning) return;
-              try {
-                isAutomationRunning = true;
-                lastAutomationRun = new Date().toISOString();
-                console.log(`[AUTOMATION] Running automated hourly cycle at ${lastAutomationRun}...`);
-                const a = await ensureAtlas();
-                await a.invoke("orchestrator", { op: "runDailyCycle", videoRef: null });
-                console.log("[AUTOMATION] Automated hourly cycle complete.");
-              } catch (err) {
-                console.error("[AUTOMATION] Automated cycle failed:", err);
-              } finally {
-                isAutomationRunning = false;
-              }
-            }, 60 * 60 * 1000); // 1 hour
-            
-            // Trigger first run immediately so user has immediate feedback
-            setImmediate(async () => {
-              if (isAutomationRunning) return;
-              try {
-                isAutomationRunning = true;
-                lastAutomationRun = new Date().toISOString();
-                const a = await ensureAtlas();
-                await a.invoke("orchestrator", { op: "runDailyCycle", videoRef: null });
-              } catch (err) {
-                console.error("[AUTOMATION] First immediate cycle failed:", err);
-              } finally {
-                isAutomationRunning = false;
-              }
-            });
-          }
-        } else {
-          if (automationIntervalId) {
-            clearInterval(automationIntervalId);
-            automationIntervalId = null;
-            console.log("[AUTOMATION] Hourly automation loop stopped.");
-          }
+          startAutomationLoop();
+        } else if (automationIntervalId) {
+          clearInterval(automationIntervalId);
+          automationIntervalId = null;
+          console.log("[AUTOMATION] Hourly automation loop stopped.");
         }
+        await persistAutomationState();
         return send(res, 200, { ok: true, enabled: isAutomationEnabled });
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
@@ -1061,6 +1072,43 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "POST" && bizResearch) {
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("business", { op: "research", id: decodeURIComponent(bizResearch[1]!) }));
+    }
+
+    if (method === "GET" && path === "/api/gigs") {
+      const a = await ensureAtlas();
+      const status = url.searchParams.get("status") || undefined;
+      return send(res, 200, { jobs: await a.invoke("gigfinder", { op: "list", status }) });
+    }
+    if (method === "GET" && path === "/api/gigs/stats") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("gigfinder", { op: "stats" }));
+    }
+    if (method === "POST" && path === "/api/gigs/search") {
+      const { sources } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("gigfinder", { op: "search", sources }));
+    }
+    const gigApprove = path.match(/^\/api\/gigs\/([^/]+)\/approve$/);
+    if (method === "POST" && gigApprove) {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("gigfinder", { op: "approve", id: decodeURIComponent(gigApprove[1]!) }));
+    }
+    const gigReject = path.match(/^\/api\/gigs\/([^/]+)\/reject$/);
+    if (method === "POST" && gigReject) {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("gigfinder", { op: "reject", id: decodeURIComponent(gigReject[1]!) }));
+    }
+    const gigSubmitted = path.match(/^\/api\/gigs\/([^/]+)\/submitted$/);
+    if (method === "POST" && gigSubmitted) {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("gigfinder", { op: "markSubmitted", id: decodeURIComponent(gigSubmitted[1]!) }));
+    }
+    const gigStatus = path.match(/^\/api\/gigs\/([^/]+)\/status$/);
+    if (method === "POST" && gigStatus) {
+      const { status, paidAmount } = await readBody(req);
+      if (!status) return send(res, 400, { error: "status required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("gigfinder", { op: "updateStatus", id: decodeURIComponent(gigStatus[1]!), status, paidAmount }));
     }
 
     if (method === "POST" && path === "/api/codebase") {

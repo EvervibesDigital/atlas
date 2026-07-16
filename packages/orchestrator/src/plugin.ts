@@ -48,6 +48,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         "call:connectors",
         "call:janitor",
         "call:newsletter",
+        "call:gigfinder",
       ],
       role: "planner",
     },
@@ -134,6 +135,11 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           // each into shared memory (via the web service's learn op). This is
           // what future cycles RECALL at step 1b — the ingestion→recall loop.
           newsletters: (await optional<unknown>(ctx, "newsletter", { op: "readDaily" })) ?? null,
+          // Gig Finder — sanctioned-search-only (web/Tavily) every cycle so
+          // opportunities queue up for review without Mat manually clicking
+          // search each time. The riskier scrape sources (craigslist/fiverr/
+          // guru) stay manual-trigger-only from the UI, never automatic.
+          gigs: (await optional<unknown>(ctx, "gigfinder", { op: "search", sources: ["web"] })) ?? null,
         };
 
         // 7. Gather advice + the approval list for the report.

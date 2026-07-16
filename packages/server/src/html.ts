@@ -126,6 +126,7 @@ export const PAGE = `<!doctype html>
       <button data-tab="run">⚙️ Run</button>
       <button data-tab="actions">⚡ Actions</button>
       <button data-tab="proposals">💡 Proposals</button>
+      <button data-tab="gigs">💵 Gig Finder</button>
       <button data-tab="approvals">Approvals</button>
       <button data-tab="media-factory">🎬 Media Factory</button>
       <button id="lockNow" class="sec" style="margin-left:auto">Lock</button>
@@ -404,6 +405,19 @@ export const PAGE = `<!doctype html>
       <div id="approvals">None loaded.</div>
     </section>
 
+    <section id="tab-gigs" class="card hide">
+      <h2>💵 Gig Finder</h2>
+      <div class="note">Finds AI-doable freelance work and drafts a pitch. ATLAS never submits a bid for you — copy the draft into the real platform yourself, then click "Mark submitted" here to track it.</div>
+      <div id="gigStats" class="note" style="margin-top:8px">Loading…</div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button onclick="searchGigs()">🔍 Search now (web)</button>
+        <label style="font-size:12px"><input type="checkbox" id="gigCraigslist"/> also try Craigslist</label>
+        <label style="font-size:12px"><input type="checkbox" id="gigFiverr"/> also try Fiverr/Guru</label>
+      </div>
+      <div class="note" style="margin-top:6px;font-size:11px">Craigslist scraping has been legally contested (craigslist v. 3Taps); Fiverr/Guru ToS forbid automated bidding and run bot detection. Off by default — check a box only if you accept that risk. Search-only either way; nothing is ever auto-submitted.</div>
+      <div id="gigsList" style="margin-top:12px">Loading…</div>
+    </section>
+
     <section id="tab-media-factory" class="card hide" style="max-width: 1200px;">
       <h2>🎬 Virtual Media Factory</h2>
       <p class="note" style="margin-bottom: 20px;">Manage, orchestrate, and monetize your AI creator network. Generate target concepts, strategy calendars, scripts, and analyze business performance.</p>
@@ -592,9 +606,10 @@ document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () =>
   b.classList.add("active");
   // Null-safe: a missing tab div must never crash the switcher (a single
   // throw here blanks EVERY tab — see 2026-07-16 "all tabs blank" incident).
-  ["chat","map","businesses","learn","connect","grow","vault","keys","run","actions","proposals","approvals","media-factory"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
+  ["chat","map","businesses","learn","connect","grow","vault","keys","run","actions","proposals","approvals","media-factory","gigs"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="proposals") loadProposals();
+  if (b.dataset.tab==="gigs") loadGigs();
   if (b.dataset.tab==="chat") $("chatIn").focus();
   if (b.dataset.tab==="businesses") loadBiz();
   if (b.dataset.tab==="actions") loadActions();
@@ -1020,6 +1035,35 @@ async function adoptProposal(i){ const p=proposalsCache[i]; if(!p) return;
   try { const r=await api("/api/proposals/adopt","POST",{category:p.category,problem:p.problem,suggestion:p.suggestion});
     alert(r.message||"Adopted"); loadProposals();
   } catch(e){ alert(e.message); } }
+
+// Gig Finder (search -> approve+draft -> you submit -> markSubmitted)
+async function loadGigStats(){ try { const s=await api("/api/gigs/stats");
+  $("gigStats").innerHTML="<b>"+s.new+"</b> new · <b>"+s.approved+"</b> approved · <b>"+s.submitted+"</b> submitted · <b>"+s.responded+"</b> responded · <b>"+s.completed+"</b> completed · <b>"+s.paid+"</b> paid · <b>$"+s.totalEarned+"</b> earned";
+} catch(e){ $("gigStats").textContent="⚠ "+e.message; } }
+async function loadGigs(){ loadGigStats(); try { const r=await api("/api/gigs"); const jobs=r.jobs||[];
+  $("gigsList").innerHTML=jobs.length?jobs.map(g=>{
+    const pill="<span class='pill "+(g.status==='new'?'off':'on')+"'>"+g.status+"</span>";
+    const budget=g.budget?(" · $"+g.budget):"";
+    const draft=g.draftBid?("<div style='background:var(--bg2);padding:8px;margin-top:6px;font-size:12px;border-left:2px solid var(--acc)'>"+g.draftBid+"</div>"):"";
+    let actions="";
+    if(g.status==='new') actions="<button onclick='approveGig(\\""+g.id+"\\")'>✅ Approve &amp; draft</button> <button class='sec' onclick='rejectGig(\\""+g.id+"\\")'>❌ Reject</button>";
+    else if(g.status==='approved') actions="<button onclick='submittedGig(\\""+g.id+"\\")'>📨 Mark submitted (after you paste &amp; send it)</button>";
+    else if(g.status==='submitted') actions="<button class='sec' onclick='gigStatus(\\""+g.id+"\\",\\"responded\\")'>Client responded</button>";
+    else if(g.status==='responded') actions="<button class='sec' onclick='gigStatus(\\""+g.id+"\\",\\"completed\\")'>Mark completed</button>";
+    else if(g.status==='completed') actions="<button class='sec' onclick='gigPaid(\\""+g.id+"\\")'>💰 Mark paid</button>";
+    return "<div class='row' style='align-items:flex-start;flex-direction:column;border:1px solid var(--acc);padding:8px;border-radius:4px;margin-bottom:8px'><div style='display:flex;justify-content:space-between;width:100%'><span><b>"+g.title+"</b>"+budget+" · "+g.source+" "+pill+"</span></div><a href='"+g.url+"' target='_blank' style='font-size:11px'>"+g.url+"</a><div class='note' style='font-size:12px'>"+g.snippet+"</div>"+draft+"<div style='margin-top:8px'>"+actions+"</div></div>";
+  }).join(""):"<div class='note'>No jobs yet. Click 'Search now' to look for AI-doable freelance work.</div>";
+} catch(e){ $("gigsList").textContent="⚠ "+e.message; } }
+async function searchGigs(){ $("gigsList").textContent="Searching…";
+  const sources=["web"]; if($("gigCraigslist").checked) sources.push("craigslist"); if($("gigFiverr").checked){sources.push("fiverr");sources.push("guru");}
+  try { const r=await api("/api/gigs/search","POST",{sources}); alert("Found "+r.found+" new job(s) (scanned "+r.candidatesScanned+" candidates)"); loadGigs();
+  } catch(e){ alert(e.message); loadGigs(); } }
+async function approveGig(id){ try { await api("/api/gigs/"+id+"/approve","POST"); loadGigs(); } catch(e){ alert(e.message); } }
+async function rejectGig(id){ try { await api("/api/gigs/"+id+"/reject","POST"); loadGigs(); } catch(e){ alert(e.message); } }
+async function submittedGig(id){ try { await api("/api/gigs/"+id+"/submitted","POST"); loadGigs(); } catch(e){ alert(e.message); } }
+async function gigStatus(id,status){ try { await api("/api/gigs/"+id+"/status","POST",{status}); loadGigs(); } catch(e){ alert(e.message); } }
+async function gigPaid(id){ const amt=prompt("How much did this pay ($)?"); if(!amt) return;
+  try { await api("/api/gigs/"+id+"/status","POST",{status:"paid",paidAmount:Number(amt)}); loadGigs(); } catch(e){ alert(e.message); } }
 
 let detectedKeysCache=[];
 async function detectAndShow(){ const text=$("detectKeys").value; if(!text.trim()) return; $("detectOut").textContent="Detecting…";

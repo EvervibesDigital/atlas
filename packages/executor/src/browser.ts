@@ -103,6 +103,49 @@ export class BrowserExecutor {
     }
   }
 
+  /**
+   * Extract a structured list of items from a page (job postings, search
+   * results, etc.) by CSS selector — read-only, no clicks/fills. Runs the
+   * extraction inside the page via page.evaluate so it handles JS-rendered
+   * (SPA) listings, not just static HTML.
+   */
+  async extractList(
+    url: string,
+    opts: { itemSelector: string; titleSelector?: string; linkSelector?: string; snippetSelector?: string },
+    timeout = 30000,
+  ): Promise<Array<{ title: string; url: string; snippet: string }>> {
+    if (!this.browser) throw new Error("browser not started");
+    const page = await this.browser.newPage();
+    try {
+      page.setDefaultTimeout(timeout);
+      await page.goto(url, { waitUntil: "networkidle" });
+      const items: Array<{ title: string; url: string; snippet: string }> = await page.evaluate(
+        (o: { itemSelector: string; titleSelector?: string; linkSelector?: string; snippetSelector?: string; base: string }) => {
+          const doc = (globalThis as any).document;
+          const text = (el: any, sel?: string): string => (sel ? (el.querySelector(sel)?.textContent ?? "").trim() : (el.textContent ?? "").trim());
+          const link = (el: any, sel?: string): string => {
+            const a = sel ? el.querySelector(sel) : el.matches?.("a") ? el : el.querySelector("a");
+            const href = a?.getAttribute?.("href") ?? "";
+            try {
+              return href ? new URL(href, o.base).href : "";
+            } catch {
+              return href;
+            }
+          };
+          return Array.from(doc.querySelectorAll(o.itemSelector)).map((el: any) => ({
+            title: text(el, o.titleSelector),
+            url: link(el, o.linkSelector),
+            snippet: o.snippetSelector ? text(el, o.snippetSelector) : "",
+          }));
+        },
+        { ...opts, base: url },
+      );
+      return items.filter((i) => i.title || i.url);
+    } finally {
+      await page.close();
+    }
+  }
+
   /** Extract all links from a page. */
   async getLinks(url: string, timeout = 30000): Promise<string[]> {
     if (!this.browser) throw new Error("browser not started");
