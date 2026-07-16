@@ -140,6 +140,9 @@ importers:
       '@atlas/inbox':
         specifier: workspace:*
         version: link:../inbox
+      '@atlas/kdp':
+        specifier: workspace:*
+        version: link:../kdp
       '@atlas/knowledge':
         specifier: workspace:*
         version: link:../knowledge
@@ -431,6 +434,19 @@ importers:
         version: link:../core
 
   packages/inbox:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
+
+  packages/kdp:
     dependencies:
       '@atlas/core':
         specifier: workspace:*

@@ -1111,6 +1111,36 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, await a.invoke("gigfinder", { op: "updateStatus", id: decodeURIComponent(gigStatus[1]!), status, paidAmount }));
     }
 
+    if (method === "GET" && path === "/api/kdp/status") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("kdp", { op: "status" }));
+    }
+    if (method === "POST" && path === "/api/kdp/scan") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("kdp", { op: "scan" }));
+    }
+    if (method === "POST" && path === "/api/kdp/generate") {
+      const { limit } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("kdp", { op: "generate", limit }));
+    }
+    const kdpMark = path.match(/^\/api\/kdp\/books\/([^/]+)\/status$/);
+    if (method === "POST" && kdpMark) {
+      const { status, amazonUrl, amazonAsin } = await readBody(req);
+      if (!status) return send(res, 400, { error: "status required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("kdp", { op: "markStatus", id: decodeURIComponent(kdpMark[1]!), status, amazonUrl, amazonAsin }));
+    }
+    const kdpZip = path.match(/^\/api\/kdp\/books\/([^/]+)\/zip$/);
+    if (method === "GET" && kdpZip) {
+      const a = await ensureAtlas();
+      const { filename, base64 } = (await a.invoke("kdp", { op: "downloadZip", id: decodeURIComponent(kdpZip[1]!) })) as { filename: string; base64: string };
+      const buf = Buffer.from(base64, "base64");
+      res.writeHead(200, { "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="${filename}"`, "Content-Length": buf.length });
+      res.end(buf);
+      return;
+    }
+
     if (method === "POST" && path === "/api/codebase") {
       const { dir, name } = await readBody(req);
       if (!dir) return send(res, 400, { error: "dir (folder path) required" });

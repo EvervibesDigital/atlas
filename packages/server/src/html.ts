@@ -127,6 +127,7 @@ export const PAGE = `<!doctype html>
       <button data-tab="actions">⚡ Actions</button>
       <button data-tab="proposals">💡 Proposals</button>
       <button data-tab="gigs">💵 Gig Finder</button>
+      <button data-tab="kdp">📚 KDP</button>
       <button data-tab="approvals">Approvals</button>
       <button data-tab="media-factory">🎬 Media Factory</button>
       <button id="lockNow" class="sec" style="margin-left:auto">Lock</button>
@@ -418,6 +419,20 @@ export const PAGE = `<!doctype html>
       <div id="gigsList" style="margin-top:12px">Loading…</div>
     </section>
 
+    <section id="tab-kdp" class="card hide">
+      <h2>📚 KDP</h2>
+      <div class="note">Bridges to the real KDP pipeline in evervibes (trend scan → AI metadata → PDF ZIP). Needs a <code>KDP_CRON_SECRET</code> key (API Keys tab) matching evervibes' <code>CRON_SECRET</code> env var. Runs automatically every cycle once configured — this tab is for manual checks and downloads. Note: covers ship as a placeholder template today (Cover Engine v2 — real finished covers — is designed but not yet built).</div>
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button onclick="kdpScan()">🔍 Scan for opportunities</button>
+        <button onclick="kdpGenerate()">✍️ Generate books now</button>
+        <button class="sec" onclick="loadKdp()">Refresh</button>
+      </div>
+      <h3 style="margin-top:16px;font-size:14px">Opportunities</h3>
+      <div id="kdpOpps" class="note">Loading…</div>
+      <h3 style="margin-top:16px;font-size:14px">Books</h3>
+      <div id="kdpBooks">Loading…</div>
+    </section>
+
     <section id="tab-media-factory" class="card hide" style="max-width: 1200px;">
       <h2>🎬 Virtual Media Factory</h2>
       <p class="note" style="margin-bottom: 20px;">Manage, orchestrate, and monetize your AI creator network. Generate target concepts, strategy calendars, scripts, and analyze business performance.</p>
@@ -606,10 +621,11 @@ document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () =>
   b.classList.add("active");
   // Null-safe: a missing tab div must never crash the switcher (a single
   // throw here blanks EVERY tab — see 2026-07-16 "all tabs blank" incident).
-  ["chat","map","businesses","learn","connect","grow","vault","keys","run","actions","proposals","approvals","media-factory","gigs"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
+  ["chat","map","businesses","learn","connect","grow","vault","keys","run","actions","proposals","approvals","media-factory","gigs","kdp"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="proposals") loadProposals();
   if (b.dataset.tab==="gigs") loadGigs();
+  if (b.dataset.tab==="kdp") loadKdp();
   if (b.dataset.tab==="chat") $("chatIn").focus();
   if (b.dataset.tab==="businesses") loadBiz();
   if (b.dataset.tab==="actions") loadActions();
@@ -1064,6 +1080,33 @@ async function submittedGig(id){ try { await api("/api/gigs/"+id+"/submitted","P
 async function gigStatus(id,status){ try { await api("/api/gigs/"+id+"/status","POST",{status}); loadGigs(); } catch(e){ alert(e.message); } }
 async function gigPaid(id){ const amt=prompt("How much did this pay ($)?"); if(!amt) return;
   try { await api("/api/gigs/"+id+"/status","POST",{status:"paid",paidAmount:Number(amt)}); loadGigs(); } catch(e){ alert(e.message); } }
+
+// KDP bridge (evervibes' real pipeline: scan -> generate -> download -> mark status)
+async function loadKdp(){ try { const r=await api("/api/kdp/status");
+  const opps=r.opportunities||[];
+  $("kdpOpps").innerHTML=opps.length?opps.map(o=>"<div class='row'><span><b>"+o.topic+"</b> · "+o.niche+" · score "+o.ai_score+"</span><span class='note'>"+(o.recommended_type||"")+(o.urgency_date?(" · by "+o.urgency_date):"")+"</span></div>").join(""):"<div class='note'>No opportunities yet — click Scan.</div>";
+  const books=r.books||[];
+  $("kdpBooks").innerHTML=books.length?books.map(b=>{
+    const pill="<span class='pill "+(b.status==='generated'?'off':'on')+"'>"+b.status+"</span>";
+    let actions="<button onclick='kdpDownload(\\""+b.id+"\\")'>⬇️ Download ZIP</button>";
+    if(b.status==='generated') actions+=" <button class='sec' onclick='kdpMark(\\""+b.id+"\\",\\"downloaded\\")'>Mark downloaded</button>";
+    else if(b.status==='downloaded') actions+=" <button class='sec' onclick='kdpMarkUploaded(\\""+b.id+"\\")'>Mark uploaded to Amazon</button>";
+    else if(b.status==='uploaded_to_amazon') actions+=" <button class='sec' onclick='kdpMark(\\""+b.id+"\\",\\"live\\")'>Mark live</button>";
+    return "<div class='row' style='align-items:flex-start;flex-direction:column;border:1px solid var(--acc);padding:8px;border-radius:4px;margin-bottom:8px'><div style='display:flex;justify-content:space-between;width:100%'><span><b>"+(b.title||"(untitled)")+"</b> · "+b.product_type+" · "+b.trim_size+" "+pill+"</span></div><div class='note' style='font-size:12px'>"+(b.subtitle||"")+"</div><div style='margin-top:8px'>"+actions+"</div></div>";
+  }).join(""):"<div class='note'>No books yet — click Generate books now (needs opportunities first).</div>";
+} catch(e){ $("kdpOpps").textContent="⚠ "+e.message; $("kdpBooks").textContent=""; } }
+async function kdpScan(){ try { const r=await api("/api/kdp/scan","POST"); alert("Scanned "+(r.scanned||0)+", inserted "+(r.inserted||0)+", updated "+(r.updated||0)); loadKdp(); } catch(e){ alert(e.message); } }
+async function kdpGenerate(){ try { const r=await api("/api/kdp/generate","POST",{limit:3}); alert("Generated "+(r.generated||0)+" book(s)"); loadKdp(); } catch(e){ alert(e.message); } }
+async function kdpMark(id,status){ try { await api("/api/kdp/books/"+id+"/status","POST",{status}); loadKdp(); } catch(e){ alert(e.message); } }
+async function kdpMarkUploaded(id){ const url=prompt("Amazon URL (optional):")||undefined; const asin=prompt("ASIN (optional):")||undefined;
+  try { await api("/api/kdp/books/"+id+"/status","POST",{status:"uploaded_to_amazon",amazonUrl:url,amazonAsin:asin}); loadKdp(); } catch(e){ alert(e.message); } }
+async function kdpDownload(id){ try {
+  const r=await fetch("/api/kdp/books/"+id+"/zip", { headers: TOKEN?{"x-atlas-token":TOKEN}:{} });
+  if(!r.ok) throw new Error("download failed (HTTP "+r.status+")");
+  const blob=await r.blob(); const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download=(r.headers.get("Content-Disposition")||"").split("filename=")[1]?.replace(/"/g,"")||"book.zip";
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+} catch(e){ alert(e.message); } }
 
 let detectedKeysCache=[];
 async function detectAndShow(){ const text=$("detectKeys").value; if(!text.trim()) return; $("detectOut").textContent="Detecting…";

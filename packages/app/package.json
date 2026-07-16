@@ -21,6 +21,7 @@
     "@atlas/research": "workspace:*",
     "@atlas/business": "workspace:*",
     "@atlas/gigfinder": "workspace:*",
+    "@atlas/kdp": "workspace:*",
     "@atlas/opportunity": "workspace:*",
     "@atlas/techdebt": "workspace:*",
     "@atlas/strategy": "workspace:*",

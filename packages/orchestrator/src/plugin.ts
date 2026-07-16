@@ -49,6 +49,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         "call:janitor",
         "call:newsletter",
         "call:gigfinder",
+        "call:kdp",
       ],
       role: "planner",
     },
@@ -140,6 +141,12 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           // search each time. The riskier scrape sources (craigslist/fiverr/
           // guru) stay manual-trigger-only from the UI, never automatic.
           gigs: (await optional<unknown>(ctx, "gigfinder", { op: "search", sources: ["web"] })) ?? null,
+          // KDP — "constantly creating": scan for new book opportunities, then
+          // build metadata+PDF for the top few unbuilt ones every cycle. Real
+          // pipeline lives in evervibes; this just keeps it fed. Skipped
+          // gracefully if KDP_CRON_SECRET isn't configured yet.
+          kdpScan: (await optional<unknown>(ctx, "kdp", { op: "scan" })) ?? null,
+          kdpGenerate: (await optional<unknown>(ctx, "kdp", { op: "generate", limit: 3 })) ?? null,
         };
 
         // 7. Gather advice + the approval list for the report.
