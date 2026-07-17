@@ -312,11 +312,17 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
 
   /** Same as `setImmediate(rebuildAtlas)`, but tracks the in-flight promise so
    * `close()` can wait for it — a fire-and-forget rebuild must never race
-   * shutdown-time cleanup (e.g. a test deleting its temp data dir). */
+   * shutdown-time cleanup (e.g. a test deleting its temp data dir). Chains onto
+   * any already-pending rebuild instead of overwriting it, so `close()` always
+   * waits for every scheduled rebuild, not just the most recently scheduled
+   * one. Failures are logged (never silently swallowed) since a failed
+   * rebuild leaves `atlas` pointing at a stale instance with no other signal. */
   function backgroundRebuild(): void {
-    pendingRebuild = new Promise<void>((resolve) => {
-      setImmediate(() => { rebuildAtlas().then(resolve, resolve); });
-    });
+    pendingRebuild = (pendingRebuild ?? Promise.resolve()).then(
+      () => new Promise<void>((resolve) => {
+        setImmediate(() => { rebuildAtlas().then(resolve, (err) => { console.error("[REBUILD] background rebuild failed:", err); resolve(); }); });
+      }),
+    );
   }
 
   async function rebuildAtlas(): Promise<void> {
