@@ -72,4 +72,19 @@ describe("Atlas kernel", () => {
     });
     expect(ran).toBe(false);
   });
+
+  it("still logs a failed completion entry when act()'s run callback throws", async () => {
+    const atlas = new Atlas({ guardian: allowAll });
+    await atlas.use({
+      manifest: { name: "thrower", version: "1", capabilities: [], permissions: [], role: "executor" },
+      async register(ctx) {
+        await expect(ctx.act("risky-thing", async () => {
+          throw new Error("boom");
+        })).rejects.toThrow("boom");
+      },
+    });
+    const entries = atlas.audit.entries.filter((e) => e.action === "risky-thing");
+    // Before this fix: 0 entries (the throw skipped the only completion log).
+    expect(entries.some((e) => e.status === "failed" && e.error?.includes("boom"))).toBe(true);
+  });
 });

@@ -199,9 +199,20 @@ export class Atlas {
           });
           return { decision: verdict.decision, reason: verdict.reason };
         }
-        const result = await run();
-        await this.audit.record({ actor: manifest.name, action, decision: "allow", outcome: "ok" });
-        return { decision: "allow", result };
+        try {
+          const result = await run();
+          await this.audit.record({ actor: manifest.name, action, decision: "allow", status: "done", outcome: "ok" });
+          return { decision: "allow", result };
+        } catch (err) {
+          await this.audit.record({
+            actor: manifest.name,
+            action,
+            decision: "allow",
+            status: "failed",
+            error: String(err instanceof Error ? err.message : err),
+          });
+          throw err;
+        }
       },
 
       provide: (service, handler) => {
