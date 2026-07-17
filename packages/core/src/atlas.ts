@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { EventBus } from "./events";
 import { AuditLog } from "./audit";
 import { ConfigVault } from "./config";
@@ -132,7 +133,7 @@ export class Atlas {
   async invoke(service: string, payload?: unknown): Promise<unknown> {
     const svc = this.services.get(service);
     if (!svc) throw new Error(`no such service "${service}"`);
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     const startedAt = Date.now();
     await this.audit.record({ id, actor: "owner-console", action: `invoke:${service}`, decision: "allow", status: "running" });
     try {
