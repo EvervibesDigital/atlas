@@ -230,8 +230,6 @@ export interface ControlPanelOptions {
   brainAdapters?: ProviderAdapter[];
   /** Where "Enable overnight runs" writes provider keys (default ./.env). */
   envFile?: string;
-  /** Where the run ledger persists to disk. Omit for tests (in-memory only). */
-  auditFile?: string;
   /** Failed unlocks before a temporary lockout (default 5). */
   maxUnlockFails?: number;
   /** Lockout duration in ms after too many failed unlocks (default 15 min). */
@@ -310,6 +308,17 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     })
     .catch(() => { /* no saved state yet */ });
 
+  let pendingRebuild: Promise<void> | null = null;
+
+  /** Same as `setImmediate(rebuildAtlas)`, but tracks the in-flight promise so
+   * `close()` can wait for it — a fire-and-forget rebuild must never race
+   * shutdown-time cleanup (e.g. a test deleting its temp data dir). */
+  function backgroundRebuild(): void {
+    pendingRebuild = new Promise<void>((resolve) => {
+      setImmediate(() => { rebuildAtlas().then(resolve, resolve); });
+    });
+  }
+
   async function rebuildAtlas(): Promise<void> {
     if (vault.unlocked) {
       for (const k of vault.list()) {
@@ -336,7 +345,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       gigFile: `${dataDir}/gigs.json`,
       toolVaultFile: `${dataDir}/toolvault.json`,
       skillsFile: `${dataDir}/skills.json`,
-      auditFile: opts.auditFile,
+      auditFile: `${dataDir}/audit-log.json`,
       forgeDir: "./forge",
       publisher: livePublisher,
     });
@@ -515,7 +524,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       if (!name || !value) return send(res, 400, { error: "name and value required" });
       await vault.set(String(name), String(value));
       // Rebuild in the background so HTTP response returns immediately.
-      setImmediate(rebuildAtlas);
+      backgroundRebuild();
       return send(res, 200, { ok: true });
     }
     if (method === "POST" && path === "/api/secrets/bulk") {
@@ -524,14 +533,14 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       for (const p of pairs) await vault.set(p.name, p.value);
       // Rebuild in the background so HTTP response returns immediately
       // (rebuilding can take 10-30s with Ollama; don't block the browser).
-      if (pairs.length) setImmediate(rebuildAtlas);
+      if (pairs.length) backgroundRebuild();
       return send(res, 200, { saved: pairs.length, names: pairs.map((p) => p.name) });
     }
     if (method === "DELETE" && path.startsWith("/api/secrets/")) {
       const name = decodeURIComponent(path.slice("/api/secrets/".length));
       const ok = await vault.delete(name);
       // Rebuild in the background so HTTP response returns immediately.
-      setImmediate(rebuildAtlas);
+      backgroundRebuild();
       return send(res, 200, { ok });
     }
 
@@ -827,7 +836,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
 
       // Clean up the draft and rebuild
       selfImprovementDrafts.delete(String(id ?? ""));
-      setImmediate(rebuildAtlas);
+      backgroundRebuild();
 
       return send(res, 200, { ok: true, message: `Applied to ${draft.target} — ${result.verified}. Rebuilding...` });
     }
@@ -1334,8 +1343,9 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         });
       });
     },
-    close() {
-      return new Promise((resolve) => server.close(() => resolve()));
+    async close(): Promise<void> {
+      if (pendingRebuild) await pendingRebuild;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };
 }
