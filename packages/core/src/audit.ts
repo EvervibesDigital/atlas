@@ -1,3 +1,6 @@
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+
 /**
  * Audit Log — "every decision is logged" (core principle #3).
  *
@@ -50,6 +53,45 @@ export class MemoryAuditSink implements AuditSink {
   }
   readAll(): AuditEntry[] {
     return this.entries;
+  }
+}
+
+/**
+ * JSON-file sink — real persistence with no database, same philosophy as
+ * `JsonFileStore` in `@atlas/memory` (that file is the reference pattern this
+ * mirrors). Cache loads lazily on first access; every write re-persists the
+ * whole array. Fine for ATLAS's single-owner, low-volume run counts — a
+ * Postgres sink can replace this later without touching any caller.
+ */
+export class JsonFileAuditSink implements AuditSink {
+  private cache: AuditEntry[] | null = null;
+
+  constructor(private file: string) {}
+
+  private load(): AuditEntry[] {
+    if (this.cache) return this.cache;
+    try {
+      const raw = readFileSync(this.file, "utf8");
+      this.cache = JSON.parse(raw) as AuditEntry[];
+    } catch {
+      this.cache = [];
+    }
+    return this.cache;
+  }
+
+  private persist(): void {
+    mkdirSync(dirname(this.file), { recursive: true });
+    writeFileSync(this.file, JSON.stringify(this.cache ?? [], null, 2), "utf8");
+  }
+
+  write(entry: AuditEntry): void {
+    const all = this.load();
+    all.push(entry);
+    this.persist();
+  }
+
+  readAll(): AuditEntry[] {
+    return [...this.load()];
   }
 }
 

@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { AuditLog } from "../src/audit";
+import { describe, it, expect, afterEach } from "vitest";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { AuditLog, JsonFileAuditSink } from "../src/audit";
 
 describe("AuditLog.query", () => {
   it("filters entries by actor, status, and time range", async () => {
@@ -24,5 +27,23 @@ describe("AuditLog.query", () => {
 
     expect(await log.query({ since: midpoint })).toHaveLength(1);
     expect(await log.query({ until: midpoint })).toHaveLength(1);
+  });
+});
+
+describe("JsonFileAuditSink persistence", () => {
+  const file = join(tmpdir(), `atlas-audit-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  afterEach(async () => {
+    await rm(file, { force: true });
+  });
+
+  it("survives across sink instances (persists to disk)", async () => {
+    const log1 = new AuditLog(new JsonFileAuditSink(file));
+    await log1.record({ id: "1", actor: "cfo", action: "invoke:cfo", decision: "allow", status: "done" });
+
+    const log2 = new AuditLog(new JsonFileAuditSink(file));
+    // Force the second sink to load from disk before querying.
+    await log2.record({ id: "2", actor: "gigfinder", action: "invoke:gigfinder", decision: "allow", status: "done" });
+    const all = await log2.query({});
+    expect(all.map((e) => e.id).sort()).toEqual(["1", "2"]);
   });
 });
