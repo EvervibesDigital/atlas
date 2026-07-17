@@ -1,6 +1,6 @@
 import type { BrainRequest, BrainResponse, ProviderAdapter } from "./types";
 import { DEFAULT_NEEDS } from "./types";
-import { scoreModel, meetsPrivacy } from "./scorer";
+import { scoreModel, meetsPrivacy, meetsUnfiltered } from "./scorer";
 import { PromptCache } from "./cache";
 
 interface Candidate {
@@ -38,6 +38,9 @@ export class BrainRouter {
 
     candidates = candidates.filter((c) => meetsPrivacy(c.model, needs));
     if (candidates.length === 0) throw new Error("Brain Router: no provider meets the privacy requirement");
+
+    candidates = candidates.filter((c) => meetsUnfiltered(c.model, needs));
+    if (candidates.length === 0) throw new Error("Brain Router: unfiltered mode requested but no unfiltered model is available (pull dolphin3:8b and set ATLAS_ENABLE_UNFILTERED)");
 
     const ranked = candidates
       .map((c) => ({ ...c, score: scoreModel(c.model, needs) }))

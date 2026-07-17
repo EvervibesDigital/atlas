@@ -171,7 +171,10 @@ export const PAGE = `<!doctype html>
             </div>
           </div>
           <div id="chatBox" style="flex:1;overflow-y:auto;padding:10px 4px;"></div>
-          <div style="display:flex;gap:8px;margin-top:10px;align-items:flex-end;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <button id="unfilteredToggle" class="mini sec" style="padding:3px 10px;" title="Runs on your local Dolphin model instead of the cloud — fewer refusals on mature/edgy/legal-but-sensitive topics. Still won't help with anything that could seriously hurt someone.">🔓 Unfiltered: Off</button>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:0;align-items:flex-end;">
             <textarea id="chatIn" rows="3" placeholder="Ask ATLAS anything — or tap the mic to talk…" style="flex:1;resize:vertical;min-height:52px;"></textarea>
             <button id="chatMic" class="sec" style="margin-top:0" title="Speak">🎤</button>
             <button id="chatSend" style="margin-top:0">Send</button>
@@ -840,6 +843,7 @@ async function researchBiz(id) {
 
 // ── Chat + sessions (Claude-like sidebar) ──
 let chatHistory = [];
+let unfilteredMode = localStorage.getItem("atlasUnfiltered") === "1";
 let currentSessionId = null;
 // Minimal, safe markdown -> HTML. Escapes first, then applies a small set of
 // transforms — no innerHTML from raw model output ever reaches the DOM.
@@ -1001,7 +1005,7 @@ async function sendChat(){
   bubble("user", msg);
   const thinking = thinkingBubble();
   try {
-    const r = await api("/api/chat","POST",{ message: msg, history: chatHistory, sessionId: currentSessionId });
+    const r = await api("/api/chat","POST",{ message: msg, history: chatHistory, sessionId: currentSessionId, unfiltered: unfilteredMode });
     thinking.classList.remove("thinking");
     thinking.innerHTML = renderMarkdown(r.reply);
     $("chatBox").scrollTop = $("chatBox").scrollHeight;
@@ -1038,6 +1042,20 @@ async function sendChat(){
 $("chatSend").onclick = sendChat;
 $("newChat").onclick = newChat;
 $("chatIn").addEventListener("keydown", (e) => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+
+function renderUnfilteredToggle(){
+  const btn = $("unfilteredToggle");
+  btn.textContent = unfilteredMode ? "🔓 Unfiltered: On" : "🔓 Unfiltered: Off";
+  btn.style.background = unfilteredMode ? "rgba(239,68,68,.18)" : "";
+  btn.style.borderColor = unfilteredMode ? "rgba(239,68,68,.6)" : "";
+  btn.style.color = unfilteredMode ? "#fca5a5" : "";
+}
+$("unfilteredToggle").onclick = () => {
+  unfilteredMode = !unfilteredMode;
+  localStorage.setItem("atlasUnfiltered", unfilteredMode ? "1" : "0");
+  renderUnfilteredToggle();
+};
+renderUnfilteredToggle();
 
 // 🎤 speech-to-text (browser Web Speech API — free, no server cost)
 (function(){

@@ -73,6 +73,25 @@ export class OllamaAdapter implements ProviderAdapter {
           } satisfies ModelSpec,
         ]
       : []),
+    // "Unfiltered" model — a community fine-tune (Dolphin, built on Llama 3.1
+    // 8B) trained specifically to defer to the system prompt instead of its
+    // own baked-in refusal training, for topics mainstream hosted providers
+    // (Gemini/Groq/Anthropic) over-refuse. Local-only and opt-in: `needs.unfiltered`
+    // must be requested explicitly (see chatNeeds/server.ts "Unfiltered" toggle) —
+    // it never wins ordinary chat routing, and everything it says still passes
+    // through the same fabrication/evaluation safety net as every other model.
+    ...(process.env.ATLAS_ENABLE_UNFILTERED
+      ? [
+          {
+            id: "dolphin3:8b",
+            label: "Dolphin 3 8B (Local, unfiltered)",
+            caps: { reasoning: 0.7, coding: 0.65, research: 0.65, creativity: 0.75, speed: 0.5, unfiltered: 1 },
+            costUsd: 0,
+            privacy: 1,
+            free: true,
+          } satisfies ModelSpec,
+        ]
+      : []),
   ];
 
   available(): boolean {
@@ -105,6 +124,14 @@ export class OllamaAdapter implements ProviderAdapter {
           // Keep the model resident for 30 min so back-to-back messages don't
           // pay the multi-second reload cost each time.
           keep_alive: "30m",
+          // Ollama's context window defaults to 2048 tokens REGARDLESS of what
+          // the model actually supports, unless explicitly overridden here. Our
+          // chat prompt (system instructions + recalled memory + last 10 turns)
+          // routinely exceeds 2048 tokens within a handful of exchanges; once it
+          // does, Ollama silently truncates the context and the model degrades
+          // into repetition/gibberish. 8192 comfortably covers our prompt sizes
+          // on both llama3.2:3b and Qwen3.6 without a meaningful CPU slowdown.
+          options: { num_ctx: 8192 },
         }),
         signal: controller.signal,
       });

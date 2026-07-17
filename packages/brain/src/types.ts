@@ -16,7 +16,11 @@ export type Dimension =
   | "creativity"
   | "speed"
   | "privacy"
-  | "cost";
+  | "cost"
+  /** Hard-filtered like privacy (see meetsUnfiltered) — only the local Dolphin
+   *  model declares this, so requesting it always routes there, never soft-scored
+   *  against other models' unrelated strengths. */
+  | "unfiltered";
 
 export interface BrainRequest {
   prompt: string;

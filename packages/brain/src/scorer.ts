@@ -27,3 +27,15 @@ export function meetsPrivacy(model: ModelSpec, needs: Partial<Record<Dimension, 
   const required = needs.privacy ?? 0;
   return required < 0.9 || model.privacy >= 0.9;
 }
+
+/**
+ * True when a model satisfies a hard "unfiltered" requirement (needs.unfiltered
+ * ≥ 0.9). A hard filter, not a scored dimension, so requesting it can't be
+ * outweighed by another model's strength on coding/reasoning/etc — the exact
+ * same pattern as meetsPrivacy above, and for the same reason: some
+ * requirements must be guaranteed, not merely favored.
+ */
+export function meetsUnfiltered(model: ModelSpec, needs: Partial<Record<Dimension, number>>): boolean {
+  const required = needs.unfiltered ?? 0;
+  return required < 0.9 || (model.caps.unfiltered ?? 0) >= 0.9;
+}
