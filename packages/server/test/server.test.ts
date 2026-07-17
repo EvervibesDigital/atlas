@@ -117,4 +117,27 @@ describe("control panel", () => {
     const bad = await post("/api/unlock", { masterPassword: "the-wrong-one" });
     expect(bad.status).toBe(401);
   });
+
+  it("GET /api/runs lists ledger entries, filterable by status", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    // The stub-brain chat call below goes through Atlas.invoke("brain", ...) and
+    // Atlas.invoke("memory", ...) internally, which is enough to populate the ledger.
+    await post("/api/chat", { message: "hello ATLAS", history: [] }, token);
+
+    const res = await get("/api/runs?limit=50", token);
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { runs: Array<{ status: string; actor: string }> };
+    expect(Array.isArray(data.runs)).toBe(true);
+    expect(data.runs.some((r) => r.actor === "owner-console" && r.status === "done")).toBe(true);
+
+    const failedOnly = await get("/api/runs?status=failed", token);
+    const failedData = (await failedOnly.json()) as { runs: unknown[] };
+    expect(failedData.runs).toHaveLength(0); // nothing failed in this test run
+  });
+
+  it("blocks GET /api/runs when locked", async () => {
+    await start();
+    expect((await get("/api/runs")).status).toBe(401);
+  });
 });

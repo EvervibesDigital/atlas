@@ -1308,6 +1308,24 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, { agents: a.loaded(), businesses: businesses.map((b) => b.name) });
     }
 
+    if (method === "GET" && path === "/api/runs") {
+      if (!authed(req)) return send(res, 401, { error: "locked — unlock first" });
+      const a = await ensureAtlas();
+      const params = new URL(req.url ?? "", "http://x").searchParams;
+      const filter = {
+        actor: params.get("agent") ?? undefined,
+        status: (params.get("status") as "running" | "done" | "failed" | null) ?? undefined,
+        since: params.get("since") ?? undefined,
+        until: params.get("until") ?? undefined,
+      };
+      const limit = Number(params.get("limit") ?? 50);
+      const runs = (await a.audit.query(filter))
+        .filter((e) => e.status) // only entries that represent a trackable run, not one-off log lines
+        .slice(-limit)
+        .reverse(); // most recent first, matching /api/chats' existing convention
+      return send(res, 200, { runs });
+    }
+
     if (method === "GET" && path === "/api/actions") {
       const a = await ensureAtlas();
       return send(res, 200, { actions: await a.invoke("actions", { op: "list" }) });
