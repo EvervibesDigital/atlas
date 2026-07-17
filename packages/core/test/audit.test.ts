@@ -8,10 +8,10 @@ describe("AuditLog.query", () => {
     await log.record({ id: "2", actor: "gigfinder", action: "invoke:gigfinder", decision: "allow", status: "failed" });
     await log.record({ id: "3", actor: "cfo", action: "invoke:cfo", decision: "allow", status: "running" });
 
-    expect(log.query({ actor: "cfo" })).toHaveLength(2);
-    expect(log.query({ status: "failed" })).toHaveLength(1);
-    expect(log.query({ actor: "cfo", status: "running" })).toHaveLength(1);
-    expect(log.query({})).toHaveLength(3);
+    expect(await log.query({ actor: "cfo" })).toHaveLength(2);
+    expect(await log.query({ status: "failed" })).toHaveLength(1);
+    expect(await log.query({ actor: "cfo", status: "running" })).toHaveLength(1);
+    expect(await log.query({})).toHaveLength(3);
   });
 
   it("filters by since/until against the entry timestamp", async () => {
@@ -22,7 +22,7 @@ describe("AuditLog.query", () => {
     await new Promise((r) => setTimeout(r, 2));
     await log.record({ id: "2", actor: "cfo", action: "y", decision: "allow" });
 
-    expect(log.query({ since: midpoint })).toHaveLength(1);
-    expect(log.query({ until: midpoint })).toHaveLength(1);
+    expect(await log.query({ since: midpoint })).toHaveLength(1);
+    expect(await log.query({ until: midpoint })).toHaveLength(1);
   });
 });

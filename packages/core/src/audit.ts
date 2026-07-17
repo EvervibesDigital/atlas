@@ -75,12 +75,13 @@ export class AuditLog {
   }
 
   /**
-   * Filter recorded entries. Synchronous against whatever the sink currently
-   * has cached — sinks that lazy-load from disk populate their cache on the
-   * first `write()`/`read()`, same as `JsonFileStore` in `@atlas/memory`.
+   * Filter recorded entries. Always reads through `sink.readAll()` — every
+   * `AuditSink` (in-memory or file-backed) must honestly implement that
+   * method, so `query()` never needs to special-case or guess at a sink's
+   * internal shape.
    */
-  query(filter: AuditQuery): AuditEntry[] {
-    const all = this.sink instanceof MemoryAuditSink ? this.sink.entries : (this.sink as { cached?: AuditEntry[] }).cached ?? [];
+  async query(filter: AuditQuery): Promise<AuditEntry[]> {
+    const all = await this.sink.readAll();
     return all.filter((e) => {
       if (filter.actor && e.actor !== filter.actor) return false;
       if (filter.status && e.status !== filter.status) return false;
