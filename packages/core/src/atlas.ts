@@ -226,8 +226,35 @@ export class Atlas {
           await this.audit.record({ actor: manifest.name, action: `call:${service}`, decision: "deny", outcome: "no such service" });
           throw new Error(`no such service "${service}"`);
         }
-        await this.audit.record({ actor: manifest.name, action: `call:${service}`, decision: "allow" });
-        return svc.handler(payload);
+        const id = randomUUID();
+        const startedAt = Date.now();
+        await this.audit.record({ id, actor: manifest.name, action: `call:${service}`, decision: "allow", status: "running" });
+        try {
+          const result = await svc.handler(payload);
+          await this.audit.record({
+            id,
+            actor: manifest.name,
+            action: `call:${service}`,
+            decision: "allow",
+            status: "done",
+            endedAt: new Date().toISOString(),
+            durationMs: Date.now() - startedAt,
+            outcome: summarize(result),
+          });
+          return result;
+        } catch (err) {
+          await this.audit.record({
+            id,
+            actor: manifest.name,
+            action: `call:${service}`,
+            decision: "allow",
+            status: "failed",
+            endedAt: new Date().toISOString(),
+            durationMs: Date.now() - startedAt,
+            error: String(err instanceof Error ? err.message : err),
+          });
+          throw err;
+        }
       },
     };
   }

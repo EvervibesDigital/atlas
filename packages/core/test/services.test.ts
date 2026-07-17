@@ -104,4 +104,21 @@ describe("service registry (provide / call)", () => {
       }),
     ).rejects.toThrow(/undeclared capability/);
   });
+
+  it("records a running->done run pair when one plugin calls another's service", async () => {
+    const atlas = new Atlas({ guardian: realishGuardian() });
+    await atlas.use(provider);
+    await atlas.use({
+      manifest: { name: "consumer", version: "1", capabilities: [], permissions: ["call:math"], role: "executor" },
+      async register(ctx) {
+        await ctx.call("math", { a: 2, b: 3 });
+      },
+    });
+
+    const runs = atlas.audit.entries.filter((e) => e.action === "call:math" && e.actor === "consumer");
+    expect(runs).toHaveLength(2);
+    expect(runs[0]!.status).toBe("running");
+    expect(runs[1]!.status).toBe("done");
+    expect(runs[0]!.id).toBe(runs[1]!.id);
+  });
 });
