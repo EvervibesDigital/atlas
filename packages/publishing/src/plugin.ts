@@ -2,21 +2,55 @@ import type { Plugin } from "@atlas/core";
 import type { Approval } from "@atlas/approvals";
 import type { PublishCommand, PublishInput, PublishResult } from "./types";
 import { validateForInstagram } from "./instagram";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { DryRunPublisher, type Publisher } from "./publisher";
 import { VideoRenderer, NoOpRenderer, type Renderer } from "./video-renderer";
+import { MontageRenderer } from "./montage-renderer";
 
 /**
- * The real VideoRenderer needs a Windows-specific edge-tts.exe at a hardcoded
- * path (see video-renderer.ts). On any machine without it — e.g. the Linux
- * cloud deploy — it would hang/fail on every single automated cycle. Falling
- * back to NoOpRenderer here means the cloud deploy degrades safely with zero
- * config, while Mat's dev machine (where the path exists) keeps working as before.
+ * Locate a Piper install. Precedence: PIPER_BIN/PIPER_MODEL env vars, then the
+ * repo-relative `tools/piper/` convention (piper binary + any .onnx voice in
+ * the same folder) — the same path works on Mat's laptop and inside the Linux
+ * cloud container, so installing Piper there lights up rendering on both with
+ * zero further config.
+ */
+function findPiper(): { bin: string; model: string } | null {
+  const envBin = process.env.PIPER_BIN;
+  const envModel = process.env.PIPER_MODEL;
+  if (envBin && envModel && existsSync(envBin) && existsSync(envModel)) return { bin: envBin, model: envModel };
+
+  const dir = join(process.cwd(), "tools", "piper");
+  for (const bin of [join(dir, "piper.exe"), join(dir, "piper")]) {
+    if (!existsSync(bin)) continue;
+    try {
+      const voice = readdirSync(dir).find((f) => f.endsWith(".onnx"));
+      if (voice) return { bin, model: join(dir, voice) };
+    } catch {
+      /* unreadable dir — treat as not installed */
+    }
+  }
+  return null;
+}
+
+/**
+ * Renderer selection, best-first:
+ *  1. MontageRenderer — cross-platform (Piper TTS + post-render self-review);
+ *     picked whenever a Piper install is found (env vars or tools/piper/).
+ *  2. VideoRenderer — legacy Windows-only edge-tts path, kept as fallback so
+ *     nothing regresses if Piper is removed.
+ *  3. NoOpRenderer — safe default everywhere else; the cloud deploy degrades
+ *     safely with zero config instead of hanging every automated cycle.
  */
 function defaultRenderer(): Renderer {
+  const piper = findPiper();
+  if (piper) {
+    console.log(`[publishing] Piper found at ${piper.bin} — using MontageRenderer (cross-platform).`);
+    return new MontageRenderer({ tempDir: "./data/temp", piperBin: piper.bin, piperModel: piper.model });
+  }
   const edgeTtsPath = "C:\\Users\\matbr\\claudecode1\\waverider-bot\\.venv\\Scripts\\edge-tts.exe";
   if (!existsSync(edgeTtsPath)) {
-    console.warn("[publishing] edge-tts not found at expected path — using NoOpRenderer (no video will be rendered). This is expected on the cloud deploy.");
+    console.warn("[publishing] Neither Piper (tools/piper/) nor edge-tts found — using NoOpRenderer (no video will be rendered).");
     return new NoOpRenderer();
   }
   return new VideoRenderer({ tempDir: "./data/temp" });

@@ -3,8 +3,8 @@
  * they can be unit-tested without a real video pipeline.
  */
 
-/** Wrap text to `maxLen`-char lines for ffmpeg's drawtext filter, one line per array entry, newline-joined and escaped for ffmpeg's filter syntax. */
-export function wrapText(text: string, maxLen: number): string {
+/** Wrap text into lines of at most ~maxLen chars (word boundaries), unescaped. */
+export function wrapLines(text: string, maxLen: number): string[] {
   const words = text.split(" ");
   let line = "";
   const lines: string[] = [];
@@ -16,7 +16,21 @@ export function wrapText(text: string, maxLen: number): string {
     line += w + " ";
   }
   if (line) lines.push(line.trim());
-  return lines.join("\n").replace(/'/g, "'\\\\''");
+  return lines;
+}
+
+/** Wrap text to `maxLen`-char lines for ffmpeg's drawtext filter, one line per array entry, newline-joined and escaped for ffmpeg's filter syntax. */
+export function wrapText(text: string, maxLen: number): string {
+  return wrapLines(text, maxLen).join("\n").replace(/'/g, "'\\\\''");
+}
+
+/**
+ * Escape a filesystem path for use inside an ffmpeg filter option value
+ * (e.g. drawtext's textfile='…'). Backslashes become forward slashes and the
+ * drive colon is escaped, since ':' separates filter options.
+ */
+export function ffmpegFilterPath(p: string): string {
+  return p.replace(/\\/g, "/").replace(/:/g, "\\:");
 }
 
 /** Parse an ffmpeg stderr blob for `Duration: HH:MM:SS.CC`, returning seconds or null if absent. */

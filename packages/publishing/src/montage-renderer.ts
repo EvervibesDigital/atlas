@@ -1,10 +1,10 @@
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
 import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import ffmpegPath from "ffmpeg-static";
 import type { Renderer } from "./video-renderer";
-import { wrapText, parseFfmpegDuration, reviewRender } from "./render-utils";
+import { wrapLines, ffmpegFilterPath, parseFfmpegDuration, reviewRender } from "./render-utils";
 
 const execAsync = promisify(exec);
 
@@ -80,8 +80,13 @@ export class MontageRenderer implements Renderer {
         totalDuration += duration;
 
         const segmentPath = path.join(runDir, `segment_${i}.mp4`);
-        const wrappedText = wrapText(scene.text, 35);
-        const drawTextFilter = `drawtext=text='${wrappedText}':fontcolor=white:fontsize=40:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-350`;
+        // Caption goes through drawtext's textfile= option, NOT inline text=:
+        // inline captions with newlines truncate the command line on Windows
+        // cmd (the old VideoRenderer's latent render-killing bug) and need
+        // per-shell quote escaping. A file sidesteps all of it.
+        const captionPath = path.join(runDir, `caption_${i}.txt`);
+        await fs.writeFile(captionPath, wrapLines(scene.text, 35).join("\n"), "utf8");
+        const drawTextFilter = `drawtext=textfile='${ffmpegFilterPath(captionPath)}':fontcolor=white:fontsize=40:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-350`;
         const renderCmd = `"${ffmpegPath}" -y -loop 1 -i "${imgPath}" -i "${audioPath}" -vf "${drawTextFilter}" -c:v libx264 -t ${duration} -c:a aac -pix_fmt yuv420p "${segmentPath}"`;
         await execAsync(renderCmd);
 
@@ -118,10 +123,22 @@ export class MontageRenderer implements Renderer {
     }
   }
 
-  private async synthesize(text: string, outPath: string): Promise<void> {
-    const safeText = text.replace(/"/g, '\\"');
-    const cmd = `echo "${safeText}" | "${this.piperBin}" --model "${this.piperModel}" --output_file "${outPath}"`;
-    await execAsync(cmd);
+  private synthesize(text: string, outPath: string): Promise<void> {
+    // Feed the narration through stdin rather than a shell pipe: no cmd-vs-sh
+    // quoting differences, and quotes/apostrophes in the script can't break
+    // (or inject into) the command line.
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.piperBin!, ["--model", this.piperModel!, "--output_file", outPath], { stdio: ["pipe", "ignore", "pipe"] });
+      let stderr = "";
+      child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`piper exited ${code}: ${stderr.slice(-300)}`));
+      });
+      child.stdin.write(text);
+      child.stdin.end();
+    });
   }
 
   private async getAudioDuration(audioPath: string): Promise<number> {
