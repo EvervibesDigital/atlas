@@ -61,6 +61,38 @@ describe("service registry (provide / call)", () => {
     expect(atlas.audit.entries.some((e) => e.actor === "owner-console" && e.action === "invoke:math")).toBe(true);
   });
 
+  it("records a running->done run pair with matching id and a duration on success", async () => {
+    const atlas = new Atlas({ guardian: realishGuardian() });
+    await atlas.use(provider);
+    await atlas.invoke("math", { a: 1, b: 2 });
+
+    const runs = atlas.audit.entries.filter((e) => e.action === "invoke:math");
+    expect(runs).toHaveLength(2);
+    expect(runs[0]!.status).toBe("running");
+    expect(runs[1]!.status).toBe("done");
+    expect(runs[0]!.id).toBe(runs[1]!.id);
+    expect(typeof runs[1]!.durationMs).toBe("number");
+  });
+
+  it("records a running->failed run pair with the error when the service throws", async () => {
+    const atlas = new Atlas({ guardian: realishGuardian() });
+    await atlas.use({
+      manifest: { name: "boom", version: "1", capabilities: ["boom"], permissions: ["*"], role: "executor" },
+      register(ctx) {
+        ctx.provide("boom", () => {
+          throw new Error("kaboom");
+        });
+      },
+    });
+
+    await expect(atlas.invoke("boom", {})).rejects.toThrow("kaboom");
+    const runs = atlas.audit.entries.filter((e) => e.action === "invoke:boom");
+    expect(runs).toHaveLength(2);
+    expect(runs[0]!.status).toBe("running");
+    expect(runs[1]!.status).toBe("failed");
+    expect(runs[1]!.error).toMatch(/kaboom/);
+  });
+
   it("refuses to provide a capability the plugin did not declare", async () => {
     const atlas = new Atlas({ guardian: realishGuardian() });
     await expect(

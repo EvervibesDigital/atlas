@@ -3,6 +3,16 @@ import { AuditLog } from "./audit";
 import { ConfigVault } from "./config";
 import type { Plugin, PluginManifest } from "./plugin";
 
+/** Short, safe stringification of a run's result for the audit trail — never the full payload (could be large/sensitive), just enough to recognize what happened at a glance. */
+function summarize(value: unknown): string {
+  try {
+    const s = typeof value === "string" ? value : JSON.stringify(value);
+    return s.length > 200 ? s.slice(0, 200) + "…" : s;
+  } catch {
+    return String(value);
+  }
+}
+
 /** A Guardian verdict. */
 export type Decision = "allow" | "deny" | "pending";
 
@@ -114,12 +124,43 @@ export class Atlas {
    * gate. This is the human owner console (core principle #5 — human approval
    * overrides AI: the human is the ultimate authority). Not available to
    * plugins, which must use the guarded `ctx.call`.
+   *
+   * Records a run: a "running" entry before the handler executes, then a
+   * "done" or "failed" completion entry sharing the same `id`, so the audit
+   * log doubles as a queryable run history (see `AuditLog.query`).
    */
   async invoke(service: string, payload?: unknown): Promise<unknown> {
     const svc = this.services.get(service);
     if (!svc) throw new Error(`no such service "${service}"`);
-    await this.audit.record({ actor: "owner-console", action: `invoke:${service}`, decision: "allow" });
-    return svc.handler(payload);
+    const id = crypto.randomUUID();
+    const startedAt = Date.now();
+    await this.audit.record({ id, actor: "owner-console", action: `invoke:${service}`, decision: "allow", status: "running" });
+    try {
+      const result = await svc.handler(payload);
+      await this.audit.record({
+        id,
+        actor: "owner-console",
+        action: `invoke:${service}`,
+        decision: "allow",
+        status: "done",
+        endedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt,
+        outcome: summarize(result),
+      });
+      return result;
+    } catch (err) {
+      await this.audit.record({
+        id,
+        actor: "owner-console",
+        action: `invoke:${service}`,
+        decision: "allow",
+        status: "failed",
+        endedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt,
+        error: String(err instanceof Error ? err.message : err),
+      });
+      throw err;
+    }
   }
 
   private makeContext(manifest: PluginManifest): AtlasContext {
