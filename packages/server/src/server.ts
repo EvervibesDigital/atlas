@@ -230,6 +230,8 @@ export interface ControlPanelOptions {
   brainAdapters?: ProviderAdapter[];
   /** Where "Enable overnight runs" writes provider keys (default ./.env). */
   envFile?: string;
+  /** Where the run ledger persists to disk. Omit for tests (in-memory only). */
+  auditFile?: string;
   /** Failed unlocks before a temporary lockout (default 5). */
   maxUnlockFails?: number;
   /** Lockout duration in ms after too many failed unlocks (default 15 min). */
@@ -334,6 +336,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       gigFile: `${dataDir}/gigs.json`,
       toolVaultFile: `${dataDir}/toolvault.json`,
       skillsFile: `${dataDir}/skills.json`,
+      auditFile: opts.auditFile,
       forgeDir: "./forge",
       publisher: livePublisher,
     });

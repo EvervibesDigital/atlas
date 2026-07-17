@@ -1,4 +1,4 @@
-import { Atlas } from "@atlas/core";
+import { Atlas, AuditLog, JsonFileAuditSink } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
 import { createBrainPlugin, type ProviderAdapter } from "@atlas/brain";
 import { createMemoryPlugin, HuggingFaceEmbedder, type MemoryStore, type Embedder } from "@atlas/memory";
@@ -48,6 +48,8 @@ export interface AtlasOptions {
   brainAdapters?: ProviderAdapter[];
   memoryStore?: MemoryStore;
   memoryFile?: string;
+  /** Where the run ledger persists to disk. Defaults to in-memory-only (safe for tests) when omitted. */
+  auditFile?: string;
   approvalsGateway?: ApprovalGateway;
   approvalsFile?: string;
   metricsTracker?: MetricsTracker;
@@ -87,7 +89,10 @@ export interface AtlasOptions {
  * keys (stub Brain, JSON-file memory, dry-run publisher).
  */
 export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
-  const atlas = new Atlas({ guardian: new Guardian() });
+  const atlas = new Atlas({
+    guardian: new Guardian(),
+    audit: opts.auditFile ? new AuditLog(new JsonFileAuditSink(opts.auditFile)) : undefined,
+  });
 
   // Embedder selection. Default = offline TokenEmbedder (matches existing
   // memory.json). Real HF semantic embeddings are DOUBLE-gated: a key must be

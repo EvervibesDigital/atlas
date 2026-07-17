@@ -17,7 +17,8 @@ function openBrowser(url: string): void {
 }
 
 /** `pnpm ui` — start the ATLAS control panel on localhost. */
-const panel = createControlPanel();
+const dataDir = "./data";
+const panel = createControlPanel({ dataDir, auditFile: `${dataDir}/audit-log.json` });
 const port = Number(process.env.ATLAS_UI_PORT ?? 4317);
 // Default stays loopback-only (laptop). Cloud deploys set ATLAS_HOST=0.0.0.0
 // so the reverse proxy (Traefik) can reach the container.
