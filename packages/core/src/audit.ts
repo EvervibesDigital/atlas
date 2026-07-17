@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 /**
@@ -68,10 +68,10 @@ export class JsonFileAuditSink implements AuditSink {
 
   constructor(private file: string) {}
 
-  private load(): AuditEntry[] {
+  private async load(): Promise<AuditEntry[]> {
     if (this.cache) return this.cache;
     try {
-      const raw = readFileSync(this.file, "utf8");
+      const raw = await readFile(this.file, "utf8");
       this.cache = JSON.parse(raw) as AuditEntry[];
     } catch {
       this.cache = [];
@@ -79,19 +79,19 @@ export class JsonFileAuditSink implements AuditSink {
     return this.cache;
   }
 
-  private persist(): void {
-    mkdirSync(dirname(this.file), { recursive: true });
-    writeFileSync(this.file, JSON.stringify(this.cache ?? [], null, 2), "utf8");
+  private async persist(): Promise<void> {
+    await mkdir(dirname(this.file), { recursive: true });
+    await writeFile(this.file, JSON.stringify(this.cache ?? [], null, 2), "utf8");
   }
 
-  write(entry: AuditEntry): void {
-    const all = this.load();
+  async write(entry: AuditEntry): Promise<void> {
+    const all = await this.load();
     all.push(entry);
-    this.persist();
+    await this.persist();
   }
 
-  readAll(): AuditEntry[] {
-    return [...this.load()];
+  async readAll(): Promise<AuditEntry[]> {
+    return [...(await this.load())];
   }
 }
 
