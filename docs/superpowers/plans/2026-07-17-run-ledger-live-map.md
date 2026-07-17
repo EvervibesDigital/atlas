@@ -30,21 +30,22 @@ describe("AuditLog.query", () => {
     await log.record({ id: "2", actor: "gigfinder", action: "invoke:gigfinder", decision: "allow", status: "failed" });
     await log.record({ id: "3", actor: "cfo", action: "invoke:cfo", decision: "allow", status: "running" });
 
-    expect(log.query({ actor: "cfo" })).toHaveLength(2);
-    expect(log.query({ status: "failed" })).toHaveLength(1);
-    expect(log.query({ actor: "cfo", status: "running" })).toHaveLength(1);
-    expect(log.query({})).toHaveLength(3);
+    expect(await log.query({ actor: "cfo" })).toHaveLength(2);
+    expect(await log.query({ status: "failed" })).toHaveLength(1);
+    expect(await log.query({ actor: "cfo", status: "running" })).toHaveLength(1);
+    expect(await log.query({})).toHaveLength(3);
   });
 
   it("filters by since/until against the entry timestamp", async () => {
     const log = new AuditLog();
     await log.record({ id: "1", actor: "cfo", action: "x", decision: "allow" });
+    await new Promise((r) => setTimeout(r, 2));
     const midpoint = new Date().toISOString();
     await new Promise((r) => setTimeout(r, 2));
     await log.record({ id: "2", actor: "cfo", action: "y", decision: "allow" });
 
-    expect(log.query({ since: midpoint })).toHaveLength(1);
-    expect(log.query({ until: midpoint })).toHaveLength(1);
+    expect(await log.query({ since: midpoint })).toHaveLength(1);
+    expect(await log.query({ until: midpoint })).toHaveLength(1);
   });
 });
 ```
@@ -136,12 +137,13 @@ export class AuditLog {
   }
 
   /**
-   * Filter recorded entries. Synchronous against whatever the sink currently
-   * has cached — sinks that lazy-load from disk populate their cache on the
-   * first `write()`/`read()`, same as `JsonFileStore` in `@atlas/memory`.
+   * Filter recorded entries. Always reads through `sink.readAll()` — every
+   * `AuditSink` (in-memory or file-backed) must honestly implement that
+   * method, so `query()` never needs to special-case or guess at a sink's
+   * internal shape.
    */
-  query(filter: AuditQuery): AuditEntry[] {
-    const all = this.sink instanceof MemoryAuditSink ? this.sink.entries : (this.sink as { cached?: AuditEntry[] }).cached ?? [];
+  async query(filter: AuditQuery): Promise<AuditEntry[]> {
+    const all = await this.sink.readAll();
     return all.filter((e) => {
       if (filter.actor && e.actor !== filter.actor) return false;
       if (filter.status && e.status !== filter.status) return false;
@@ -156,7 +158,7 @@ export class AuditLog {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run packages/core/test/audit.test.ts`
-Expected: PASS (2 tests)
+Expected: PASS (2 tests — remember every `log.query(...)` call in the test is now `await log.query(...)`, since `query()` is `async`)
 
 - [ ] **Step 5: Run the full core package test suite to check for regressions**
 
@@ -201,7 +203,7 @@ describe("JsonFileAuditSink persistence", () => {
     const log2 = new AuditLog(new JsonFileAuditSink(file));
     // Force the second sink to load from disk before querying.
     await log2.record({ id: "2", actor: "gigfinder", action: "invoke:gigfinder", decision: "allow", status: "done" });
-    const all = log2.query({});
+    const all = await log2.query({});
     expect(all.map((e) => e.id).sort()).toEqual(["1", "2"]);
   });
 });
@@ -259,15 +261,10 @@ export class JsonFileAuditSink implements AuditSink {
   readAll(): AuditEntry[] {
     return [...this.load()];
   }
-
-  /** Exposed for `AuditLog.query()` — same cached array `write`/`readAll` use. */
-  get cached(): AuditEntry[] {
-    return this.load();
-  }
 }
 ```
 
-Note: `AuditLog.query()` (Task 1) reads `(this.sink as { cached?: AuditEntry[] }).cached ?? []` for non-`MemoryAuditSink` sinks — `JsonFileAuditSink.cached` satisfies that duck-typed access.
+Note: `AuditLog.query()` (Task 1) always reads through `sink.readAll()` — `JsonFileAuditSink.readAll()` here satisfies that contract directly, no special-casing needed.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -730,8 +727,7 @@ Add to `packages/server/src/server.ts`, right after the existing `/api/map` hand
         until: params.get("until") ?? undefined,
       };
       const limit = Number(params.get("limit") ?? 50);
-      const runs = a.audit
-        .query(filter)
+      const runs = (await a.audit.query(filter))
         .filter((e) => e.status) // only entries that represent a trackable run, not one-off log lines
         .slice(-limit)
         .reverse(); // most recent first, matching /api/chats' existing convention
@@ -792,7 +788,7 @@ Replace the `/api/map` handler (`packages/server/src/server.ts:1287-1291`) with:
     if (method === "GET" && path === "/api/map") {
       const a = await ensureAtlas();
       const businesses = (await a.invoke("business", { op: "listBusinesses" })) as Array<{ name: string }>;
-      const runningAgents = [...new Set(a.audit.query({ status: "running" }).map((e) => e.actor))];
+      const runningAgents = [...new Set((await a.audit.query({ status: "running" })).map((e) => e.actor))];
       return send(res, 200, { agents: a.loaded(), businesses: businesses.map((b) => b.name), runningAgents });
     }
 ```
