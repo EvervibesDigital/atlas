@@ -17,6 +17,7 @@ describe("AuditLog.query", () => {
   it("filters by since/until against the entry timestamp", async () => {
     const log = new AuditLog();
     await log.record({ id: "1", actor: "cfo", action: "x", decision: "allow" });
+    await new Promise((r) => setTimeout(r, 2));
     const midpoint = new Date().toISOString();
     await new Promise((r) => setTimeout(r, 2));
     await log.record({ id: "2", actor: "cfo", action: "y", decision: "allow" });

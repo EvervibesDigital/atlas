@@ -84,7 +84,7 @@ export class AuditLog {
     return all.filter((e) => {
       if (filter.actor && e.actor !== filter.actor) return false;
       if (filter.status && e.status !== filter.status) return false;
-      if (filter.since && e.timestamp <= filter.since) return false;
+      if (filter.since && e.timestamp < filter.since) return false;
       if (filter.until && e.timestamp > filter.until) return false;
       return true;
     });
