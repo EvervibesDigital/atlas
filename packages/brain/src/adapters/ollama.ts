@@ -35,11 +35,20 @@ export class OllamaAdapter implements ProviderAdapter {
   name = "ollama";
 
   // This laptop is CPU-only, so model SIZE is the main speed lever. We expose
-  // exactly ONE small, fast model (llama3.2:3b) for local inference. Deep/coding
-  // work is handled by the cloud adapters (Gemini/Groq/HuggingFace) when a key
-  // is present; Ollama is the always-available offline floor. Exposing the 7B/30B
-  // here would let the router pick a 30–90s reply for ordinary questions — the
-  // exact slowness we fixed before. One fast model = predictable local latency.
+  // exactly ONE small, fast model (llama3.2:3b) for local inference by default.
+  // Deep/coding work is handled by the cloud adapters (Gemini/Groq/HuggingFace)
+  // when a key is present; Ollama is the always-available offline floor. Exposing
+  // the 7B/30B here would let the router pick a 30–90s reply for ordinary
+  // questions — the exact slowness we fixed before. One fast model = predictable
+  // local latency.
+  //
+  // Qwen3.6 35B-A3B (MoE, ~3B active params/token, ~24GB download) is exposed
+  // ONLY when ATLAS_ENABLE_QWEN36 is truthy — same double-gating as the HF
+  // embedder, because a 24GB model pull is a deliberate, disk/RAM-heavy choice
+  // Mat should opt into, not something that starts silently. Even with the MoE
+  // speedup it's still far slower than the 3B default, so `speed` is scored low
+  // on purpose: it should only win when a request explicitly weights reasoning/
+  // coding heavily, not for ordinary chat.
   models: ModelSpec[] = [
     {
       id: "llama3.2:3b",
@@ -52,6 +61,18 @@ export class OllamaAdapter implements ProviderAdapter {
       privacy: 1,
       free: true,
     },
+    ...(process.env.ATLAS_ENABLE_QWEN36
+      ? [
+          {
+            id: "qwen3.6:35b-a3b",
+            label: "Qwen3.6 35B-A3B (Local, offline, MoE)",
+            caps: { reasoning: 0.88, coding: 0.86, research: 0.82, creativity: 0.8, speed: 0.25 },
+            costUsd: 0,
+            privacy: 1,
+            free: true,
+          } satisfies ModelSpec,
+        ]
+      : []),
   ];
 
   available(): boolean {

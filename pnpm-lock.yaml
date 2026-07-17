@@ -122,6 +122,9 @@ importers:
       '@atlas/engineering':
         specifier: workspace:*
         version: link:../engineering
+      '@atlas/evaluation':
+        specifier: workspace:*
+        version: link:../evaluation
       '@atlas/executive':
         specifier: workspace:*
         version: link:../executive
@@ -373,6 +376,16 @@ importers:
         specifier: workspace:*
         version: link:../guardian
 
+  packages/evaluation:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+
   packages/executive:
     dependencies:
       '@atlas/core':
@@ -471,6 +484,9 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+      '@atlas/learning':
+        specifier: workspace:*
+        version: link:../learning
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory

@@ -18,6 +18,7 @@ import { createTechDebtPlugin } from "@atlas/techdebt";
 import { createStrategyPlugin } from "@atlas/strategy";
 import { createExperimentsPlugin } from "@atlas/experiments";
 import { createKnowledgePlugin } from "@atlas/knowledge";
+import { createEvaluationPlugin } from "@atlas/evaluation";
 import { createCfoPlugin } from "@atlas/cfo";
 import { createAutomationPlugin } from "@atlas/automation";
 import { createSimulationPlugin } from "@atlas/simulation";
@@ -68,8 +69,14 @@ export interface AtlasOptions {
    * real VideoRenderer (ElevenLabs/edge-tts + FFmpeg) — which depends on a
    * Windows-specific edge-tts path and network image generation, so it is
    * NOT viable on the Linux cloud deploy as shipped. Tests inject NoOpRenderer
-   * to stay fast and deterministic; the cloud deploy should too until a
-   * cross-platform renderer replaces it.
+   * to stay fast and deterministic.
+   *
+   * `MontageRenderer` (packages/publishing/src/montage-renderer.ts) is the
+   * cross-platform replacement — Piper TTS instead of the Windows-only
+   * edge-tts path, plus a post-render self-review check, both borrowed from
+   * OpenMontage's approach. It needs Piper installed and its `piperBin`/
+   * `piperModel` set; until then it safely behaves like NoOpRenderer. Once
+   * Piper is installed, this is what the Linux cloud deploy should inject.
    */
   renderer?: Renderer;
 }
@@ -96,6 +103,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   }
 
   await atlas.use(createBrainPlugin({ adapters: opts.brainAdapters }));
+  await atlas.use(createEvaluationPlugin());
   await atlas.use(createMemoryPlugin({ store: opts.memoryStore, embedder, file: memoryFile }));
   await atlas.use(createApprovalsPlugin({ gateway: opts.approvalsGateway, file: opts.approvalsFile }));
   await atlas.use(createExecutivePlugin());

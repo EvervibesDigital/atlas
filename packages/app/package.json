@@ -11,6 +11,7 @@
     "@atlas/core": "workspace:*",
     "@atlas/guardian": "workspace:*",
     "@atlas/brain": "workspace:*",
+    "@atlas/evaluation": "workspace:*",
     "@atlas/memory": "workspace:*",
     "@atlas/approvals": "workspace:*",
     "@atlas/executive": "workspace:*",

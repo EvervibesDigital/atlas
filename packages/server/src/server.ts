@@ -963,6 +963,28 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         } catch {
           /* memory optional */
         }
+      } else {
+        // Evaluation Layer — broader than the fabrication regex list: catches
+        // absolute-certainty overclaims ("guaranteed", "zero risk") and low
+        // groundedness against what was actually recalled from memory. Only a
+        // logging pass for now (fabrication above already owns text rewrites,
+        // to keep one code path responsible for mutating what Mat sees).
+        try {
+          const evalResult = (await a.invoke("evaluation", {
+            op: "score",
+            task: "chat.reply",
+            text: resp.text,
+            context: recalled ? [recalled] : [],
+          })) as { confidence: number; issues: string[] };
+          if (evalResult.issues.length > 0) {
+            await a.invoke("memory", {
+              op: "remember",
+              input: { kind: "task", content: `EVAL: chat reply confidence ${evalResult.confidence.toFixed(2)} (${evalResult.issues.join("; ")}). Provider: ${resp.provider}/${resp.model}.` },
+            });
+          }
+        } catch {
+          /* evaluation optional */
+        }
       }
 
       // Save the REDACTED exchange to memory (never the secret values).
