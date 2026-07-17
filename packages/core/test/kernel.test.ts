@@ -87,4 +87,17 @@ describe("Atlas kernel", () => {
     // Before this fix: 0 entries (the throw skipped the only completion log).
     expect(entries.some((e) => e.status === "failed" && e.error?.includes("boom"))).toBe(true);
   });
+
+  it("tags a successful act() completion with status: done", async () => {
+    const atlas = new Atlas({ guardian: allowAll });
+    await atlas.use({
+      manifest: { name: "ok-plugin", version: "1", capabilities: [], permissions: [], role: "executor" },
+      async register(ctx) {
+        const r = await ctx.act("safe-thing", async () => "value");
+        expect(r.decision).toBe("allow");
+      },
+    });
+    const entries = atlas.audit.entries.filter((e) => e.action === "safe-thing");
+    expect(entries.some((e) => e.status === "done" && e.outcome === "ok")).toBe(true);
+  });
 });
