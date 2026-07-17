@@ -88,9 +88,25 @@ export const PAGE = `<!doctype html>
   #mapSvg .nerve.hot { stroke-opacity:.9 !important; stroke-width:1.6; }
   #mapSvg .sig.hot { stroke-opacity:1 !important; stroke-width:3; }
   /* Chat bubbles — terminal glass */
-  #chatBox .bub { max-width:82%; padding:11px 14px; border-radius:14px; margin:8px 0; font-size:14px; line-height:1.5; white-space:pre-wrap; word-wrap:break-word; }
+  #chatBox { display:flex; flex-direction:column; }
+  #chatBox .bub { max-width:82%; padding:11px 14px; border-radius:14px; margin:3px 0; font-size:14px; line-height:1.6; word-wrap:break-word; animation:bubIn .18s ease-out; }
+  @keyframes bubIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
   #chatBox .bub.user { margin-left:auto; background:linear-gradient(92deg,rgba(124,58,237,.9),rgba(109,40,217,.85)); border:1px solid rgba(124,58,237,.5); }
   #chatBox .bub.bot { background:rgba(10,16,30,.8); border:1px solid var(--line); box-shadow:0 0 18px -6px rgba(34,211,238,.3); }
+  #chatBox .bubLabel { font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--mut); margin:14px 0 4px 2px; display:flex; align-items:center; gap:5px; }
+  #chatBox .bub.user + .bubLabel, #chatBox .bubLabel:first-child { margin-top:4px; }
+  #chatBox .bub p { margin:0 0 8px; }
+  #chatBox .bub p:last-child { margin-bottom:0; }
+  #chatBox .bub ul, #chatBox .bub ol { margin:4px 0 8px; padding-left:20px; }
+  #chatBox .bub li { margin:2px 0; }
+  #chatBox .bub code { background:rgba(255,255,255,.08); padding:1px 5px; border-radius:4px; font-size:12.5px; font-family:ui-monospace,Consolas,monospace; }
+  #chatBox .bub pre { background:rgba(0,0,0,.35); border:1px solid var(--line); border-radius:8px; padding:10px 12px; overflow-x:auto; margin:6px 0; }
+  #chatBox .bub pre code { background:none; padding:0; }
+  #chatBox .bub a { color:var(--acc); text-decoration:underline; }
+  #chatBox .bub strong { color:#fff; }
+  #chatBox .bub.thinking .dots span { display:inline-block; width:5px; height:5px; margin-right:3px; border-radius:50%; background:var(--mut); animation:dotPulse 1.1s infinite ease-in-out; }
+  #chatBox .bub.thinking .dots span:nth-child(2){ animation-delay:.15s } #chatBox .bub.thinking .dots span:nth-child(3){ animation-delay:.3s }
+  @keyframes dotPulse { 0%,60%,100%{opacity:.25;transform:scale(.8)} 30%{opacity:1;transform:scale(1)} }
   .chatItem { padding:8px 10px; border-radius:9px; font-size:13px; color:var(--mut); cursor:pointer; margin:2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:6px; }
   .chatItem:hover { background:rgba(124,58,237,.12); color:#fff; }
   .chatItem.active { background:rgba(124,58,237,.22); color:#fff; border:1px solid rgba(124,58,237,.4); }
@@ -825,11 +841,49 @@ async function researchBiz(id) {
 // ── Chat + sessions (Claude-like sidebar) ──
 let chatHistory = [];
 let currentSessionId = null;
+// Minimal, safe markdown -> HTML. Escapes first, then applies a small set of
+// transforms — no innerHTML from raw model output ever reaches the DOM.
+function escapeHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function renderMarkdown(raw){
+  const codeBlocks=[];
+  let text = escapeHtml(raw).replace(/\`\`\`([\\s\\S]*?)\`\`\`/g, (_m,code)=>{ codeBlocks.push(code.replace(/^\\w*\\n/,"")); return "@@CB"+(codeBlocks.length-1)+"@@"; });
+  text = text.replace(/\`([^\`\\n]+)\`/g, "<code>$1</code>");
+  text = text.replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>");
+  text = text.replace(/(^|[^*])\\*([^*\\n]+)\\*/g, "$1<em>$2</em>");
+  text = text.replace(/(https?:\\/\\/[^\\s<]+)/g, "<a href=\\"$1\\" target=\\"_blank\\" rel=\\"noopener\\">$1</a>");
+  const lines = text.split("\\n");
+  let html=""; let inUl=false, inOl=false;
+  const closeLists=()=>{ if(inUl){html+="</ul>";inUl=false;} if(inOl){html+="</ol>";inOl=false;} };
+  for (const line of lines){
+    if (/^@@CB\\d+@@$/.test(line.trim())) { closeLists(); const idx=Number(line.trim().replace(/@@/g,"").slice(2)); html+="<pre><code>"+escapeHtml(codeBlocks[idx])+"</code></pre>"; continue; }
+    if (/^[-*]\\s+/.test(line)) { if(!inUl){closeLists();html+="<ul>";inUl=true;} html+="<li>"+line.replace(/^[-*]\\s+/,"")+"</li>"; continue; }
+    if (/^\\d+\\.\\s+/.test(line)) { if(!inOl){closeLists();html+="<ol>";inOl=true;} html+="<li>"+line.replace(/^\\d+\\.\\s+/,"")+"</li>"; continue; }
+    closeLists();
+    if (line.trim()==="") continue;
+    html += "<p>"+line+"</p>";
+  }
+  closeLists();
+  return html || escapeHtml(raw);
+}
 function bubble(role, text){
+  const wrap = document.createDocumentFragment();
+  const label = document.createElement("div");
+  label.className = "bubLabel";
+  label.textContent = role==="user" ? "🙂 You" : "🔵 ATLAS";
   const d = document.createElement("div");
   d.className = "bub " + (role==="user" ? "user" : "bot");
-  d.textContent = text;
-  $("chatBox").appendChild(d);
+  d.innerHTML = renderMarkdown(text);
+  wrap.appendChild(label); wrap.appendChild(d);
+  $("chatBox").appendChild(wrap);
+  $("chatBox").scrollTop = $("chatBox").scrollHeight;
+  return d;
+}
+function thinkingBubble(){
+  const label = document.createElement("div"); label.className="bubLabel"; label.textContent="🔵 ATLAS";
+  const d = document.createElement("div");
+  d.className = "bub bot thinking";
+  d.innerHTML = "<span class=\\"dots\\"><span></span><span></span><span></span></span>";
+  $("chatBox").appendChild(label); $("chatBox").appendChild(d);
   $("chatBox").scrollTop = $("chatBox").scrollHeight;
   return d;
 }
@@ -945,10 +999,12 @@ async function sendChat(){
   if (!currentSessionId){ try { const s=await api("/api/chats","POST",{}); currentSessionId=s.id; } catch{} }
   $("chatIn").value = "";
   bubble("user", msg);
-  const thinking = bubble("bot", "…thinking");
+  const thinking = thinkingBubble();
   try {
     const r = await api("/api/chat","POST",{ message: msg, history: chatHistory, sessionId: currentSessionId });
-    thinking.textContent = r.reply;
+    thinking.classList.remove("thinking");
+    thinking.innerHTML = renderMarkdown(r.reply);
+    $("chatBox").scrollTop = $("chatBox").scrollHeight;
     chatHistory.push({role:"user",text:msg},{role:"bot",text:r.reply});
     const secs = (r.latencyMs/1000).toFixed(1);
     const warn = r.provider==="stub" ? " ⚠️ (see reply for why the live brains failed)" : "";
@@ -977,7 +1033,7 @@ async function sendChat(){
       };
     }
     loadChats();
-  } catch(e){ thinking.textContent = "⚠ " + e.message; }
+  } catch(e){ thinking.classList.remove("thinking"); thinking.textContent = "⚠ " + e.message; }
 }
 $("chatSend").onclick = sendChat;
 $("newChat").onclick = newChat;

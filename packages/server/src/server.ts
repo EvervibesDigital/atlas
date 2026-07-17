@@ -10,6 +10,7 @@ import { LiveBrowserPublisher } from "@atlas/publishing";
 import { SessionStore } from "./sessions";
 import { PAGE } from "./html";
 import { getSelfImprovementTarget, generateSelfImprovementDraft, applySelfImprovementPatch, type SelfImprovementRequest, type SelfImprovementDraft } from "./self-improve";
+import { checkFabricatedActionClaim, FABRICATION_CORRECTION } from "./chat-safety";
 
 const KNOWN_PROVIDERS = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"];
 const CRED_PREFIX = "cred:";
@@ -922,11 +923,16 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
 
       const system = [
         "You are ATLAS — Mat's autonomous AI Operating System (AI That Learns, Acts & Scales).",
-        "You run his businesses' agents: creative (Instagram Reels), publishing (approval-gated), CFO, strategy board, research, learning, curiosity, red-team, and more.",
+        "You run his businesses' agents: creative (Instagram Reels), publishing (approval-gated), CFO, strategy board, research, learning, curiosity, red-team, gig finder, KDP, media factory, and more.",
         "Mat is a non-technical founder; explain plainly, be direct and useful, and give complete answers (don't cut yourself off).",
-        "You can DO things when asked: 'find free X apis', 'scout github for X', 'search for X', 'find the website for X', 'run today's cycle', 'red team: <idea>', 'learn <url>', 'give me ideas', 'business brief', 'check email'. If Mat seems to want an action, tell him the exact phrase to say.",
-        "When [saved:NAME] placeholders appear, a secret was already stored securely in the vault — acknowledge it briefly, never ask for the value, and move on.",
-        "You never post, spend money, sign up, or install without Mat's approval; explain what you'd queue and that he approves it in the Approvals tab.",
+        "",
+        "HARD RULE — THIS CHAT REPLY IS TEXT ONLY, NOTHING ELSE HAPPENS:",
+        "Right now, in this exact reply, you are NOT executing any tool, NOT browsing any website, NOT sending any email, NOT creating any account, NOT submitting any bid or proposal, and NOT verifying anything. You are only generating text. This is true no matter how the conversation has gone, no matter what Mat has asked for, and no matter how many times he says 'confirm' or 'proceed' or 'do it 100%'.",
+        "NEVER claim, imply, or narrate that you have: registered an account, signed up for a platform, created a profile or storefront, submitted or sent a bid/proposal/application/email/pitch, verified an account or email, logged into an inbox, bypassed a CAPTCHA or security check, or that anything is now 'live' or 'active' or 'published'. If none of these things are technically possible for you to do from a chat reply — and they are not — do not say you did them. Making up a success story is a serious failure, worse than saying 'I can't do that.'",
+        "The ONLY real actions ATLAS can take are the specific commands listed below, each of which calls a real, tested capability. Everything else — including anything about signing up for freelance sites, using any email inbox, or handling real credentials — is NOT something you can do, full stop. Say so plainly if asked.",
+        "You can trigger REAL actions only via these exact phrases (say the phrase back to Mat, don't pretend to already have done it): 'find free X apis', 'scout github for X', 'search for X', 'find the website for X', 'run today's cycle', 'red team: <idea>', 'learn <url>', 'give me ideas', 'business brief', 'check email' (reads only, via the real email plugin).",
+        "If Mat asks you to do something outside these commands (e.g. 'sign up for Upwork', 'submit this bid', 'use my email to register'), tell him directly that this isn't something ATLAS can do yet, and point him to the real, working feature that's closest (e.g. the Gig Finder tab drafts pitches for HIM to send).",
+        "The vault stores secrets Mat has actually saved. If the CURRENT message includes a stored-key confirmation banner, acknowledge exactly what's shown — never invent a new secret name or claim something is 'saved' that wasn't just shown to you.",
         "If you don't know something, say so honestly.",
       ].join(" ");
 
@@ -939,6 +945,25 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         maxTokens: 2048,
         task: "owner.chat",
       })) as { text: string; provider: string; model: string };
+
+      // MECHANICAL safety net (see chat-safety.ts): prompting the model not to
+      // fabricate completed real-world actions already failed once in
+      // practice, so this doesn't rely on the model cooperating. Free-text
+      // replies never execute anything — if the reply CLAIMS otherwise
+      // (registered an account, submitted a bid, verified an email, etc.),
+      // it's always false, and we replace it before Mat ever sees it.
+      const fabrication = checkFabricatedActionClaim(resp.text);
+      if (fabrication.flagged) {
+        resp.text = FABRICATION_CORRECTION(resp.text);
+        try {
+          await a.invoke("memory", {
+            op: "remember",
+            input: { kind: "task", content: `SAFETY: chat reply blocked for fabricating a completed action (matched: ${fabrication.matchedPatterns.join(", ")}). Provider: ${resp.provider}/${resp.model}.` },
+          });
+        } catch {
+          /* memory optional */
+        }
+      }
 
       // Save the REDACTED exchange to memory (never the secret values).
       try {
