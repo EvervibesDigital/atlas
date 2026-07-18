@@ -1,7 +1,7 @@
 import { exec, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, writeFile } from "node:fs/promises";
-import { join, isAbsolute } from "node:path";
+import { join, isAbsolute, resolve, sep } from "node:path";
 
 const run = promisify(exec);
 const runFile = promisify(execFile);
@@ -72,6 +72,23 @@ export async function generateAndApplyFix(
 ): Promise<HealAttempt> {
   const filePath = isAbsolute(error.file) ? error.file : join(repoRoot, error.file);
 
+  // Re-validate containment/exclusion at the actual mutation point, not just
+  // in detectErrors. detectErrors's filter only protects errors that flowed
+  // through it — generateAndApplyFix is separately exported and can be
+  // called directly (as it will be once the healing loop is wired up), so it
+  // cannot trust that a CodeError it receives was already vetted. Check the
+  // resolved path (not the raw string) so a relative path that traverses out
+  // via ".." is still caught, and confirm the resolved path is actually
+  // inside repoRoot before any read/write/commit happens.
+  const resolvedFilePath = resolve(filePath);
+  const resolvedRoot = resolve(repoRoot);
+  if (EXCLUDED_PATH_PATTERNS.some((p) => p.test(resolvedFilePath))) {
+    return { error, outcome: "skipped", detail: "path matches an excluded pattern — refusing to touch it" };
+  }
+  if (resolvedFilePath !== resolvedRoot && !resolvedFilePath.startsWith(resolvedRoot + sep)) {
+    return { error, outcome: "skipped", detail: "resolved path escapes repoRoot — refusing to touch it" };
+  }
+
   let original: string;
   try {
     original = await readFile(filePath, "utf8");
@@ -115,7 +132,12 @@ Return the COMPLETE corrected file contents. No markdown fences, no explanation 
     return { error, outcome: "skipped", detail: "generated fix is not a complete module — rejected for safety" };
   }
 
-  if (diffRatio(original, fixed) > MAX_CHANGED_RATIO) {
+  // Normalize CRLF -> LF only for the comparison, not for what gets written:
+  // if the working tree has CRLF endings (core.autocrlf) while the brain
+  // returns LF, every line boundary would differ and inflate the ratio into
+  // a false "too broad" rejection. The actual write below still uses `fixed`
+  // exactly as the brain returned it.
+  if (diffRatio(normalizeNewlines(original), normalizeNewlines(fixed)) > MAX_CHANGED_RATIO) {
     return { error, outcome: "skipped", detail: "fix changes too much of the file — rejected as too broad" };
   }
 
@@ -129,9 +151,29 @@ Return the COMPLETE corrected file contents. No markdown fences, no explanation 
   }
 
   const commit = await commitFix(repoRoot, error);
-  return commit
-    ? { error, outcome: "healed", detail: "typecheck passed", commit }
-    : { error, outcome: "verify_failed", detail: "typecheck passed but commit failed" };
+  if (!commit) {
+    // Typecheck passed but the commit itself failed (hook rejection, lock
+    // file, missing committer identity, etc.). This runs fully autonomously
+    // with no human approval step, so any non-"healed" outcome must leave
+    // the working tree exactly as it was before the attempt — restore the
+    // original content AND unstage, since `git add` inside commitFix may
+    // have already succeeded even though `git commit` didn't.
+    await writeFile(filePath, original, "utf8");
+    try {
+      await runFile("git", ["-C", repoRoot, "reset", "--", error.file]);
+    } catch {
+      // Best-effort unstage — if this also fails there was nothing staged
+      // to begin with (e.g. `git add` itself is what failed).
+    }
+    return { error, outcome: "verify_failed", detail: "typecheck passed but commit failed — rolled back" };
+  }
+
+  return { error, outcome: "healed", detail: "typecheck passed", commit };
+}
+
+/** Normalize CRLF to LF for comparison purposes only — see the call site above. */
+function normalizeNewlines(s: string): string {
+  return s.replace(/\r\n/g, "\n");
 }
 
 /**

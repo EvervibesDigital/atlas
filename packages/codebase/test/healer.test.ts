@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
@@ -103,6 +103,81 @@ describe("generateAndApplyFix", () => {
 
     expect(attempt.outcome).toBe("skipped");
     expect(await readFile(join(dir, "broken.ts"), "utf8")).toBe(original);
+  });
+
+  it("rolls back file content and unstages when commitFix fails after a successful write+typecheck", async () => {
+    dir = await initRepo();
+    await writeFile(join(dir, "broken.ts"), "export const x: number = 'oops';\n");
+    await run("git", ["-C", dir, "add", "-A"]);
+    await run("git", ["-C", dir, "commit", "-m", "init"]);
+
+    // Force `git add`/`git commit` inside commitFix to fail deterministically
+    // — independent of committer-identity config, which may already be set
+    // globally on the host running this test — by pre-creating git's own
+    // index lock file. This simulates the class of failure (hook rejection,
+    // lock contention, missing identity) where typecheck already passed but
+    // the commit step itself errors.
+    await writeFile(join(dir, ".git", "index.lock"), "");
+
+    const error: CodeError = { type: "typecheck", file: "broken.ts", message: "Type error." };
+    const brainCall = async () => "export const x: number = 42;\n";
+
+    const attempt = await generateAndApplyFix(dir, error, brainCall, OK_CMD);
+
+    expect(attempt.outcome).toBe("verify_failed");
+    expect(attempt.commit).toBeFalsy();
+    // The written fix must be rolled back — commit failure is not "healed".
+    expect(await readFile(join(dir, "broken.ts"), "utf8")).toBe("export const x: number = 'oops';\n");
+
+    // Clean up the lock so the status/log check below (and afterEach) can use git normally.
+    await rm(join(dir, ".git", "index.lock"), { force: true });
+
+    const status = await run("git", ["-C", dir, "status", "--short"]);
+    expect(status.stdout).not.toContain("broken.ts");
+    const log = await run("git", ["-C", dir, "log", "-1", "--format=%s"]);
+    expect(log.stdout).toContain("init"); // no auto-heal commit was made
+  });
+
+  it("rejects a file path that resolves outside repoRoot, before touching disk", async () => {
+    dir = await initRepo();
+    await writeFile(join(dir, "broken.ts"), "export const x: number = 'oops';\n");
+    await run("git", ["-C", dir, "add", "-A"]);
+    await run("git", ["-C", dir, "commit", "-m", "init"]);
+
+    const outsideDir = await mkdtemp(join(tmpdir(), "atlas-heal-outside-"));
+    const outsideFile = join(outsideDir, "secret.ts");
+    await writeFile(outsideFile, "export const secret = 1;\n");
+
+    let called = false;
+    const brainCall = async () => { called = true; return "should not be used"; };
+    // Absolute path pointing at a real, readable file OUTSIDE repoRoot.
+    const error: CodeError = { type: "typecheck", file: outsideFile, message: "some error" };
+
+    const attempt = await generateAndApplyFix(dir, error, brainCall, OK_CMD);
+
+    expect(attempt.outcome).toBe("skipped");
+    expect(called).toBe(false);
+    expect(await readFile(outsideFile, "utf8")).toBe("export const secret = 1;\n");
+
+    await rm(outsideDir, { recursive: true, force: true });
+  });
+
+  it("rejects a path matching an excluded pattern (node_modules), before touching disk", async () => {
+    dir = await initRepo();
+    await mkdir(join(dir, "node_modules", "pkg"), { recursive: true });
+    await writeFile(join(dir, "node_modules", "pkg", "index.ts"), "export const z = 1;\n");
+    await run("git", ["-C", dir, "add", "-A"]);
+    await run("git", ["-C", dir, "commit", "-m", "init"]);
+
+    let called = false;
+    const brainCall = async () => { called = true; return "should not be used"; };
+    const error: CodeError = { type: "typecheck", file: "node_modules/pkg/index.ts", message: "some error" };
+
+    const attempt = await generateAndApplyFix(dir, error, brainCall, OK_CMD);
+
+    expect(attempt.outcome).toBe("skipped");
+    expect(called).toBe(false);
+    expect(await readFile(join(dir, "node_modules", "pkg", "index.ts"), "utf8")).toBe("export const z = 1;\n");
   });
 });
 
