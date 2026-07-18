@@ -3,6 +3,14 @@ import { scanCodebase, scanBriefing, importTranscripts } from "./scan";
 import { detectErrors, generateAndApplyFix, type HealAttempt } from "./healer";
 
 /**
+ * Caps how many detected errors a single `heal` invocation will attempt to
+ * fix. Each attempt can run up to two 180s whole-workspace typechecks (one to
+ * verify the fix, one more if the rollback path re-verifies), so this bounds
+ * worst-case wall-clock time once `heal` runs unattended every cycle.
+ */
+const MAX_HEAL_ATTEMPTS = 2;
+
+/**
  * Codebase plugin (service "codebase", READ-ONLY). `learn` scans a project
  * directory, has the Brain explain what it is and its current state, and files
  * the understanding into memory. It never edits code — pure learning.
@@ -16,21 +24,38 @@ export function createCodebasePlugin(): Plugin {
 
         if (cmd.op === "heal") {
           const errors = await detectErrors(cmd.dir);
-          if (!errors.length) return { healed: 0, attempted: 0, total: 0, errors: [] };
+          if (!errors.length) return { healed: 0, attempted: 0, total: 0, attempts: [] };
+
+          // Loop-invariant: doesn't reference `err`, only closes over `ctx`
+          // and fixed config — build it once rather than per iteration.
+          const brainCall = async (prompt: string): Promise<string> => {
+            const r = (await ctx.call("brain", {
+              prompt,
+              system: "You are ATLAS's code fixer. Return only the complete corrected file.",
+              needs: { coding: 0.9, reasoning: 0.7 },
+              maxTokens: 3000,
+              task: "codebase.heal",
+            })) as { text: string };
+            return r.text;
+          };
 
           const attempts: HealAttempt[] = [];
-          for (const err of errors.slice(0, 2)) {
-            const brainCall = async (prompt: string): Promise<string> => {
-              const r = (await ctx.call("brain", {
-                prompt,
-                system: "You are ATLAS's code fixer. Return only the complete corrected file.",
-                needs: { coding: 0.9, reasoning: 0.7 },
-                maxTokens: 3000,
-                task: "codebase.heal",
-              })) as { text: string };
-              return r.text;
-            };
-            const attempt = await generateAndApplyFix(cmd.dir, err, brainCall);
+          for (const err of errors.slice(0, MAX_HEAL_ATTEMPTS)) {
+            let attempt: HealAttempt;
+            try {
+              attempt = await generateAndApplyFix(cmd.dir, err, brainCall);
+            } catch (e) {
+              // generateAndApplyFix's rollback writes aren't fully throw-safe
+              // (a rollback write can itself fail — disk full, permissions,
+              // AV lock, file deleted mid-run) and that's out of scope to
+              // change here (see healer.ts). Defense-in-depth at the call
+              // site: never let one attempt's uncaught exception blow away
+              // the results of earlier attempts in this same loop — the
+              // orchestrator wraps the whole `heal` call in `optional()`,
+              // which would otherwise record this as one opaque failure and
+              // lose visibility into any real progress already made.
+              attempt = { error: err, outcome: "generate_failed", detail: (e as Error).message };
+            }
             attempts.push(attempt);
             if (attempt.outcome === "healed") {
               try {
@@ -50,7 +75,7 @@ export function createCodebasePlugin(): Plugin {
 
           const healed = attempts.filter((a) => a.outcome === "healed").length;
           await ctx.emit("codebase.healed", { healed, attempted: attempts.length, total: errors.length });
-          return { healed, attempted: attempts.length, total: errors.length, errors: attempts };
+          return { healed, attempted: attempts.length, total: errors.length, attempts };
         }
 
         if (cmd.op === "generate") {
