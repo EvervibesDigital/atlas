@@ -4,10 +4,65 @@
  * departments); these pieces are unit-testable on their own.
  */
 
+/** One optional cycle step's failure, recorded for Mat's human-readable report (see `optional`). */
+export interface StepFailure {
+  step: string;
+  error: string;
+}
+
+/** Shared counter threaded through every `optional()` call in one cycle run. */
+export interface CycleHealthTracker {
+  succeeded: number;
+  failures: StepFailure[];
+}
+
+const DEFAULT_STEP_TIMEOUT_MS = 90_000;
+
+/**
+ * Run one optional cycle step: bounded by a timeout (a hung call must never
+ * stall the whole hourly cycle — an unresolved cycle permanently kills the
+ * hourly automation loop via its own `isAutomationRunning` guard), and its
+ * outcome (success or failure) recorded into `tracker` for Mat's cycle
+ * report. `ctx.call()` already logs the raw success/failure to the audit
+ * ledger — this tracker is a separate, human-readable summary layer for a
+ * different audience (Mat reading "run today's cycle"), not a replacement.
+ *
+ * Generous default timeout on purpose: this runs on CPU-only local LLM
+ * inference where a single brain call can legitimately take 15-40s, and
+ * some steps (KDP generate, media factory) may call the brain more than
+ * once. A tight timeout would produce FALSE-POSITIVE failures for
+ * slow-but-working steps. Running steps in parallel (the caller's job, not
+ * this function's) already bounds total wall-clock time to the slowest
+ * single step, not their sum, so a generous per-step timeout doesn't
+ * meaningfully hurt overall cycle time.
+ */
+export async function optional<T>(
+  call: (service: string, payload: unknown) => Promise<unknown>,
+  service: string,
+  payload: unknown,
+  tracker: CycleHealthTracker,
+  timeoutMs: number = DEFAULT_STEP_TIMEOUT_MS,
+): Promise<T | undefined> {
+  try {
+    const result = await Promise.race([
+      call(service, payload),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs)),
+    ]);
+    tracker.succeeded++;
+    return result as T;
+  } catch (err) {
+    tracker.failures.push({ step: service, error: err instanceof Error ? err.message : String(err) });
+    return undefined;
+  }
+}
+
 /** A single agentic run's output — Mat's "morning report + approval list". */
 export interface DailyReport {
   date: string;
   topic: string;
+  /** Pass/fail summary for this cycle's optional steps — the one thing Mat
+   * should see at a glance without querying /api/runs. */
+  cycleHealth: { succeeded: number; failed: number; failures: StepFailure[] };
   /** Lessons recalled from memory at the start of the cycle (closes the learn
    * loop — past successes/failures/findings that informed today's decisions). */
   lessons: string[];
