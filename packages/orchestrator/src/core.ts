@@ -43,16 +43,19 @@ export async function optional<T>(
   tracker: CycleHealthTracker,
   timeoutMs: number = DEFAULT_STEP_TIMEOUT_MS,
 ): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const result = await Promise.race([
       call(service, payload),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs)),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs); }),
     ]);
     tracker.succeeded++;
     return result as T;
   } catch (err) {
     tracker.failures.push({ step: service, error: err instanceof Error ? err.message : String(err) });
     return undefined;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
