@@ -11,7 +11,7 @@ let base = "";
 
 async function start(): Promise<void> {
   dir = await mkdtemp(join(tmpdir(), "atlas-server-"));
-  panel = createControlPanel({ vaultFile: join(dir, "vault.enc.json"), dataDir: dir, envFile: join(dir, ".env"), brainAdapters: [new StubAdapter()] });
+  panel = createControlPanel({ vaultFile: join(dir, "vault.enc.json"), dataDir: dir, envFile: join(dir, ".env"), brainAdapters: [new StubAdapter()], healEnabled: false });
   const port = await panel.listen(0);
   base = `http://127.0.0.1:${port}`;
 }

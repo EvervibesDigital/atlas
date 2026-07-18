@@ -70,7 +70,9 @@ export interface DailyReport {
   cycleHealth?: { succeeded: number; failed: number; failures: StepFailure[] };
   /** Self-healing outcome for this cycle, if the heal step ran and didn't
    * time out/fail (in which case it's simply absent — `cycleHealth.failures`
-   * already records that). Optional for the same reason `cycleHealth` is. */
+   * already records that). Also absent whenever healing is disabled
+   * (`healEnabled: false`) — don't confuse "healing was off" with "something
+   * broke". Optional for the same reason `cycleHealth` is. */
   healReport?: { healed: number; attempted: number; total: number };
   /** Lessons recalled from memory at the start of the cycle (closes the learn
    * loop — past successes/failures/findings that informed today's decisions). */

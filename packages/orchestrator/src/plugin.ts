@@ -164,12 +164,13 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
           // gracefully if DATABASE_URL isn't configured yet.
           optional<unknown>(ctx.call, "mediaFactory", { op: "autoCycle" }, health),
           // Self-healing — detect and auto-fix typecheck errors in ATLAS's own
-          // code. 400s (vs the 90s default) because this can run up to two
-          // full 180s workspace typechecks back to back. Disabled in tests
+          // code. 600s (vs the 90s default) because this can run up to three
+          // full 180s workspace typechecks (one to detect errors, one per fix
+          // attempt, capped at 2 attempts). Disabled in tests
           // (healEnabled: false) so the offline suite stays fast — see
           // packages/app/test/cycle.test.ts.
           healEnabled
-            ? optional<{ healed: number; attempted: number; total: number }>(ctx.call, "codebase", { op: "heal", dir: process.cwd() }, health, 400_000)
+            ? optional<{ healed: number; attempted: number; total: number }>(ctx.call, "codebase", { op: "heal", dir: process.cwd() }, health, 600_000)
             : Promise.resolve(undefined),
         ]);
         const intel = {

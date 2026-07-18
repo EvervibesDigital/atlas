@@ -198,6 +198,7 @@ export function formatIntentResult(kind: string, result: unknown): string {
       reel?: { hook?: string };
       pendingApprovals?: unknown[];
       cycleHealth?: { succeeded: number; failed: number; failures: Array<{ step: string; error: string }> };
+      healReport?: { healed: number; attempted: number; total: number };
     };
     const health = rep.cycleHealth;
     const healthLine = health
@@ -205,7 +206,9 @@ export function formatIntentResult(kind: string, result: unknown): string {
         ? `\n⚠️ ${health.failed} of ${health.succeeded + health.failed} steps failed: ${health.failures.map((f) => f.step).join(", ")}.`
         : `\n✅ All ${health.succeeded} steps succeeded.`
       : "";
-    return `Done. Topic: ${rep.topic}. Drafted hook: "${rep.reel?.hook ?? ""}". ${rep.pendingApprovals?.length ?? 0} item(s) awaiting your approval.${healthLine}`;
+    const heal = rep.healReport;
+    const healLine = heal && heal.attempted > 0 ? `\n🩹 Self-heal: fixed ${heal.healed}/${heal.attempted} code errors found this cycle.` : "";
+    return `Done. Topic: ${rep.topic}. Drafted hook: "${rep.reel?.hook ?? ""}". ${rep.pendingApprovals?.length ?? 0} item(s) awaiting your approval.${healthLine}${healLine}`;
   }
   return JSON.stringify(r).slice(0, 800);
 }
@@ -245,6 +248,8 @@ export interface ControlPanelOptions {
   maxUnlockFails?: number;
   /** Lockout duration in ms after too many failed unlocks (default 15 min). */
   lockoutMs?: number;
+  /** Enable the orchestrator's automatic self-healing step (default true). Tests set this false. */
+  healEnabled?: boolean;
 }
 
 export interface ControlPanel {
@@ -355,6 +360,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
 
     atlas = await buildAtlas({
       brainAdapters: opts.brainAdapters,
+      healEnabled: opts.healEnabled,
       memoryFile: `${dataDir}/memory.json`,
       approvalsFile: `${dataDir}/approvals.json`,
       metricsFile: `${dataDir}/metrics.json`,

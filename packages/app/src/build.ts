@@ -81,6 +81,9 @@ export interface AtlasOptions {
    * Piper is installed, this is what the Linux cloud deploy should inject.
    */
   renderer?: Renderer;
+  /** Enable the orchestrator's automatic self-healing step (default true).
+   * Tests set this false to stay fast/offline — see packages/app/test/cycle.test.ts. */
+  healEnabled?: boolean;
 }
 
 /**
@@ -166,7 +169,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createEngineeringPlugin());
 
   // The autonomous loop — conducts every department above.
-  await atlas.use(createOrchestratorPlugin());
+  await atlas.use(createOrchestratorPlugin({ healEnabled: opts.healEnabled }));
 
   // Auto-load any capabilities ATLAS has forged and Mat has approved.
   await loadActivePlugins(atlas, `${opts.forgeDir ?? "./forge"}/active`);

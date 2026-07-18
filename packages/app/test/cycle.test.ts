@@ -89,6 +89,9 @@ describe("autonomous daily cycle", () => {
       const healFailed = report.cycleHealth?.failures.some((f) => f.step === "codebase");
       expect(report.healReport !== undefined || healFailed).toBe(true);
     },
+    // Observed real runtime is ~7s locally (this repo typechecks clean, so
+    // healing finds nothing to fix); 200s gives generous margin for slower
+    // CI/typecheck variance.
     { timeout: 200_000 },
   );
 });
