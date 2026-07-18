@@ -207,8 +207,8 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
             op: "remember",
             input: { kind: "timeline", content: `Daily cycle: drafted a Reel about "${topic}"; ${pendingApprovals.length} item(s) awaiting approval`, metadata: { topic } },
           });
-        } catch {
-          /* best-effort timeline note; not a cycle-health-tracked step */
+        } catch (err) {
+          console.error("[orchestrator] Failed to save the timeline note (best-effort, not cycle-health-tracked):", err);
         }
         await ctx.emit("orchestrator.cycle", { topic, pending: pendingApprovals.length, publish: publish.status });
 
