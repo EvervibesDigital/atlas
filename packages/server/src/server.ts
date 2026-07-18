@@ -242,14 +242,14 @@ export interface ControlPanelOptions {
   dataDir?: string;
   /** Override the brain's provider list — tests use this to force deterministic offline-stub behavior. */
   brainAdapters?: ProviderAdapter[];
+  /** Enable the orchestrator's automatic self-healing step (default true). Tests set this false. */
+  healEnabled?: boolean;
   /** Where "Enable overnight runs" writes provider keys (default ./.env). */
   envFile?: string;
   /** Failed unlocks before a temporary lockout (default 5). */
   maxUnlockFails?: number;
   /** Lockout duration in ms after too many failed unlocks (default 15 min). */
   lockoutMs?: number;
-  /** Enable the orchestrator's automatic self-healing step (default true). Tests set this false. */
-  healEnabled?: boolean;
 }
 
 export interface ControlPanel {
