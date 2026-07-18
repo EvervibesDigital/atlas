@@ -20,8 +20,9 @@ import { deriveTopic, reelToPublishInput, optional } from "./core";
  * returned report meaningful, and what stops one hung/failing service from
  * silently blocking or being invisible in every future cycle run.
  */
-export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {}): Plugin {
+export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEnabled?: boolean } = {}): Plugin {
   const defaultPersona = opts.defaultPersona ?? "@everspark.ai";
+  const healEnabled = opts.healEnabled ?? true;
 
   return {
     manifest: {
@@ -48,6 +49,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         "call:gigfinder",
         "call:kdp",
         "call:mediaFactory",
+        "call:codebase",
       ],
       role: "planner",
     },
@@ -134,7 +136,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         // delays or blocks curiosity/gig-finder/media-factory/etc., and can
         // no longer stall the whole cycle (each is timeout-bounded inside
         // `optional()`).
-        const [curiosity, repoScout, freeTools, github, tidy, newsletters, gigs, kdpScan, kdpGenerate, mediaFactory] = await Promise.all([
+        const [curiosity, repoScout, freeTools, github, tidy, newsletters, gigs, kdpScan, kdpGenerate, mediaFactory, healResult] = await Promise.all([
           optional<unknown>(ctx.call, "curiosity", { op: "ideas" }, health),
           optional<unknown>(ctx.call, "search", { op: "scout", query: "autonomous AI agent framework OR MCP server OR open-source LLM tools", max: 6 }, health),
           optional<unknown>(ctx.call, "search", { op: "freeApis", topic: "content automation, AI agents, and social posting" }, health),
@@ -161,6 +163,14 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           // posts; everything lands in "review" for Mat to approve. No-ops
           // gracefully if DATABASE_URL isn't configured yet.
           optional<unknown>(ctx.call, "mediaFactory", { op: "autoCycle" }, health),
+          // Self-healing — detect and auto-fix typecheck errors in ATLAS's own
+          // code. 400s (vs the 90s default) because this can run up to two
+          // full 180s workspace typechecks back to back. Disabled in tests
+          // (healEnabled: false) so the offline suite stays fast — see
+          // packages/app/test/cycle.test.ts.
+          healEnabled
+            ? optional<{ healed: number; attempted: number; total: number }>(ctx.call, "codebase", { op: "heal", dir: process.cwd() }, health, 400_000)
+            : Promise.resolve(undefined),
         ]);
         const intel = {
           curiosity: curiosity ?? null,
@@ -196,6 +206,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           proposals,
           pendingApprovals,
           cycleHealth: { succeeded: health.succeeded, failed: health.failures.length, failures: health.failures },
+          healReport: healResult,
         };
 
         // This one memory write is fire-and-forget informational (a timeline

@@ -18,6 +18,7 @@ describe("autonomous daily cycle", () => {
       metricsTracker: new MetricsTracker(),
       brainAdapters: [new StubAdapter()],
       renderer: new NoOpRenderer(),
+      healEnabled: false,
     });
 
     expect(report.topic).toBeTruthy();
@@ -36,6 +37,7 @@ describe("autonomous daily cycle", () => {
       metricsTracker: new MetricsTracker(),
       brainAdapters: [new StubAdapter()],
       videoRef: "rendered/today.mp4",
+      healEnabled: false,
     });
 
     expect(report.publish.status).toBe("pending-approval");
@@ -49,6 +51,7 @@ describe("autonomous daily cycle", () => {
       metricsTracker: new MetricsTracker(),
       brainAdapters: [new StubAdapter()],
       renderer: new NoOpRenderer(),
+      healEnabled: false,
     });
 
     expect(report.cycleHealth).toBeTruthy();
@@ -59,4 +62,33 @@ describe("autonomous daily cycle", () => {
     // succeeded/failed should account for every optional() call actually made.
     expect(cycleHealth.succeeded + cycleHealth.failed).toBeGreaterThan(0);
   });
+
+  it(
+    "runs self-healing when enabled and reports the outcome",
+    async () => {
+      const report = await runDailyCycle({
+        memoryStore: new InMemoryStore(),
+        approvalsGateway: new ApprovalGateway(),
+        metricsTracker: new MetricsTracker(),
+        brainAdapters: [new StubAdapter()],
+        renderer: new NoOpRenderer(),
+        healEnabled: true,
+      });
+
+      // This repo should typecheck cleanly, so healing finds nothing to fix —
+      // this test proves the WIRING (the step ran and its result reached the
+      // report), not the fix-generation logic itself (covered by
+      // packages/codebase/test/healer.test.ts with fast fake commands).
+      if (report.healReport) {
+        expect(typeof report.healReport.healed).toBe("number");
+        expect(typeof report.healReport.attempted).toBe("number");
+        expect(typeof report.healReport.total).toBe("number");
+      }
+      // Either it ran (healReport present) or it failed/timed out and shows
+      // up in cycleHealth.failures instead — never both silent.
+      const healFailed = report.cycleHealth?.failures.some((f) => f.step === "codebase");
+      expect(report.healReport !== undefined || healFailed).toBe(true);
+    },
+    { timeout: 200_000 },
+  );
 });
