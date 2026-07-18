@@ -61,8 +61,10 @@ export interface DailyReport {
   date: string;
   topic: string;
   /** Pass/fail summary for this cycle's optional steps — the one thing Mat
-   * should see at a glance without querying /api/runs. */
-  cycleHealth: { succeeded: number; failed: number; failures: StepFailure[] };
+   * should see at a glance without querying /api/runs. Optional because it's
+   * only populated once the cycle actually runs through the orchestrator
+   * plugin's health tracker — not every DailyReport-shaped value need have it. */
+  cycleHealth?: { succeeded: number; failed: number; failures: StepFailure[] };
   /** Lessons recalled from memory at the start of the cycle (closes the learn
    * loop — past successes/failures/findings that informed today's decisions). */
   lessons: string[];
