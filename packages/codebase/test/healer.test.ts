@@ -111,29 +111,45 @@ describe("generateAndApplyFix", () => {
     await run("git", ["-C", dir, "add", "-A"]);
     await run("git", ["-C", dir, "commit", "-m", "init"]);
 
-    // Force `git add`/`git commit` inside commitFix to fail deterministically
-    // — independent of committer-identity config, which may already be set
-    // globally on the host running this test — by pre-creating git's own
-    // index lock file. This simulates the class of failure (hook rejection,
-    // lock contention, missing identity) where typecheck already passed but
-    // the commit step itself errors.
-    await writeFile(join(dir, ".git", "index.lock"), "");
+    // Force `git commit` (but NOT `git add`) to fail, via a pre-commit hook
+    // that always exits 1. This is deliberately different from failing
+    // `git add` itself (e.g. via a stale index.lock): a hook runs AFTER
+    // staging has already succeeded, so this exercises the actual scenario
+    // the rollback fix targets — content genuinely staged, then the commit
+    // is rejected, and the fix must unstage what's already staged. Before
+    // failing, the hook records what's currently staged into a marker file
+    // so the test can prove staging really happened (not that `git add`
+    // silently no-op'd) — an intermediate check, not just "commit didn't throw".
+    await mkdir(join(dir, ".git", "hooks"), { recursive: true });
+    const stagedMarkerPath = join(dir, ".git", "hooks", "staged-at-commit-time.txt");
+    const hookScript =
+      ["#!/bin/sh", `git diff --cached --name-only > "${stagedMarkerPath.replace(/\\/g, "/")}"`, "exit 1"].join(
+        "\n",
+      ) + "\n";
+    await writeFile(join(dir, ".git", "hooks", "pre-commit"), hookScript);
 
     const error: CodeError = { type: "typecheck", file: "broken.ts", message: "Type error." };
     const brainCall = async () => "export const x: number = 42;\n";
 
     const attempt = await generateAndApplyFix(dir, error, brainCall, OK_CMD);
 
+    // Intermediate check: prove `git add` genuinely staged broken.ts before
+    // the hook (running inside `git commit`) rejected it — this is what
+    // distinguishes this test from one where `git add` fails outright and
+    // nothing is ever staged.
+    const stagedAtCommitTime = await readFile(stagedMarkerPath, "utf8");
+    expect(stagedAtCommitTime).toContain("broken.ts");
+
     expect(attempt.outcome).toBe("verify_failed");
     expect(attempt.commit).toBeFalsy();
     // The written fix must be rolled back — commit failure is not "healed".
     expect(await readFile(join(dir, "broken.ts"), "utf8")).toBe("export const x: number = 'oops';\n");
 
-    // Clean up the lock so the status/log check below (and afterEach) can use git normally.
-    await rm(join(dir, ".git", "index.lock"), { force: true });
-
+    // The actual unstage verification: nothing should remain staged (or
+    // even show as modified, since content was restored too) for broken.ts.
     const status = await run("git", ["-C", dir, "status", "--short"]);
     expect(status.stdout).not.toContain("broken.ts");
+
     const log = await run("git", ["-C", dir, "log", "-1", "--format=%s"]);
     expect(log.stdout).toContain("init"); // no auto-heal commit was made
   });
