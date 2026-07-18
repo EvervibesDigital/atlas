@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StubAdapter } from "@atlas/brain";
-import { createControlPanel, type ControlPanel } from "../src/server";
+import { createControlPanel, formatIntentResult, type ControlPanel } from "../src/server";
 
 let dir = "";
 let panel: ControlPanel | null = null;
@@ -152,4 +152,38 @@ describe("control panel", () => {
     // particular outcome happens in this offline stub test environment.
     expect(data.reply).toMatch(/steps (succeeded|failed)/);
   }, 60000);
+
+  it("formatIntentResult appends the self-heal line after the health line, without dropping or duplicating either", () => {
+    const withHeal = formatIntentResult("cycle", {
+      topic: "t",
+      reel: { hook: "h" },
+      pendingApprovals: [],
+      cycleHealth: { succeeded: 5, failed: 0, failures: [] },
+      healReport: { healed: 2, attempted: 3, total: 3 },
+    });
+    expect(withHeal).toContain("✅ All 5 steps succeeded.");
+    expect(withHeal).toContain("🩹 Self-heal: fixed 2/3 code errors found this cycle.");
+    // The heal line must come after the health line, and each must appear exactly once.
+    expect(withHeal.indexOf("✅")).toBeLessThan(withHeal.indexOf("🩹"));
+    expect(withHeal.match(/✅/g)).toHaveLength(1);
+    expect(withHeal.match(/🩹/g)).toHaveLength(1);
+
+    const withoutHeal = formatIntentResult("cycle", {
+      topic: "t",
+      reel: { hook: "h" },
+      pendingApprovals: [],
+      cycleHealth: { succeeded: 5, failed: 0, failures: [] },
+    });
+    expect(withoutHeal).toContain("✅ All 5 steps succeeded.");
+    expect(withoutHeal).not.toContain("🩹");
+
+    const zeroAttempted = formatIntentResult("cycle", {
+      topic: "t",
+      reel: { hook: "h" },
+      pendingApprovals: [],
+      cycleHealth: { succeeded: 5, failed: 0, failures: [] },
+      healReport: { healed: 0, attempted: 0, total: 0 },
+    });
+    expect(zeroAttempted).not.toContain("🩹");
+  });
 });
