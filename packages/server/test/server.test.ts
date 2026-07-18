@@ -140,4 +140,16 @@ describe("control panel", () => {
     await start();
     expect((await get("/api/runs")).status).toBe(401);
   });
+
+  it("chat's cycle summary reports cycleHealth pass/fail counts", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/chat", { message: "run today's cycle", history: [] }, token);
+    expect(r.status).toBe(200);
+    const data = (await r.json()) as { reply: string };
+    // Either all-succeeded or some-failed phrasing must appear — this proves
+    // formatIntentResult's "cycle" branch reads cycleHealth, not that any
+    // particular outcome happens in this offline stub test environment.
+    expect(data.reply).toMatch(/steps (succeeded|failed)/);
+  }, 60000);
 });

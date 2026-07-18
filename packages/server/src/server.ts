@@ -193,8 +193,19 @@ export function formatIntentResult(kind: string, result: unknown): string {
     return msgs.length ? msgs.map((x) => `✉ ${x.subject} — ${x.from}${x.links[0] ? `\n   link: ${x.links[0]}` : ""}`).join("\n") : "(inbox empty or not configured)";
   }
   if (kind === "cycle") {
-    const rep = r as { topic?: string; reel?: { hook?: string }; pendingApprovals?: unknown[] };
-    return `Done. Topic: ${rep.topic}. Drafted hook: "${rep.reel?.hook ?? ""}". ${rep.pendingApprovals?.length ?? 0} item(s) awaiting your approval.`;
+    const rep = r as {
+      topic?: string;
+      reel?: { hook?: string };
+      pendingApprovals?: unknown[];
+      cycleHealth?: { succeeded: number; failed: number; failures: Array<{ step: string; error: string }> };
+    };
+    const health = rep.cycleHealth;
+    const healthLine = health
+      ? health.failed > 0
+        ? `\n⚠️ ${health.failed} of ${health.succeeded + health.failed} steps failed: ${health.failures.map((f) => f.step).join(", ")}.`
+        : `\n✅ All ${health.succeeded} steps succeeded.`
+      : "";
+    return `Done. Topic: ${rep.topic}. Drafted hook: "${rep.reel?.hook ?? ""}". ${rep.pendingApprovals?.length ?? 0} item(s) awaiting your approval.${healthLine}`;
   }
   return JSON.stringify(r).slice(0, 800);
 }
