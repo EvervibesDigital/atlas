@@ -41,4 +41,22 @@ describe("autonomous daily cycle", () => {
     expect(report.publish.status).toBe("pending-approval");
     expect(report.pendingApprovals.length).toBe(1);
   });
+
+  it("reports cycleHealth alongside the rest of the report", async () => {
+    const report = await runDailyCycle({
+      memoryStore: new InMemoryStore(),
+      approvalsGateway: new ApprovalGateway(),
+      metricsTracker: new MetricsTracker(),
+      brainAdapters: [new StubAdapter()],
+      renderer: new NoOpRenderer(),
+    });
+
+    expect(report.cycleHealth).toBeTruthy();
+    const cycleHealth = report.cycleHealth!;
+    expect(typeof cycleHealth.succeeded).toBe("number");
+    expect(typeof cycleHealth.failed).toBe("number");
+    expect(Array.isArray(cycleHealth.failures)).toBe(true);
+    // succeeded/failed should account for every optional() call actually made.
+    expect(cycleHealth.succeeded + cycleHealth.failed).toBeGreaterThan(0);
+  });
 });

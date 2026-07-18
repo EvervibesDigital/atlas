@@ -1,15 +1,6 @@
 import type { AtlasContext, Plugin } from "@atlas/core";
-import type { DailyReport, OrchestratorCommand, ReelLike } from "./core";
-import { deriveTopic, reelToPublishInput } from "./core";
-
-/** Call a service, returning undefined instead of throwing if it's absent. */
-async function optional<T>(ctx: AtlasContext, service: string, payload: unknown): Promise<T | undefined> {
-  try {
-    return (await ctx.call(service, payload)) as T;
-  } catch {
-    return undefined;
-  }
-}
+import type { DailyReport, OrchestratorCommand, ReelLike, CycleHealthTracker } from "./core";
+import { deriveTopic, reelToPublishInput, optional } from "./core";
 
 /**
  * Orchestrator plugin (service "orchestrator") — the autonomous agent loop.
@@ -22,6 +13,12 @@ async function optional<T>(ctx: AtlasContext, service: string, payload: unknown)
  *
  * Role `planner`: it conducts and delegates; it never executes risky actions
  * itself (posting still goes through the Approval Gateway).
+ *
+ * Every non-critical step goes through `optional()` (from `./core`), which
+ * bounds it with a generous timeout and records success/failure into a
+ * shared `CycleHealthTracker` — this is what makes `cycleHealth` in the
+ * returned report meaningful, and what stops one hung/failing service from
+ * silently blocking or being invisible in every future cycle run.
  */
 export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {}): Plugin {
   const defaultPersona = opts.defaultPersona ?? "@everspark.ai";
@@ -61,9 +58,10 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         if (cmd.op !== "runDailyCycle") throw new Error(`orchestrator: unknown op "${(cmd as { op: string }).op}"`);
 
         const personaHandle = cmd.personaHandle ?? defaultPersona;
+        const health: CycleHealthTracker = { succeeded: 0, failures: [] };
 
         // 1. Which persona, and what should it talk about today?
-        const persona = await optional<{ contentPillars?: string[] }>(ctx, "personas", { op: "get", handle: personaHandle });
+        const persona = await optional<{ contentPillars?: string[] }>(ctx.call, "personas", { op: "get", handle: personaHandle }, health);
         const daySeed = Math.floor(Date.now() / 86_400_000);
         const topic = cmd.topic ?? deriveTopic(persona?.contentPillars ?? [], daySeed);
 
@@ -71,15 +69,15 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         // the most relevant lessons ATLAS has stored (past successes/failures,
         // newsletter findings, learnings) for today's topic. Without this the
         // cycle only ever WRITES to memory and never learns from it.
-        const recalled = (await optional<Array<{ record: { content: string; kind: string } }>>(ctx, "memory", {
+        const recalled = (await optional<Array<{ record: { content: string; kind: string } }>>(ctx.call, "memory", {
           op: "search",
           query: `${topic} lessons, what worked, what failed, opportunities`,
           options: { limit: 5, minScore: 0.12 },
-        })) ?? [];
+        }, health)) ?? [];
         const lessons = recalled.map((r) => r.record.content);
 
         // 2. Assess the businesses.
-        const brief = (await optional<{ summary: string; recommendations: unknown[] }>(ctx, "business", { op: "brief" })) ?? {
+        const brief = (await optional<{ summary: string; recommendations: unknown[] }>(ctx.call, "business", { op: "brief" }, health)) ?? {
           summary: "No business data yet.",
           recommendations: [],
         };
@@ -107,7 +105,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         }
 
         // 4. Sanity-check the plan with the Strategy Council.
-        const council = (await optional<{ consensus: string; recommendation: string }>(ctx, "strategy", { op: "convene", decision: `Post a Reel about ${topic}` })) ?? null;
+        const council = (await optional<{ consensus: string; recommendation: string }>(ctx.call, "strategy", { op: "convene", decision: `Post a Reel about ${topic}` }, health)) ?? null;
 
         // 5. Queue it — Publishing gates on Mat's approval.
         const publish = (await ctx.call("publishing", { op: "publish", input: reelToPublishInput(reel, videoRef) })) as {
@@ -117,54 +115,69 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
         };
 
         // 6. Compliance-check the caption + pull headline KPIs.
-        const compliance = (await optional<unknown[]>(ctx, "compliance", { op: "check", text: reel.caption })) ?? [];
-        const kpis = (await optional<unknown>(ctx, "analytics", { op: "kpis" })) ?? null;
+        const compliance = (await optional<unknown[]>(ctx.call, "compliance", { op: "check", text: reel.caption }, health)) ?? [];
+        const kpis = (await optional<unknown>(ctx.call, "analytics", { op: "kpis" }, health)) ?? null;
 
         // 6b. Study one of Mat's businesses (rotates each cycle — how ATLAS
         // learns his businesses overnight). Read-only; safe to run autonomously.
-        const learned = (await optional<unknown>(ctx, "business", { op: "research-next" })) ?? null;
+        const learned = (await optional<unknown>(ctx.call, "business", { op: "research-next" }, health)) ?? null;
 
         // 6c. Check the GitHub inbox for instructions Mat sent from the road
         // (only if configured via env — works in the cloud cycle too).
         const inboxRepo = process.env.ATLAS_INBOX_REPO;
         const inboxToken = process.env.GITHUB_TOKEN;
-        const inbox = inboxRepo && inboxToken ? ((await optional<unknown>(ctx, "inbox", { op: "check", repo: inboxRepo, token: inboxToken })) ?? null) : null;
+        const inbox = inboxRepo && inboxToken ? ((await optional<unknown>(ctx.call, "inbox", { op: "check", repo: inboxRepo, token: inboxToken }, health)) ?? null) : null;
 
-        // 6d. Daily intelligence sweep — everything optional/graceful (a missing
-        // service or key just skips that item). This is how ATLAS gets smarter
-        // and hunts improvements/free tools every night, hands-free.
-        const intel = {
-          curiosity: (await optional<unknown>(ctx, "curiosity", { op: "ideas" })) ?? null,
-          repoScout: (await optional<unknown>(ctx, "search", { op: "scout", query: "autonomous AI agent framework OR MCP server OR open-source LLM tools", max: 6 })) ?? null,
-          freeTools: (await optional<unknown>(ctx, "search", { op: "freeApis", topic: "content automation, AI agents, and social posting" })) ?? null,
-          github: (await optional<unknown>(ctx, "connectors", { op: "sync", which: "github" })) ?? null,
-          tidy: (await optional<unknown>(ctx, "janitor", { op: "tidy" })) ?? null,
+        // 6d. Daily intelligence sweep, run in PARALLEL (was sequential) —
+        // each of these ten calls is independent of the others, so one
+        // hung/slow service (e.g. KDP generate on a bad night) no longer
+        // delays or blocks curiosity/gig-finder/media-factory/etc., and can
+        // no longer stall the whole cycle (each is timeout-bounded inside
+        // `optional()`).
+        const [curiosity, repoScout, freeTools, github, tidy, newsletters, gigs, kdpScan, kdpGenerate, mediaFactory] = await Promise.all([
+          optional<unknown>(ctx.call, "curiosity", { op: "ideas" }, health),
+          optional<unknown>(ctx.call, "search", { op: "scout", query: "autonomous AI agent framework OR MCP server OR open-source LLM tools", max: 6 }, health),
+          optional<unknown>(ctx.call, "search", { op: "freeApis", topic: "content automation, AI agents, and social posting" }, health),
+          optional<unknown>(ctx.call, "connectors", { op: "sync", which: "github" }, health),
+          optional<unknown>(ctx.call, "janitor", { op: "tidy" }, health),
           // Daily knowledge ingestion: read the tech newsletters and summarize
           // each into shared memory (via the web service's learn op). This is
           // what future cycles RECALL at step 1b — the ingestion→recall loop.
-          newsletters: (await optional<unknown>(ctx, "newsletter", { op: "readDaily" })) ?? null,
+          optional<unknown>(ctx.call, "newsletter", { op: "readDaily" }, health),
           // Gig Finder — sanctioned-search-only (web/Tavily) every cycle so
           // opportunities queue up for review without Mat manually clicking
           // search each time. The riskier scrape sources (craigslist/fiverr/
           // guru) stay manual-trigger-only from the UI, never automatic.
-          gigs: (await optional<unknown>(ctx, "gigfinder", { op: "search", sources: ["web"] })) ?? null,
+          optional<unknown>(ctx.call, "gigfinder", { op: "search", sources: ["web"] }, health),
           // KDP — "constantly creating": scan for new book opportunities, then
           // build metadata+PDF for the top few unbuilt ones every cycle. Real
           // pipeline lives in evervibes; this just keeps it fed. Skipped
           // gracefully if KDP_CRON_SECRET isn't configured yet.
-          kdpScan: (await optional<unknown>(ctx, "kdp", { op: "scan" })) ?? null,
-          kdpGenerate: (await optional<unknown>(ctx, "kdp", { op: "generate", limit: 3 })) ?? null,
+          optional<unknown>(ctx.call, "kdp", { op: "scan" }, health),
+          optional<unknown>(ctx.call, "kdp", { op: "generate", limit: 3 }, health),
           // Media Factory — "constantly creating": one autoCycle step per
           // orchestrator run (plan a fresh calendar for a creator with an
           // empty queue, or produce the next planned post's script). Never
           // posts; everything lands in "review" for Mat to approve. No-ops
           // gracefully if DATABASE_URL isn't configured yet.
-          mediaFactory: (await optional<unknown>(ctx, "mediaFactory", { op: "autoCycle" })) ?? null,
+          optional<unknown>(ctx.call, "mediaFactory", { op: "autoCycle" }, health),
+        ]);
+        const intel = {
+          curiosity: curiosity ?? null,
+          repoScout: repoScout ?? null,
+          freeTools: freeTools ?? null,
+          github: github ?? null,
+          tidy: tidy ?? null,
+          newsletters: newsletters ?? null,
+          gigs: gigs ?? null,
+          kdpScan: kdpScan ?? null,
+          kdpGenerate: kdpGenerate ?? null,
+          mediaFactory: mediaFactory ?? null,
         };
 
         // 7. Gather advice + the approval list for the report.
-        const proposals = (await optional<unknown[]>(ctx, "learning", { op: "proposals" })) ?? [];
-        const pendingApprovals = (await optional<unknown[]>(ctx, "approvals", { op: "list", status: "pending" })) ?? [];
+        const proposals = (await optional<unknown[]>(ctx.call, "learning", { op: "proposals" }, health)) ?? [];
+        const pendingApprovals = (await optional<unknown[]>(ctx.call, "approvals", { op: "list", status: "pending" }, health)) ?? [];
 
         const report: DailyReport = {
           date: new Date().toISOString(),
@@ -182,12 +195,21 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string } = {})
           intel,
           proposals,
           pendingApprovals,
+          cycleHealth: { succeeded: health.succeeded, failed: health.failures.length, failures: health.failures },
         };
 
-        await optional(ctx, "memory", {
-          op: "remember",
-          input: { kind: "timeline", content: `Daily cycle: drafted a Reel about "${topic}"; ${pendingApprovals.length} item(s) awaiting approval`, metadata: { topic } },
-        });
+        // This one memory write is fire-and-forget informational (a timeline
+        // note), not tracked in health — losing it isn't a "cycle step
+        // failed" in the sense Mat cares about, and it happens after
+        // cycleHealth is already computed above.
+        try {
+          await ctx.call("memory", {
+            op: "remember",
+            input: { kind: "timeline", content: `Daily cycle: drafted a Reel about "${topic}"; ${pendingApprovals.length} item(s) awaiting approval`, metadata: { topic } },
+          });
+        } catch {
+          /* best-effort timeline note; not a cycle-health-tracked step */
+        }
         await ctx.emit("orchestrator.cycle", { topic, pending: pendingApprovals.length, publish: publish.status });
 
         return report;
