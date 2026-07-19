@@ -16,7 +16,104 @@ function extractJSON<T>(text: string): T {
   throw new Error("No JSON parsed from response: " + text);
 }
 
+const RANDOM_NICHES = [
+  "sustainable fitness and home workouts",
+  "budget travel and van life",
+  "AI tools and productivity hacks",
+  "plant-based cooking and meal prep",
+  "personal finance for beginners",
+  "minimalist home organization",
+  "urban gardening and houseplants",
+  "vintage fashion and thrifting",
+  "mental wellness and journaling",
+  "indie gaming and retro tech",
+];
+
 export class MediaFactoryAgents {
+  /**
+   * Persona Generator Agent — drafts a complete, ready-to-review virtual
+   * creator profile (every field `createCreator` needs) so Mat doesn't have
+   * to invent a name/backstory/personality from a blank prompt. He reviews
+   * and edits before anything is saved — this never calls createCreator
+   * itself. Picks a random niche when none is given, and asks for a
+   * concrete, specific persona (not generic filler) so repeated calls
+   * produce genuinely different people to choose between.
+   */
+  static async generateRandomCreator(invoke: BrainInvoker, niche?: string): Promise<VirtualCreator> {
+    const targetNiche = niche?.trim() || RANDOM_NICHES[Math.floor(Math.random() * RANDOM_NICHES.length)] || RANDOM_NICHES[0]!;
+    const seed = Math.random().toString(36).slice(2, 8); // nudges the model away from repeating its favorite answer
+
+    const system = `You are a Virtual Creator Persona Generator. Invent ONE specific, memorable virtual social media creator — not a generic template. Give them a real-sounding name, a distinct personality, a concrete backstory with real specificity (not "loves fitness" but an actual detail that makes them feel like a real person), and a physical appearance description detailed enough to guide an image generator later.
+
+    Return ONLY a strict JSON object with EXACTLY these fields:
+    {
+      "name": "string — a full real-sounding name",
+      "handle": "string — lowercase, no spaces, social-media-style, derived from the name",
+      "age_range": "string, e.g. \\"24-28\\"",
+      "gender": "string",
+      "appearance_profile": { "description": "string — detailed physical/style description for an image generator: build, hair, style, vibe" },
+      "personality_traits": ["string", "string", "string"],
+      "speaking_style": "string — how they talk/write",
+      "humor_style": "string",
+      "values_statement": "string — one sentence on what they stand for",
+      "background_story": "string — 2-3 sentences, specific and concrete, not generic",
+      "interests": ["string", "string", "string"],
+      "content_pillars": ["string", "string", "string"],
+      "target_audience": { "demographic": "string" },
+      "brand_positioning": "string — one sentence"
+    }`;
+
+    const prompt = `Invent a virtual creator for this niche: "${targetNiche}". (variation seed: ${seed} — make this persona distinct from a generic default)`;
+
+    const resp = (await invoke("brain", {
+      prompt,
+      system,
+      maxTokens: 1024,
+      task: "media_factory.generate_persona",
+    })) as { text: string };
+
+    try {
+      const draft = extractJSON<Partial<VirtualCreator>>(resp.text);
+      // Sanity-fill anything the model dropped so the UI never receives a
+      // half-formed profile — same "never block on a bad LLM response"
+      // posture as the other agents in this file.
+      return {
+        name: draft.name || "Unnamed Creator",
+        handle: draft.handle || "creator" + seed,
+        age_range: draft.age_range || "24-28",
+        gender: draft.gender || "Female",
+        appearance_profile: draft.appearance_profile || { description: "" },
+        personality_traits: draft.personality_traits?.length ? draft.personality_traits : ["curious", "warm", "driven"],
+        speaking_style: draft.speaking_style || "Conversational and direct",
+        humor_style: draft.humor_style || "Dry and observational",
+        values_statement: draft.values_statement || "Being genuinely helpful over chasing trends.",
+        background_story: draft.background_story || `Got into ${targetNiche} after a personal turning point and never looked back.`,
+        interests: draft.interests?.length ? draft.interests : [targetNiche],
+        content_pillars: draft.content_pillars?.length ? draft.content_pillars : ["tips", "behind_the_scenes", "mindset"],
+        target_audience: draft.target_audience || { demographic: "18-35 digital natives" },
+        brand_positioning: draft.brand_positioning || `The go-to voice for ${targetNiche}.`,
+      };
+    } catch (err) {
+      console.error("[PersonaGenerator] Failed parsing JSON:", resp.text, err);
+      return {
+        name: "Alex Rivera",
+        handle: "alex" + seed,
+        age_range: "24-28",
+        gender: "Female",
+        appearance_profile: { description: `A warm, approachable presence in the ${targetNiche} space.` },
+        personality_traits: ["curious", "warm", "driven"],
+        speaking_style: "Conversational and direct",
+        humor_style: "Dry and observational",
+        values_statement: "Being genuinely helpful over chasing trends.",
+        background_story: `Got into ${targetNiche} after a personal turning point and never looked back.`,
+        interests: [targetNiche],
+        content_pillars: ["tips", "behind_the_scenes", "mindset"],
+        target_audience: { demographic: "18-35 digital natives" },
+        brand_positioning: `The go-to voice for ${targetNiche}.`,
+      };
+    }
+  }
+
   /**
    * Audience Intelligence Agent
    * researches trends, competitor hooks, and recommends growth niches

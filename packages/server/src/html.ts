@@ -463,7 +463,8 @@ export const PAGE = `<!doctype html>
       <div style="display:flex; gap: 20px; min-height: 550px;">
         <!-- Left Sidebar: Creators List -->
         <aside style="width: 250px; flex-shrink: 0; border-right: 1px solid var(--line); padding-right: 15px;">
-          <button style="width:100%; margin-bottom: 15px;" onclick="openCreatorCreateModal()">✚ Create Creator</button>
+          <button style="width:100%; margin-bottom: 8px;" onclick="openCreatorCreateModal()">✚ Create Creator</button>
+          <button style="width:100%; margin-bottom: 15px;" class="sec" onclick="generateRandomCreatorModal()">🎲 Generate Random Creator</button>
           <div id="mfCreatorsList" style="display: flex; flex-direction: column; gap: 8px;">
             <div class="note">Loading creators...</div>
           </div>
@@ -1311,6 +1312,57 @@ function triggerMFSubTabLoad() {
   if (activeMFSubTab === "analytics") loadAnalytics();
 }
 
+async function generateRandomCreatorModal() {
+  const niche = prompt("Niche (leave blank for a random one):", "");
+  let draft;
+  try {
+    draft = await api("/api/media-factory/creators/generate-random", "POST", { niche: niche || undefined });
+  } catch (e) {
+    alert("Error generating a creator: " + e.message);
+    return;
+  }
+  // Same review-and-tweak flow as the manual form, just pre-filled with the
+  // AI draft instead of blank/generic defaults — click OK through each one
+  // to accept it as-is, or edit before confirming.
+  const name = prompt("Name:", draft.name);
+  if (!name) return;
+  const handle = prompt("Handle:", draft.handle);
+  if (!handle) return;
+  const age_range = prompt("Age Range:", draft.age_range);
+  if (!age_range) return;
+  const gender = prompt("Gender:", draft.gender);
+  if (!gender) return;
+  const description = prompt("Physical Appearance & Style:", draft.appearance_profile?.description || "");
+  if (!description) return;
+  const background = prompt("Background Story:", draft.background_story);
+  if (!background) return;
+  const speaking = prompt("Speaking Style:", draft.speaking_style);
+  const humor = prompt("Humor Style:", draft.humor_style);
+  const brand = prompt("Brand Positioning:", draft.brand_positioning);
+
+  const c = {
+    name, handle, age_range, gender,
+    appearance_profile: { description },
+    personality_traits: draft.personality_traits || ["motivated", "insightful", "witty"],
+    speaking_style: speaking,
+    humor_style: humor,
+    values_statement: draft.values_statement || "Empowering conscious digital lifestyles.",
+    background_story: background,
+    interests: draft.interests || ["fitness", "sustainability", "travel"],
+    content_pillars: draft.content_pillars || ["daily_routines", "tips", "mindset"],
+    target_audience: draft.target_audience || { demographic: "18-35 digital natives" },
+    brand_positioning: brand
+  };
+
+  try {
+    const res = await api("/api/media-factory/creators", "POST", c);
+    activeCreatorId = res.id;
+    loadCreators();
+    selectCreator(res.id);
+  } catch (e) {
+    alert("Error creating creator: " + e.message);
+  }
+}
 async function openCreatorCreateModal() {
   const name = prompt("Enter Virtual Creator Name (e.g. Maya Chen):");
   if (!name) return;

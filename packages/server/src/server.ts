@@ -707,6 +707,15 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         return send(res, 500, { error: (err as Error).message });
       }
     }
+    if (method === "POST" && path === "/api/media-factory/creators/generate-random") {
+      try {
+        const { niche } = await readBody(req);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "generateRandomCreator", niche: niche || undefined }));
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
     if (method === "PATCH" && path.startsWith("/api/media-factory/creators/")) {
       try {
         const id = decodeURIComponent(path.slice("/api/media-factory/creators/".length));

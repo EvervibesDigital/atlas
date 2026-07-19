@@ -5,6 +5,7 @@ import { MediaFactoryAgents, type BrainInvoker } from "./agents";
 export type MediaFactoryCommand =
   | { op: "listCreators" }
   | { op: "createCreator"; creator: VirtualCreator }
+  | { op: "generateRandomCreator"; niche?: string }
   | { op: "updateCreator"; id: string; patch: Partial<VirtualCreator> }
   | { op: "deleteCreator"; id: string }
   | { op: "listMemories"; creatorId: string }
@@ -115,6 +116,7 @@ export function createMediaFactoryPlugin(): Plugin {
 
         if (cmd.op === "listCreators") return MediaFactoryDB.listCreators();
         if (cmd.op === "createCreator") return MediaFactoryDB.createCreator(cmd.creator);
+        if (cmd.op === "generateRandomCreator") return MediaFactoryAgents.generateRandomCreator(invoke, cmd.niche);
         if (cmd.op === "updateCreator") return MediaFactoryDB.updateCreator(cmd.id, cmd.patch);
         if (cmd.op === "deleteCreator") return { ok: await MediaFactoryDB.deleteCreator(cmd.id) };
         if (cmd.op === "listMemories") return MediaFactoryDB.listMemories(cmd.creatorId);
