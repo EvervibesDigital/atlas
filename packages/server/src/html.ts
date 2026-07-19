@@ -337,8 +337,8 @@ export const PAGE = `<!doctype html>
         <!-- Left Side: API Keys & Secrets -->
         <div style="border-right: 1px solid var(--line); padding-right: 20px;">
           <h3>Smart API Key Input</h3>
-          <div class="note">Paste raw API keys (one per line). ATLAS will auto-detect the service and save it.</div>
-          <textarea id="detectKeys" rows="4" placeholder="AIzaSy...&#10;gsk_...&#10;hf_...&#10;tvly-..." style="margin-top:8px;font-family:monospace;width:100%;"></textarea>
+          <div class="note">Paste raw API keys (one per line) or a full database connection string. ATLAS will auto-detect the service and save it.</div>
+          <textarea id="detectKeys" rows="4" placeholder="AIzaSy...&#10;gsk_...&#10;hf_...&#10;tvly-...&#10;postgresql://postgres:pw@host:5432/postgres" style="margin-top:8px;font-family:monospace;width:100%;"></textarea>
           <button onclick="detectAndShow()" style="width:100%;">🔍 Detect &amp; Save keys</button>
           <div id="detectOut" style="margin-top:12px"></div>
 
@@ -1201,7 +1201,15 @@ async function saveDetected(){ const indices=Array.from(document.querySelectorAl
     $("detectOut").textContent="✅ Saved "+saved+" key(s)"; $("detectKeys").value=""; detectedKeysCache=[]; loadProviders(); loadStatus();
   } catch(e){ $("detectOut").textContent="⚠ "+e.message; } }
 async function bulkSave(){ const text=$("bulkKeys").value; if(!text.trim()) return; $("bulkOut").textContent="Saving…";
-  try { const r=await api("/api/secrets/bulk","POST",{text}); const unknown=(r.names||[]).filter(n=>!["GROQ_API_KEY","GEMINI_API_KEY","OPENROUTER_API_KEY","ANTHROPIC_API_KEY","HUGGINGFACE_API_KEY","TAVILY_API_KEY","GITHUB_TOKEN"].includes(n)); $("bulkOut").innerHTML="✅ Saved "+r.saved+" key(s)"+(unknown.length?" ("+unknown.length+" custom)":""); $("bulkKeys").value=""; loadProviders(); loadStatus(); } catch(e){ $("bulkOut").textContent="⚠ "+e.message; } }
+  try { const r=await api("/api/secrets/bulk","POST",{text}); const unknown=(r.names||[]).filter(n=>!["GROQ_API_KEY","GEMINI_API_KEY","OPENROUTER_API_KEY","ANTHROPIC_API_KEY","HUGGINGFACE_API_KEY","TAVILY_API_KEY","GITHUB_TOKEN"].includes(n));
+    const problems=r.problems||[]; let html="";
+    if(r.saved>0) html+="✅ Saved "+r.saved+" key(s)"+(unknown.length?" ("+unknown.length+" custom)":"")+"<br>";
+    if(problems.length) html+="<div style='color:#e55;margin-top:6px'>⚠ "+problems.length+" key(s) NOT saved:<ul style='margin:4px 0 0 18px'>"+problems.map(p=>"<li>"+p+"</li>").join("")+"</ul></div>";
+    if(!html) html="Nothing to save — check the format (NAME=value, one per line).";
+    $("bulkOut").innerHTML=html;
+    if(r.saved>0) $("bulkKeys").value="";
+    loadProviders(); loadStatus();
+  } catch(e){ $("bulkOut").textContent="⚠ "+e.message; } }
 async function deleteKey(name){ if(!confirm("Remove "+name+"?")) return; try { await api("/api/secrets/"+name,"DELETE"); loadProviders(); } catch(e){ alert(e.message); } }
 async function testKeys(){ $("keyTestOut").textContent="Testing each key against its real provider…";
   try { const r=await api("/api/keys/test");

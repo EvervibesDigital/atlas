@@ -74,6 +74,9 @@ const KEY_SPECS: KeySpec[] = [
   { re: /ph[xc]_[A-Za-z0-9]{20,}/g, name: "POSTHOG_API_KEY", label: "PostHog", category: "analytics", free: true },
   { re: /pina_[A-Za-z0-9]{30,}/g, name: "PINTEREST_TOKEN", label: "Pinterest", category: "posting", free: true },
   { re: /xox[baprs]-[A-Za-z0-9-]{10,}/g, name: "SLACK_TOKEN", label: "Slack", category: "messaging", free: true },
+  // A full Postgres connection string (Supabase, Neon, Railway, etc.) — the
+  // whole URL is the value, not a short prefixed token like the others above.
+  { re: /postgres(?:ql)?:\/\/[^\s"'<>]+/g, name: "DATABASE_URL", label: "Postgres database", category: "database", free: true, sensitive: true },
 ];
 
 export interface DetectedSecret {
@@ -108,6 +111,28 @@ export function redactSecrets(text: string, secrets: DetectedSecret[]): string {
   let out = text;
   for (const s of secrets) out = out.split(s.value).join(`[saved:${s.name}]`);
   return out;
+}
+
+/**
+ * Catch the common connection-string mistakes BEFORE saving, so the vault
+ * never ends up holding a value that will only fail later, deep inside
+ * whatever plugin tries to use it (e.g. media-factory's raw "Invalid URL").
+ * Only checks things that are wrong regardless of network access — actual
+ * connectivity can only be proven by using the credential for real.
+ */
+export function validateSecretValue(name: string, value: string): string | null {
+  const looksLikeDbUrl = name === "DATABASE_URL" || /^postgres(ql)?:\/\//i.test(value.trim());
+  if (!looksLikeDbUrl) return null;
+
+  if (value.includes("[") || value.includes("]")) {
+    return `${name}: still contains a "[...]" placeholder (like "[YOUR-PASSWORD]") — replace it with the real value before saving, brackets included.`;
+  }
+  try {
+    new URL(value.trim());
+  } catch {
+    return `${name}: doesn't parse as a valid URL. Common causes: a password with special characters (@, #, %, etc.) that needs URL-encoding, extra spaces, or stray text left over from copy-pasting. Easiest fix: generate a fresh alphanumeric-only password from the provider's dashboard and copy the connection string again.`;
+  }
+  return null;
 }
 
 /**
@@ -549,6 +574,8 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "POST" && path === "/api/secrets") {
       const { name, value } = await readBody(req);
       if (!name || !value) return send(res, 400, { error: "name and value required" });
+      const problem = validateSecretValue(String(name), String(value));
+      if (problem) return send(res, 400, { error: problem });
       await vault.set(String(name), String(value));
       // Rebuild in the background so HTTP response returns immediately.
       backgroundRebuild();
@@ -557,11 +584,18 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "POST" && path === "/api/secrets/bulk") {
       const { text } = await readBody(req);
       const pairs = parseKeyLines(String(text ?? ""));
-      for (const p of pairs) await vault.set(p.name, p.value);
+      const problems: string[] = [];
+      const valid: typeof pairs = [];
+      for (const p of pairs) {
+        const problem = validateSecretValue(p.name, p.value);
+        if (problem) problems.push(problem);
+        else valid.push(p);
+      }
+      for (const p of valid) await vault.set(p.name, p.value);
       // Rebuild in the background so HTTP response returns immediately
       // (rebuilding can take 10-30s with Ollama; don't block the browser).
-      if (pairs.length) backgroundRebuild();
-      return send(res, 200, { saved: pairs.length, names: pairs.map((p) => p.name) });
+      if (valid.length) backgroundRebuild();
+      return send(res, 200, { saved: valid.length, names: valid.map((p) => p.name), problems });
     }
     if (method === "DELETE" && path.startsWith("/api/secrets/")) {
       const name = decodeURIComponent(path.slice("/api/secrets/".length));

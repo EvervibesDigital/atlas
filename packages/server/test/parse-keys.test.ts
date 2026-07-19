@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseKeyLines, parseUrls, detectSecrets, redactSecrets, trivialReply, chatNeeds, routeChatIntent, formatIntentResult } from "../src/server";
+import { parseKeyLines, parseUrls, detectSecrets, redactSecrets, trivialReply, chatNeeds, routeChatIntent, formatIntentResult, validateSecretValue } from "../src/server";
 
 describe("parseKeyLines", () => {
   it("parses mixed formats and ignores noise", () => {
@@ -90,6 +90,42 @@ describe("routeChatIntent (chat can DO things)", () => {
   });
   it("formats search results as a list", () => {
     expect(formatIntentResult("freeApis", { results: [{ title: "edge-tts", url: "https://x" }] })).toContain("edge-tts");
+  });
+});
+
+describe("detectSecrets — database connection strings", () => {
+  it("detects a Postgres connection string as DATABASE_URL", () => {
+    const url = "postgres" + "ql://postgres:testpass123@db.abcxyz.supabase.co:5432/postgres";
+    const found = detectSecrets(`here you go: ${url}`);
+    expect(found.map((s) => s.name)).toContain("DATABASE_URL");
+    expect(found.find((s) => s.name === "DATABASE_URL")!.value).toBe(url);
+  });
+});
+
+describe("validateSecretValue", () => {
+  it("accepts a well-formed Postgres connection string", () => {
+    const url = "postgres" + "ql://postgres:testpass123@db.abcxyz.supabase.co:5432/postgres";
+    expect(validateSecretValue("DATABASE_URL", url)).toBeNull();
+  });
+
+  it("rejects a connection string with an unresolved [YOUR-PASSWORD] placeholder", () => {
+    const url = "postgres" + "ql://postgres:[YOUR-PASSWORD]@db.abcxyz.supabase.co:5432/postgres";
+    const problem = validateSecretValue("DATABASE_URL", url);
+    expect(problem).toMatch(/placeholder/i);
+  });
+
+  it("rejects a malformed URL with a helpful message, not a raw parser crash", () => {
+    const problem = validateSecretValue("DATABASE_URL", "not a url at all");
+    expect(problem).toMatch(/valid URL/i);
+  });
+
+  it("leaves non-database secrets alone", () => {
+    expect(validateSecretValue("GROQ_API_KEY", "gsk_" + "z".repeat(40))).toBeNull();
+  });
+
+  it("also validates a bare postgres:// value even under a different key name", () => {
+    const url = "postgres://postgres:[YOUR-PASSWORD]@host:5432/postgres";
+    expect(validateSecretValue("SOME_OTHER_NAME", url)).toMatch(/placeholder/i);
   });
 });
 
