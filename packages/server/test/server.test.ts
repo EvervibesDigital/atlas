@@ -141,6 +141,20 @@ describe("control panel", () => {
     expect((await get("/api/runs")).status).toBe(401);
   });
 
+  it("blocks a second /api/cycle from running while one is already in flight", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    // Fire two cycle requests essentially simultaneously — without the
+    // isAutomationRunning guard threaded through /api/cycle, both would run
+    // orchestrator.runDailyCycle concurrently in the same process.
+    const [a, b] = await Promise.all([post("/api/cycle", {}, token), post("/api/cycle", {}, token)]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const blocked = a.status === 409 ? a : b;
+    const body = (await blocked.json()) as { error: string };
+    expect(body.error).toMatch(/already running/i);
+  }, 90000); // this file runs real (non-stubbed) cycles — one alone can take 17-35s here
+
   it("chat's cycle summary reports cycleHealth pass/fail counts", async () => {
     await start();
     const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };

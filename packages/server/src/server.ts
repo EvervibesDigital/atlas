@@ -996,8 +996,29 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       // COMMAND ROUTER: if the message is a "do X" request, run the real agent.
       const intent = routeChatIntent(safeMessage);
       if (intent) {
+        // A "run today's cycle" chat command shares the same isAutomationRunning
+        // guard as the hourly automation loop — without this, asking for a
+        // manual cycle while the hourly loop happens to be mid-run would start
+        // a SECOND concurrent runDailyCycle in the same process. Most cycle
+        // steps tolerate that fine, but codebase.heal does real `git commit`s
+        // and workspace typechecks; two of those running at once risk a git
+        // index-lock collision. Blocking here (rather than inside the
+        // orchestrator) stops the double-invocation at its root, so every
+        // step benefits, not just heal.
+        if (intent.kind === "cycle" && isAutomationRunning) {
+          const reply = `${storedBanner}⏳ A cycle is already running (started by the automatic hourly loop) — let it finish before starting another one, so nothing runs twice at once.`;
+          await saveBot(reply, "agent:orchestrator", "cycle");
+          return send(res, 200, { reply, provider: "agent:orchestrator", model: "cycle", latencyMs: Date.now() - started, stored: storedNotes.length });
+        }
+        const holdsAutomationGuard = intent.kind === "cycle";
+        if (holdsAutomationGuard) isAutomationRunning = true;
         try {
-          const result = await a.invoke(intent.service, intent.payload);
+          let result: unknown;
+          try {
+            result = await a.invoke(intent.service, intent.payload);
+          } finally {
+            if (holdsAutomationGuard) isAutomationRunning = false;
+          }
           const reply = `${storedBanner}${intent.intro}\n${formatIntentResult(intent.kind, result)}`;
           try {
             await a.invoke("memory", { op: "remember", input: { kind: "conversation", content: `Mat asked ATLAS to ${intent.kind}: ${safeMessage.slice(0, 200)}` } });
@@ -1182,9 +1203,18 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     }
 
     if (method === "POST" && path === "/api/cycle") {
+      // Same isAutomationRunning guard as the chat "run today's cycle"
+      // command — see that call site for why (codebase.heal does real git
+      // commits; two concurrent cycles risk a git index-lock collision).
+      if (isAutomationRunning) return send(res, 409, { error: "a cycle is already running (automation loop or another manual trigger) — wait for it to finish" });
       const a = await ensureAtlas();
-      const report = await a.invoke("orchestrator", { op: "runDailyCycle", videoRef: null });
-      return send(res, 200, report);
+      isAutomationRunning = true;
+      try {
+        const report = await a.invoke("orchestrator", { op: "runDailyCycle", videoRef: null });
+        return send(res, 200, report);
+      } finally {
+        isAutomationRunning = false;
+      }
     }
 
     if (method === "POST" && path === "/api/learn") {
