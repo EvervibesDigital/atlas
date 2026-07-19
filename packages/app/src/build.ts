@@ -29,6 +29,7 @@ import { createDetectivePlugin } from "@atlas/detective";
 import { createEngineeringPlugin } from "@atlas/engineering";
 import { createWebPlugin } from "@atlas/web";
 import { createActionsPlugin } from "@atlas/actions";
+import { createPlaywrightDriver, type BrowserDriver } from "@atlas/browser";
 import { createCodebasePlugin } from "@atlas/codebase";
 import { createToolVaultPlugin } from "@atlas/toolvault";
 import { createBackupPlugin } from "@atlas/backup";
@@ -84,6 +85,20 @@ export interface AtlasOptions {
   /** Enable the orchestrator's automatic self-healing step (default true).
    * Tests set this false to stay fast/offline — see packages/app/test/cycle.test.ts. */
   healEnabled?: boolean;
+  /**
+   * Driver for the Actions department (signup/browse/post real-world browser
+   * steps). Defaults to SimulatedDriver — logs what it WOULD do, opens no
+   * browser, touches nothing. Every action is approval-gated regardless of
+   * driver (see packages/actions/src/index.ts): only after Mat approves does
+   * `execute()` run at all. Swap in `createPlaywrightDriver()` (from
+   * `@atlas/browser`, already fully implemented) to make approved actions
+   * actually happen in a real browser. Explicit callers of `buildAtlas()`
+   * (tests, this option) always win; if unset, `ATLAS_REAL_ACTIONS=true` in
+   * the environment flips it on with no code change — everything else (the
+   * approval gate, SimulatedDriver-by-default) stays exactly as-is
+   * otherwise. Built, not turned on, exactly like `publisher` above.
+   */
+  actionsDriver?: BrowserDriver;
 }
 
 /**
@@ -123,7 +138,11 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   // Web reader (loaded before Business so it can research business sites).
   await atlas.use(createWebPlugin());
   // Action layer — real-world actions, approval-gated, simulated by default.
-  await atlas.use(createActionsPlugin());
+  await atlas.use(
+    createActionsPlugin({
+      driver: opts.actionsDriver ?? (process.env.ATLAS_REAL_ACTIONS === "true" ? createPlaywrightDriver() : undefined),
+    }),
+  );
   // Learning & safety: codebase reader, AI tool vault, backup/restore.
   await atlas.use(createCodebasePlugin());
   await atlas.use(createToolVaultPlugin({ file: opts.toolVaultFile }));
