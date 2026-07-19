@@ -1,6 +1,7 @@
 import { createServer as httpCreateServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import pg from "pg";
 import type { Atlas } from "@atlas/core";
 import type { ProviderAdapter } from "@atlas/brain";
 import type { BrowserDriver } from "@atlas/browser";
@@ -512,6 +513,24 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
           return { name, status: "unreachable", detail: String((e as Error).message).slice(0, 80) };
         }
       };
+      // Database URLs aren't an HTTP API — probe them with a real pg connection
+      // instead, using the exact same library media-factory-db.ts uses, so
+      // whatever error surfaces here is the SAME error a plugin would hit, not
+      // a heuristic guess from format-only validation.
+      const probeDatabaseUrl = async (): Promise<{ name: string; status: string; detail: string }> => {
+        const name = "DATABASE_URL";
+        const k = get(name);
+        if (!k) return { name, status: "missing", detail: "no key saved" };
+        const pool = new pg.Pool({ connectionString: k, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 8000 });
+        try {
+          await pool.query("SELECT 1");
+          return { name, status: "valid", detail: "connected successfully" };
+        } catch (e) {
+          return { name, status: "INVALID", detail: String((e as Error).message).slice(0, 200) };
+        } finally {
+          await pool.end().catch(() => {});
+        }
+      };
       const t = (ms: number) => AbortSignal.timeout(ms);
       const results = await Promise.all([
         probe("GEMINI_API_KEY", (k) => fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${k}`, { signal: t(8000) })),
@@ -520,6 +539,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         probe("TAVILY_API_KEY", (k) => fetch("https://api.tavily.com/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: k, query: "ping", max_results: 1 }), signal: t(8000) })),
         probe("OPENROUTER_API_KEY", (k) => fetch("https://openrouter.ai/api/v1/auth/key", { headers: { Authorization: `Bearer ${k}` }, signal: t(8000) })),
         probe("ANTHROPIC_API_KEY", (k) => fetch("https://api.anthropic.com/v1/models", { headers: { "x-api-key": k, "anthropic-version": "2023-06-01" }, signal: t(8000) })),
+        probeDatabaseUrl(),
       ]);
       return send(res, 200, { results, testedAt: new Date().toISOString() });
     }
