@@ -202,6 +202,9 @@ export function routeChatIntent(message: string): ChatIntent | null {
   if (/\b(check|read|any).{0,12}(email|inbox|mail)\b/.test(low)) {
     return { kind: "email", service: "email", payload: { op: "check", limit: 8 }, intro: `📧 Inbox:` };
   }
+  if (/\bsurplus\b/.test(low) && /\b(status|agents?|funds?|leads?|how|check|show)\b/.test(low)) {
+    return { kind: "surplus", service: "surplus", payload: { op: "listAgents" }, intro: `💰 Surplus Funds Platform:` };
+  }
   return null;
 }
 
@@ -218,6 +221,11 @@ export function formatIntentResult(kind: string, result: unknown): string {
   if (kind === "email") {
     const msgs = (r.messages as Array<{ subject: string; from: string; links: string[] }>) ?? [];
     return msgs.length ? msgs.map((x) => `✉ ${x.subject} — ${x.from}${x.links[0] ? `\n   link: ${x.links[0]}` : ""}`).join("\n") : "(inbox empty or not configured)";
+  }
+  if (kind === "surplus") {
+    const agents = (r.agents as Array<{ name: string; latest_run_status?: string; last_activity_at?: string }>) ?? [];
+    if (!agents.length) return "(no surplus agents found — is TWIN_API_KEY set in the Keys tab?)";
+    return agents.map((a) => `• ${a.name}${a.latest_run_status ? ` — ${a.latest_run_status}` : ""}${a.last_activity_at ? ` (${a.last_activity_at.slice(0, 10)})` : ""}`).join("\n");
   }
   if (kind === "cycle") {
     const rep = r as {
@@ -1328,6 +1336,27 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       res.writeHead(200, { "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="${filename}"`, "Content-Length": buf.length });
       res.end(buf);
       return;
+    }
+
+    // ── Surplus Funds Platform (orchestrates Mat's Twin agents) ──
+    if (method === "GET" && path === "/api/surplus/status") {
+      const a = await ensureAtlas();
+      const [agents, schedules] = await Promise.all([
+        a.invoke("surplus", { op: "listAgents" }),
+        a.invoke("surplus", { op: "schedules" }),
+      ]);
+      return send(res, 200, { ...(agents as object), ...(schedules as object) });
+    }
+    if (method === "POST" && path === "/api/surplus/run") {
+      const { role, message } = await readBody(req);
+      if (!role) return send(res, 400, { error: "role required (e.g. 'scraper', 'county-discovery', 'enricher')" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("surplus", { op: "run", role, message }));
+    }
+    if (method === "GET" && path === "/api/surplus/blueprint") {
+      const role = new URL(req.url ?? "", "http://x").searchParams.get("role") ?? "scraper";
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("surplus", { op: "blueprint", role }));
     }
 
     if (method === "POST" && path === "/api/codebase") {

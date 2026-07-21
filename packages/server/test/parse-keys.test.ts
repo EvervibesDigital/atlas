@@ -88,6 +88,16 @@ describe("routeChatIntent (chat can DO things)", () => {
   it("lets normal conversation fall through", () => {
     expect(routeChatIntent("what do you think about my week")).toBeNull();
   });
+  it("routes 'surplus funds status' to the surplus service", () => {
+    const i = routeChatIntent("show me my surplus funds status");
+    expect(i?.service).toBe("surplus");
+    expect((i?.payload as { op: string }).op).toBe("listAgents");
+  });
+  it("formats surplus agents into a readable list", () => {
+    const out = formatIntentResult("surplus", { agents: [{ name: "Surplus Funds Lead Scraper", latest_run_status: "completed", last_activity_at: "2026-07-21T02:50:20Z" }] });
+    expect(out).toContain("Surplus Funds Lead Scraper");
+    expect(out).toContain("completed");
+  });
   it("formats search results as a list", () => {
     expect(formatIntentResult("freeApis", { results: [{ title: "edge-tts", url: "https://x" }] })).toContain("edge-tts");
   });
