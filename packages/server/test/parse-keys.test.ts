@@ -98,6 +98,19 @@ describe("routeChatIntent (chat can DO things)", () => {
     expect(out).toContain("Surplus Funds Lead Scraper");
     expect(out).toContain("completed");
   });
+  it("routes 'morning brief' to the brief service, distinct from 'business brief'", () => {
+    const morning = routeChatIntent("what's my morning brief look like");
+    expect(morning?.service).toBe("brief");
+    expect(morning?.kind).toBe("morningBrief");
+    const business = routeChatIntent("give me the business brief");
+    expect(business?.service).toBe("business");
+    expect(business?.kind).toBe("brief");
+  });
+  it("formats the morning brief's items across sources", () => {
+    const out = formatIntentResult("morningBrief", { items: [{ source: "kdp", title: "2027 Gratitude Journal", detail: "Ready to upload" }] });
+    expect(out).toContain("[kdp]");
+    expect(out).toContain("2027 Gratitude Journal");
+  });
   it("formats search results as a list", () => {
     expect(formatIntentResult("freeApis", { results: [{ title: "edge-tts", url: "https://x" }] })).toContain("edge-tts");
   });

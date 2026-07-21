@@ -205,6 +205,9 @@ export function routeChatIntent(message: string): ChatIntent | null {
   if (/\bsurplus\b/.test(low) && /\b(status|agents?|funds?|leads?|how|check|show)\b/.test(low)) {
     return { kind: "surplus", service: "surplus", payload: { op: "listAgents" }, intro: `💰 Surplus Funds Platform:` };
   }
+  if (/\b(morning brief|today'?s brief|what'?s (pending|waiting)|what needs my approval)\b/.test(low)) {
+    return { kind: "morningBrief", service: "brief", payload: { op: "today" }, intro: `☀️ This morning:` };
+  }
   return null;
 }
 
@@ -221,6 +224,10 @@ export function formatIntentResult(kind: string, result: unknown): string {
   if (kind === "email") {
     const msgs = (r.messages as Array<{ subject: string; from: string; links: string[] }>) ?? [];
     return msgs.length ? msgs.map((x) => `✉ ${x.subject} — ${x.from}${x.links[0] ? `\n   link: ${x.links[0]}` : ""}`).join("\n") : "(inbox empty or not configured)";
+  }
+  if (kind === "morningBrief") {
+    const items = (r.items as Array<{ source: string; title: string; detail?: string }>) ?? [];
+    return items.length ? items.map((i) => `• [${i.source}] ${i.title}${i.detail ? ` — ${i.detail}` : ""}`).join("\n") : "(nothing waiting on you — all clear)";
   }
   if (kind === "surplus") {
     const agents = (r.agents as Array<{ name: string; latest_run_status?: string; last_activity_at?: string }>) ?? [];
@@ -1336,6 +1343,21 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       res.writeHead(200, { "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="${filename}"`, "Content-Length": buf.length });
       res.end(buf);
       return;
+    }
+
+    // ── Unified Morning Brief (aggregates pending items across every business) ──
+    if (method === "GET" && path === "/api/brief") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("brief", { op: "today" }));
+    }
+    const briefAct = path.match(/^\/api\/brief\/([^/]+)\/([^/]+)$/);
+    if (method === "POST" && briefAct) {
+      const source = decodeURIComponent(briefAct[1]!);
+      const id = decodeURIComponent(briefAct[2]!);
+      const { action } = await readBody(req);
+      if (action !== "approve" && action !== "reject") return send(res, 400, { error: "action must be 'approve' or 'reject'" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("brief", { op: "act", source, id, action }));
     }
 
     // ── Surplus Funds Platform (orchestrates Mat's Twin agents) ──

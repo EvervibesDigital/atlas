@@ -24,6 +24,7 @@
     "@atlas/gigfinder": "workspace:*",
     "@atlas/kdp": "workspace:*",
     "@atlas/surplus": "workspace:*",
+    "@atlas/brief": "workspace:*",
     "@atlas/media-factory": "workspace:*",
     "@atlas/opportunity": "workspace:*",
     "@atlas/techdebt": "workspace:*",

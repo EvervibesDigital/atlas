@@ -1,0 +1,19 @@
+{
+  "name": "@atlas/brief",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@atlas/core": "workspace:*" },
+  "devDependencies": {
+    "@atlas/guardian": "workspace:*",
+    "@atlas/memory": "workspace:*",
+    "@atlas/approvals": "workspace:*",
+    "@atlas/kdp": "workspace:*",
+    "@atlas/gigfinder": "workspace:*",
+    "@atlas/brain": "workspace:*",
+    "@atlas/search": "workspace:*",
+    "@atlas/executor": "workspace:*"
+  }
+}

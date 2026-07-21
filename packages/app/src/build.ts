@@ -13,6 +13,7 @@ import { createBusinessPlugin } from "@atlas/business";
 import { createGigFinderPlugin } from "@atlas/gigfinder";
 import { createKdpPlugin } from "@atlas/kdp";
 import { createSurplusPlugin } from "@atlas/surplus";
+import { createBriefPlugin } from "@atlas/brief";
 import { createMediaFactoryPlugin } from "@atlas/media-factory";
 import { createOpportunityPlugin } from "@atlas/opportunity";
 import { createTechDebtPlugin } from "@atlas/techdebt";
@@ -173,6 +174,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createKdpPlugin());
   await atlas.use(createSurplusPlugin());
   await atlas.use(createMediaFactoryPlugin());
+  await atlas.use(createBriefPlugin());
 
   // Phase 5 — advanced systems
   await atlas.use(createOpportunityPlugin());
