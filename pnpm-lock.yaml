@@ -194,6 +194,9 @@ importers:
       '@atlas/strategy':
         specifier: workspace:*
         version: link:../strategy
+      '@atlas/surplus':
+        specifier: workspace:*
+        version: link:../surplus
       '@atlas/techdebt':
         specifier: workspace:*
         version: link:../techdebt
@@ -442,6 +445,19 @@ importers:
       '@atlas/executor':
         specifier: workspace:*
         version: link:../executor
+    devDependencies:
+      '@atlas/brain':
+        specifier: workspace:*
+        version: link:../brain
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
+      '@atlas/search':
+        specifier: workspace:*
+        version: link:../search
 
   packages/guardian:
     dependencies:
@@ -698,6 +714,19 @@ importers:
         version: link:../memory
 
   packages/strategy:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
+
+  packages/surplus:
     dependencies:
       '@atlas/core':
         specifier: workspace:*
