@@ -111,6 +111,17 @@ describe("routeChatIntent (chat can DO things)", () => {
     expect(out).toContain("[kdp]");
     expect(out).toContain("2027 Gratitude Journal");
   });
+  it("routes 'n8n workflows status' to the outreach service", () => {
+    const i = routeChatIntent("show me n8n workflows status");
+    expect(i?.service).toBe("outreach");
+    expect((i?.payload as { op: string }).op).toBe("listWorkflows");
+  });
+  it("formats outreach workflows with an active/inactive marker", () => {
+    const out = formatIntentResult("outreach", { workflows: [{ name: "New Lead Intake", active: false }, { name: "W1 Multi-Niche Scraper", active: true }] });
+    expect(out).toContain("New Lead Intake");
+    expect(out).toContain("🟢");
+    expect(out).toContain("⚪");
+  });
   it("formats search results as a list", () => {
     expect(formatIntentResult("freeApis", { results: [{ title: "edge-tts", url: "https://x" }] })).toContain("edge-tts");
   });

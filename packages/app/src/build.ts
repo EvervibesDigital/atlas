@@ -14,6 +14,7 @@ import { createGigFinderPlugin } from "@atlas/gigfinder";
 import { createKdpPlugin } from "@atlas/kdp";
 import { createSurplusPlugin } from "@atlas/surplus";
 import { createBriefPlugin } from "@atlas/brief";
+import { createOutreachPlugin } from "@atlas/outreach";
 import { createMediaFactoryPlugin } from "@atlas/media-factory";
 import { createOpportunityPlugin } from "@atlas/opportunity";
 import { createTechDebtPlugin } from "@atlas/techdebt";
@@ -173,6 +174,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createGigFinderPlugin({ gigFile: opts.gigFile }));
   await atlas.use(createKdpPlugin());
   await atlas.use(createSurplusPlugin());
+  await atlas.use(createOutreachPlugin());
   await atlas.use(createMediaFactoryPlugin());
   await atlas.use(createBriefPlugin());
 

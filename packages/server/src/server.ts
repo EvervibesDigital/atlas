@@ -208,6 +208,9 @@ export function routeChatIntent(message: string): ChatIntent | null {
   if (/\b(morning brief|today'?s brief|what'?s (pending|waiting)|what needs my approval)\b/.test(low)) {
     return { kind: "morningBrief", service: "brief", payload: { op: "today" }, intro: `☀️ This morning:` };
   }
+  if (/\b(n8n|outreach)\b/.test(low) && /\b(status|workflows?|running|check|show)\b/.test(low)) {
+    return { kind: "outreach", service: "outreach", payload: { op: "listWorkflows" }, intro: `🔌 n8n workflows:` };
+  }
   return null;
 }
 
@@ -228,6 +231,11 @@ export function formatIntentResult(kind: string, result: unknown): string {
   if (kind === "morningBrief") {
     const items = (r.items as Array<{ source: string; title: string; detail?: string }>) ?? [];
     return items.length ? items.map((i) => `• [${i.source}] ${i.title}${i.detail ? ` — ${i.detail}` : ""}`).join("\n") : "(nothing waiting on you — all clear)";
+  }
+  if (kind === "outreach") {
+    const workflows = (r.workflows as Array<{ name: string; active: boolean }>) ?? [];
+    if (!workflows.length) return "(no n8n workflows found — is N8N_API_KEY set in the Keys tab?)";
+    return workflows.map((w) => `• ${w.active ? "🟢" : "⚪"} ${w.name}`).join("\n");
   }
   if (kind === "surplus") {
     const agents = (r.agents as Array<{ name: string; latest_run_status?: string; last_activity_at?: string }>) ?? [];
@@ -1358,6 +1366,24 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       if (action !== "approve" && action !== "reject") return send(res, 400, { error: "action must be 'approve' or 'reject'" });
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("brief", { op: "act", source, id, action }));
+    }
+
+    // ── Outreach (bridges compliance + wholesale n8n workflows) ──
+    if (method === "GET" && path === "/api/outreach/workflows") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("outreach", { op: "listWorkflows" }));
+    }
+    if (method === "POST" && path === "/api/outreach/notify") {
+      const { target, payload } = await readBody(req);
+      if (!target || !payload) return send(res, 400, { error: "target and payload required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("outreach", { op: "notify", target, payload }));
+    }
+    const outreachActive = path.match(/^\/api\/outreach\/workflows\/([^/]+)\/active$/);
+    if (method === "POST" && outreachActive) {
+      const { active } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("outreach", { op: "setActive", id: decodeURIComponent(outreachActive[1]!), active: Boolean(active) }));
     }
 
     // ── Surplus Funds Platform (orchestrates Mat's Twin agents) ──

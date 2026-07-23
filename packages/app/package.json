@@ -25,6 +25,7 @@
     "@atlas/kdp": "workspace:*",
     "@atlas/surplus": "workspace:*",
     "@atlas/brief": "workspace:*",
+    "@atlas/outreach": "workspace:*",
     "@atlas/media-factory": "workspace:*",
     "@atlas/opportunity": "workspace:*",
     "@atlas/techdebt": "workspace:*",

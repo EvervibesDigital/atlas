@@ -173,6 +173,9 @@ importers:
       '@atlas/orchestrator':
         specifier: workspace:*
         version: link:../orchestrator
+      '@atlas/outreach':
+        specifier: workspace:*
+        version: link:../outreach
       '@atlas/personas':
         specifier: workspace:*
         version: link:../personas
@@ -618,6 +621,19 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+
+  packages/outreach:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
 
   packages/personas:
     dependencies:
