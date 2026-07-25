@@ -282,6 +282,9 @@ importers:
       '@atlas/search':
         specifier: workspace:*
         version: link:../search
+      '@atlas/surplus':
+        specifier: workspace:*
+        version: link:../surplus
 
   packages/browser: {}
 

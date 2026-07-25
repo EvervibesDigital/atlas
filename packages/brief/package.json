@@ -12,6 +12,7 @@
     "@atlas/approvals": "workspace:*",
     "@atlas/kdp": "workspace:*",
     "@atlas/gigfinder": "workspace:*",
+    "@atlas/surplus": "workspace:*",
     "@atlas/brain": "workspace:*",
     "@atlas/search": "workspace:*",
     "@atlas/executor": "workspace:*"

@@ -1,5 +1,6 @@
 import type { Plugin } from "@atlas/core";
 import { TwinClient, type FetchLike } from "./twin-client";
+import { GoogleSheetsClient } from "./sheets-client";
 import type { SurplusLead, SurplusRole } from "./types";
 
 /**
@@ -34,13 +35,18 @@ const AGENT_IDS: Record<SurplusRole, string> = {
   "attorney-recruit": "019cbedd-c62f-7d12-98ec-65be0137a3ad",
 };
 
+/** The v2_leads sheet — one of the 5 Google Sheets the Twin platform already writes to (found 2026-07-21). */
+const LEADS_SHEET_ID = "1bkr0CK7_2dWDvUuP366PSnxHSdZ41DL1BauYARV5OlI";
+const MIN_SURPLUS = 5000;
+
 export type SurplusCommand =
   | { op: "listAgents" }
   | { op: "schedules" }
   | { op: "blueprint"; role: SurplusRole }
   | { op: "run"; role: SurplusRole; message?: string }
   | { op: "runEvents"; role: SurplusRole; runId: string }
-  | { op: "pause"; role: SurplusRole };
+  | { op: "pause"; role: SurplusRole }
+  | { op: "pendingLeads"; limit?: number };
 
 export function createSurplusPlugin(opts: { fetcher?: FetchLike; twinBase?: string } = {}): Plugin {
   return {
@@ -59,6 +65,15 @@ export function createSurplusPlugin(opts: { fetcher?: FetchLike; twinBase?: stri
         return new TwinClient(key, opts.fetcher ?? fetch, opts.twinBase);
       }
 
+      async function sheetsClient(): Promise<GoogleSheetsClient> {
+        const clientEmail = await ctx.secret("GOOGLE_SHEETS_CLIENT_EMAIL");
+        const privateKey = await ctx.secret("GOOGLE_SHEETS_PRIVATE_KEY");
+        if (!clientEmail || !privateKey) {
+          throw new Error("surplus: no GOOGLE_SHEETS_CLIENT_EMAIL / GOOGLE_SHEETS_PRIVATE_KEY set — add a Sheets service account in the Keys tab to see individual leads");
+        }
+        return new GoogleSheetsClient(clientEmail, privateKey, opts.fetcher ?? fetch);
+      }
+
       function agentId(role: SurplusRole): string {
         const id = AGENT_IDS[role];
         if (!id) throw new Error(`surplus: unknown role "${role}"`);
@@ -67,6 +82,30 @@ export function createSurplusPlugin(opts: { fetcher?: FetchLike; twinBase?: stri
 
       ctx.provide("surplus", async (payload) => {
         const cmd = payload as SurplusCommand;
+
+        if (cmd.op === "pendingLeads") {
+          const sheets = await sheetsClient();
+          const rows = await sheets.getRows(LEADS_SHEET_ID);
+          const leads: SurplusLead[] = rows
+            .map((row) => ({
+              lead_id: row.lead_id || row.case_number || undefined,
+              county: row.county || undefined,
+              state: row.state || undefined,
+              property_address: row.property_address || undefined,
+              case_number: row.case_number || undefined,
+              auction_date: row.auction_date || undefined,
+              sale_price: row.sale_price ? Number(row.sale_price.replace(/[^0-9.-]/g, "")) : undefined,
+              debt_owed: row.debt_owed ? Number(row.debt_owed.replace(/[^0-9.-]/g, "")) : undefined,
+              estimated_surplus: row.estimated_surplus ? Number(row.estimated_surplus.replace(/[^0-9.-]/g, "")) : 0,
+              lead_tier: row.lead_tier || undefined,
+              lead_score: row.lead_score || undefined,
+              owner_name: row.owner_name || undefined,
+            }))
+            .filter((lead) => (lead.estimated_surplus ?? 0) >= MIN_SURPLUS)
+            .slice(0, cmd.limit ?? 10);
+          return { leads };
+        }
+
         const c = await client();
 
         if (cmd.op === "listAgents") {

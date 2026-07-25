@@ -24,7 +24,7 @@ export function createBriefPlugin(): Plugin {
       name: "brief",
       version: "0.1.0",
       capabilities: ["brief"],
-      permissions: ["call:kdp", "call:gigfinder", "call:approvals"],
+      permissions: ["call:kdp", "call:gigfinder", "call:approvals", "call:surplus"],
       role: "executor",
     },
 
@@ -67,6 +67,23 @@ export function createBriefPlugin(): Plugin {
         }));
       }
 
+      type SurplusLeadLike = { lead_id?: string; case_number?: string; owner_name?: string; property_address?: string; county?: string; state?: string; estimated_surplus?: number };
+
+      function surplusLeadId(lead: SurplusLeadLike): string {
+        return lead.lead_id ?? lead.case_number ?? "";
+      }
+
+      async function fromSurplus(): Promise<BriefItem[]> {
+        const res = (await ctx.call("surplus", { op: "pendingLeads" })) as { leads?: SurplusLeadLike[] };
+        return (res.leads ?? []).map((lead) => ({
+          id: surplusLeadId(lead),
+          source: "surplus" as const,
+          title: `${lead.owner_name ?? "Unknown owner"} — ${lead.property_address ?? "address unknown"}`,
+          detail: `Est. surplus $${(lead.estimated_surplus ?? 0).toLocaleString()} (${[lead.county, lead.state].filter(Boolean).join(", ")}). Approving triggers real outreach to this person.`,
+          risk: 1 as const,
+        }));
+      }
+
       async function collect(fn: () => Promise<BriefItem[]>): Promise<BriefItem[]> {
         try {
           return await fn();
@@ -79,8 +96,8 @@ export function createBriefPlugin(): Plugin {
         const cmd = payload as BriefCommand;
 
         if (cmd.op === "today") {
-          const [kdp, gigfinder, approvals] = await Promise.all([collect(fromKdp), collect(fromGigFinder), collect(fromApprovals)]);
-          const items = [...kdp, ...gigfinder, ...approvals].sort((a, b) => b.risk - a.risk || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+          const [kdp, gigfinder, approvals, surplus] = await Promise.all([collect(fromKdp), collect(fromGigFinder), collect(fromApprovals), collect(fromSurplus)]);
+          const items = [...kdp, ...gigfinder, ...approvals, ...surplus].sort((a, b) => b.risk - a.risk || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
           return { items, count: items.length };
         }
 
@@ -94,6 +111,14 @@ export function createBriefPlugin(): Plugin {
           }
           if (source === "approvals") {
             return ctx.call("approvals", { op: action === "approve" ? "approve" : "reject", id });
+          }
+          if (source === "surplus") {
+            if (action === "reject") return { skipped: id };
+            const res = (await ctx.call("surplus", { op: "pendingLeads" })) as { leads?: SurplusLeadLike[] };
+            const lead = (res.leads ?? []).find((l) => surplusLeadId(l) === id);
+            if (!lead) throw new Error(`brief: surplus lead "${id}" not found (it may have already been handled)`);
+            const message = `Reach out to ${lead.owner_name ?? "the property owner"} regarding case ${lead.case_number ?? id}, property ${lead.property_address ?? "unknown address"}, estimated surplus $${(lead.estimated_surplus ?? 0).toLocaleString()}.`;
+            return ctx.call("surplus", { op: "run", role: "outreach", message });
           }
           throw new Error(`brief: unknown source "${source as BriefSource}"`);
         }

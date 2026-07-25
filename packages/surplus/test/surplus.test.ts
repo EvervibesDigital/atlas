@@ -1,9 +1,15 @@
 import { describe, it, expect } from "vitest";
+import { generateKeyPairSync } from "node:crypto";
 import { Atlas, ConfigVault } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
 import { createMemoryPlugin, InMemoryStore } from "@atlas/memory";
 import { TwinClient } from "../src/twin-client";
 import { createSurplusPlugin, type SurplusCommand } from "../src/plugin";
+
+// A real RSA key so pendingLeads' actual JWT-signing code path runs.
+const TEST_PRIVATE_KEY_PEM = generateKeyPairSync("rsa", { modulusLength: 2048 })
+  .privateKey.export({ type: "pkcs8", format: "pem" })
+  .toString();
 
 // A fake fetch that routes by path+method, mirroring @atlas/kdp's test seam so
 // none of these tests touch the real Twin API.
@@ -96,6 +102,51 @@ describe("surplus plugin", () => {
       manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:surplus"], role: "executor" },
       async register(ctx) {
         await expect(ctx.call("surplus", { op: "listAgents" } satisfies SurplusCommand)).rejects.toThrow(/TWIN_API_KEY/);
+      },
+    });
+  });
+
+  it("pendingLeads filters to estimated_surplus >= $5,000 and never needs TWIN_API_KEY", async () => {
+    // Deliberately no TWIN_API_KEY in the vault — pendingLeads only needs the Sheets credential.
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ GOOGLE_SHEETS_CLIENT_EMAIL: "svc@x.iam.gserviceaccount.com", GOOGLE_SHEETS_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM }) });
+    const f = (async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname === "/token") return { ok: true, status: 200, json: async () => ({ access_token: "t" }) } as Response;
+      if (u.pathname.includes("/values/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            values: [
+              ["case_number", "owner_name", "estimated_surplus", "county", "state", "property_address"],
+              ["CASE-1", "Jane Doe", "$12,500", "Marion", "IN", "123 Main St"],
+              ["CASE-2", "John Smith", "$1,200", "Marion", "IN", "456 Oak Ave"],
+            ],
+          }),
+        } as Response;
+      }
+      throw new Error("unexpected path " + u.pathname);
+    }) as typeof fetch;
+
+    await atlas.use(createSurplusPlugin({ fetcher: f }));
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:surplus"], role: "executor" },
+      async register(ctx) {
+        const r = (await ctx.call("surplus", { op: "pendingLeads" } satisfies SurplusCommand)) as { leads: Array<{ case_number?: string; estimated_surplus?: number }> };
+        expect(r.leads).toHaveLength(1);
+        expect(r.leads[0]!.case_number).toBe("CASE-1");
+        expect(r.leads[0]!.estimated_surplus).toBe(12500);
+      },
+    });
+  });
+
+  it("pendingLeads throws a clear error when the Sheets credential is missing", async () => {
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({}) });
+    await atlas.use(createSurplusPlugin());
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:surplus"], role: "executor" },
+      async register(ctx) {
+        await expect(ctx.call("surplus", { op: "pendingLeads" } satisfies SurplusCommand)).rejects.toThrow(/GOOGLE_SHEETS/);
       },
     });
   });

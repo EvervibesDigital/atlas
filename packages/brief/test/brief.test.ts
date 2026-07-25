@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { generateKeyPairSync } from "node:crypto";
 import { Atlas, ConfigVault } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
 import { createMemoryPlugin, InMemoryStore } from "@atlas/memory";
@@ -10,6 +11,7 @@ import { createSearchPlugin, type FetchLike } from "@atlas/search";
 import { createKdpPlugin } from "@atlas/kdp";
 import { createGigFinderPlugin } from "@atlas/gigfinder";
 import { createApprovalsPlugin } from "@atlas/approvals";
+import { createSurplusPlugin } from "@atlas/surplus";
 import { createBriefPlugin } from "../src/plugin";
 import type { BriefItem } from "../src/types";
 
@@ -159,5 +161,96 @@ describe("brief plugin — the Unified Morning Brief", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  describe("surplus source", () => {
+    // A real RSA key so the Sheets client's actual JWT-signing code path runs.
+    const TEST_PRIVATE_KEY_PEM = generateKeyPairSync("rsa", { modulusLength: 2048 })
+      .privateKey.export({ type: "pkcs8", format: "pem" })
+      .toString();
+
+    // Combined fake for surplus's shared fetcher: routes Twin's REST calls
+    // and Google's OAuth token + Sheets values.get calls by hostname/path.
+    function fakeSurplusFetch(sawRunBody: { value: string }): typeof fetch {
+      return (async (url: string, init?: RequestInit) => {
+        const u = new URL(url);
+        if (u.hostname === "oauth2.googleapis.com") {
+          return { ok: true, status: 200, json: async () => ({ access_token: "t" }) } as Response;
+        }
+        if (u.hostname === "sheets.googleapis.com") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              values: [
+                ["case_number", "owner_name", "property_address", "county", "state", "estimated_surplus"],
+                ["CASE-9", "Jane Doe", "123 Main St", "Marion", "IN", "$18,000"],
+              ],
+            }),
+          } as Response;
+        }
+        if (u.pathname === "/v1/agents/019cbedd-7f20-70c2-a3d3-f75a79d7f258/runs") {
+          sawRunBody.value = String(init?.body);
+          return { ok: true, status: 200, json: async () => ({ run_id: "run-outreach-1" }) } as Response;
+        }
+        throw new Error(`no fake handler for ${u.hostname}${u.pathname}`);
+      }) as typeof fetch;
+    }
+
+    async function buildSurplusBriefAtlas(f: typeof fetch) {
+      const atlas = new Atlas({
+        guardian: new Guardian(),
+        config: new ConfigVault({ TWIN_API_KEY: "twin_abc", GOOGLE_SHEETS_CLIENT_EMAIL: "svc@x.iam.gserviceaccount.com", GOOGLE_SHEETS_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM }),
+      });
+      await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
+      await atlas.use(createSurplusPlugin({ fetcher: f }));
+      await atlas.use(createBriefPlugin());
+      return atlas;
+    }
+
+    it("surfaces a lead over $5,000 as one Brief item, priced and addressed", async () => {
+      const sawRunBody = { value: "" };
+      const atlas = await buildSurplusBriefAtlas(fakeSurplusFetch(sawRunBody));
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:brief"], role: "executor" },
+        async register(ctx) {
+          const r = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+          const item = r.items.find((i) => i.source === "surplus")!;
+          expect(item.id).toBe("CASE-9");
+          expect(item.title).toBe("Jane Doe — 123 Main St");
+          expect(item.detail).toContain("$18,000");
+          expect(item.detail).toContain("Approving triggers real outreach");
+        },
+      });
+    });
+
+    it("act(approve) triggers the Lead Outreach Agent with a message naming the specific owner and case", async () => {
+      const sawRunBody = { value: "" };
+      const atlas = await buildSurplusBriefAtlas(fakeSurplusFetch(sawRunBody));
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:brief"], role: "executor" },
+        async register(ctx) {
+          const res = (await ctx.call("brief", { op: "act", source: "surplus", id: "CASE-9", action: "approve" })) as { run_id?: string };
+          expect(res.run_id).toBe("run-outreach-1");
+        },
+      });
+      const body = JSON.parse(sawRunBody.value);
+      expect(body.user_message).toContain("Jane Doe");
+      expect(body.user_message).toContain("CASE-9");
+      expect(body.user_message).toContain("$18,000");
+    });
+
+    it("act(reject) on a surplus lead is a no-op — never calls Twin", async () => {
+      const sawRunBody = { value: "" };
+      const atlas = await buildSurplusBriefAtlas(fakeSurplusFetch(sawRunBody));
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:brief"], role: "executor" },
+        async register(ctx) {
+          const res = (await ctx.call("brief", { op: "act", source: "surplus", id: "CASE-9", action: "reject" })) as { skipped?: string };
+          expect(res.skipped).toBe("CASE-9");
+        },
+      });
+      expect(sawRunBody.value).toBe("");
+    });
   });
 });
