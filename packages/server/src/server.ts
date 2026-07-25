@@ -436,6 +436,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       proposalsFile: `${dataDir}/proposals-handled.json`,
       businessFile: `${dataDir}/businesses.json`,
       gigFile: `${dataDir}/gigs.json`,
+      leadFile: `${dataDir}/leads.json`,
       toolVaultFile: `${dataDir}/toolvault.json`,
       skillsFile: `${dataDir}/skills.json`,
       auditFile: `${dataDir}/audit-log.json`,
