@@ -133,6 +133,68 @@ describe("control panel", () => {
     expect(locked.status).toBe(429);
   });
 
+  it("auto-unlocks on boot from ATLAS_MASTER_PASSWORD, surviving a restart with no manual /api/unlock call", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "atlas-server-autounlock-"));
+    const vaultFile = join(tmp, "vault.enc.json");
+    try {
+      // "Boot 1" — a normal setup, as if Mat ran this once by hand.
+      const first = createControlPanel({ vaultFile, dataDir: tmp, envFile: join(tmp, ".env"), brainAdapters: [new StubAdapter()], healEnabled: false });
+      const port1 = await first.listen(0);
+      await fetch(`http://127.0.0.1:${port1}/api/setup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ masterPassword: "restart-survives-this" }),
+      });
+      await first.close();
+
+      // "Boot 2" — simulates a container restart: fresh process, same vault
+      // file on disk, ATLAS_MASTER_PASSWORD set as it would be in the VPS's
+      // docker-compose env. No /api/unlock call is ever made here.
+      const prevEnv = process.env.ATLAS_MASTER_PASSWORD;
+      process.env.ATLAS_MASTER_PASSWORD = "restart-survives-this";
+      let second: ControlPanel | null = null;
+      try {
+        second = createControlPanel({ vaultFile, dataDir: tmp, envFile: join(tmp, ".env"), brainAdapters: [new StubAdapter()], healEnabled: false });
+        const port2 = await second.listen(0);
+        const base2 = `http://127.0.0.1:${port2}`;
+
+        // Auto-unlock runs fire-and-forget off the event loop — poll instead
+        // of assuming it's done by the time listen() resolves.
+        let unlocked = false;
+        for (let i = 0; i < 40; i++) {
+          const h = (await (await fetch(`${base2}/api/health`)).json()) as { unlocked: boolean };
+          if (h.unlocked) { unlocked = true; break; }
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        expect(unlocked).toBe(true);
+      } finally {
+        if (second) await second.close();
+        if (prevEnv === undefined) delete process.env.ATLAS_MASTER_PASSWORD;
+        else process.env.ATLAS_MASTER_PASSWORD = prevEnv;
+      }
+    } finally {
+      // maxRetries/retryDelay: on Windows, closing two panels against the
+      // same vault file back-to-back can leave a file handle momentarily
+      // held past close() resolving — Node's own built-in retry (undocumented
+      // default is 0) absorbs that instead of flaking the test.
+      await rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+
+  it("does not auto-unlock, and does not error, when ATLAS_MASTER_PASSWORD isn't set (existing local/dev behavior)", async () => {
+    const prevEnv = process.env.ATLAS_MASTER_PASSWORD;
+    delete process.env.ATLAS_MASTER_PASSWORD;
+    try {
+      await start();
+      const { token } = (await (await post("/api/setup", { masterPassword: "some-password" })).json()) as { token: string };
+      await post("/api/lock", {}, token);
+      const h = (await (await get("/api/health")).json()) as { unlocked: boolean };
+      expect(h.unlocked).toBe(false);
+    } finally {
+      if (prevEnv !== undefined) process.env.ATLAS_MASTER_PASSWORD = prevEnv;
+    }
+  });
+
   it("rejects the wrong master password on unlock", async () => {
     await start();
     await post("/api/setup", { masterPassword: "the-right-one" });

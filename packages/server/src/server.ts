@@ -466,6 +466,46 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     return atlas!;
   }
 
+  // Auto-unlock on boot from an env-stored master password, if one is
+  // provided — so ATLAS survives every VPS restart/redeploy without a manual
+  // unlock (Mat's explicit choice, 2026-07-25: true 24/7 operation over the
+  // small extra exposure of the password living as an env var on the same
+  // VPS that already holds every other secret in this vault — not a new
+  // machine to trust, just removing the one manual step). Silently a no-op
+  // when ATLAS_MASTER_PASSWORD isn't set, so local/dev use is unaffected and
+  // stays manual-unlock-only as always. Deliberately bypasses the
+  // failedUnlocks/lockedUntil brute-force guard entirely — a wrong value here
+  // is a deploy misconfiguration, not an attack, and must never lock Mat out
+  // of unlocking manually afterward.
+  //
+  // Chained onto `pendingRebuild` (same tracked promise `backgroundRebuild()`
+  // uses) rather than a bare fire-and-forget IIFE — otherwise close() has no
+  // way to know to wait for it, and a test/shutdown that deletes its temp
+  // data dir right after close() can race this still writing to it (the
+  // exact bug class backgroundRebuild() was built to fix for the OTHER
+  // background rebuild trigger, see the 2026-07-17 Run Ledger entry).
+  function backgroundAutoUnlock(): void {
+    const autoPassword = process.env.ATLAS_MASTER_PASSWORD;
+    if (!autoPassword) return;
+    pendingRebuild = (pendingRebuild ?? Promise.resolve()).then(
+      () => new Promise<void>((resolve) => {
+        setImmediate(() => {
+          (async () => {
+            if (!(await vault.exists())) return; // nothing to unlock yet
+            await vault.unlock(autoPassword);
+            token = randomUUID();
+            await rebuildAtlas();
+            console.log("[VAULT] Auto-unlocked from ATLAS_MASTER_PASSWORD on boot.");
+          })().then(resolve, (err) => {
+            console.error("[VAULT] Auto-unlock from ATLAS_MASTER_PASSWORD failed — falling back to manual unlock:", (err as Error).message);
+            resolve();
+          });
+        });
+      }),
+    );
+  }
+  backgroundAutoUnlock();
+
   function send(res: ServerResponse, status: number, body: unknown): void {
     res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify(body));
