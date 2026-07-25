@@ -39,6 +39,29 @@ describe("control panel", () => {
     expect((await get("/api/secrets")).status).toBe(401);
   });
 
+  it("lets a service token read GET /api/brief without a session, but nothing else", async () => {
+    const prev = process.env.ATLAS_SERVICE_TOKEN;
+    process.env.ATLAS_SERVICE_TOKEN = "svc-test-token";
+    try {
+      await start();
+      const withHeader = (p: string, svcToken: string) => fetch(base + p, { headers: { "x-atlas-service-token": svcToken } });
+
+      const ok = await withHeader("/api/brief", "svc-test-token");
+      expect(ok.status).toBe(200);
+      const body = (await ok.json()) as { items: unknown[]; count: number };
+      expect(Array.isArray(body.items)).toBe(true);
+
+      // Wrong token still denied.
+      expect((await withHeader("/api/brief", "wrong-token")).status).toBe(401);
+      // The service token grants nothing beyond this one read-only endpoint.
+      expect((await withHeader("/api/secrets", "svc-test-token")).status).toBe(401);
+      expect((await fetch(base + "/api/brief/kdp/book-1", { method: "POST", headers: { "x-atlas-service-token": "svc-test-token", "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve" }) })).status).toBe(401);
+    } finally {
+      if (prev === undefined) delete process.env.ATLAS_SERVICE_TOKEN;
+      else process.env.ATLAS_SERVICE_TOKEN = prev;
+    }
+  });
+
   it("sets up a vault, stores a key, and never leaks its value", async () => {
     await start();
     const setup = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };

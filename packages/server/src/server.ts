@@ -469,6 +469,16 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
 
   const authed = (req: IncomingMessage): boolean => !!token && req.headers["x-atlas-token"] === token;
 
+  // A second, narrowly-scoped credential for server-to-server reads — e.g.
+  // evervibes' own morning-brief cron pulling ATLAS's pending items into the
+  // SAME email it already sends, without needing Mat's live browser session
+  // (the per-unlock `token` above is ephemeral and regenerates every unlock,
+  // unusable for a service that runs on its own schedule). Deliberately only
+  // wired to ONE read-only endpoint below, never the write/act side or
+  // anything else the normal session token can reach.
+  const ATLAS_SERVICE_TOKEN = process.env.ATLAS_SERVICE_TOKEN || "";
+  const servicedAuthed = (req: IncomingMessage): boolean => !!ATLAS_SERVICE_TOKEN && req.headers["x-atlas-service-token"] === ATLAS_SERVICE_TOKEN;
+
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
@@ -565,6 +575,15 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         probeDatabaseUrl(),
       ]);
       return send(res, 200, { results, testedAt: new Date().toISOString() });
+    }
+
+    // Service-token read access — GET /api/brief only, so evervibes' own
+    // cron can pull today's items without Mat's browser session. Checked
+    // before the blanket session gate below; every other endpoint stays
+    // session-only.
+    if (method === "GET" && path === "/api/brief" && servicedAuthed(req)) {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("brief", { op: "today" }));
     }
 
     // ── everything below requires an unlocked session ──
