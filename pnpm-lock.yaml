@@ -733,6 +733,12 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@atlas/actions':
+        specifier: workspace:*
+        version: link:../actions
+      '@atlas/approvals':
+        specifier: workspace:*
+        version: link:../approvals
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian

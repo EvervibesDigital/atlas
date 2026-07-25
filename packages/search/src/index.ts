@@ -5,9 +5,14 @@ import type { Plugin } from "@atlas/core";
  * Mat's free search keys (Tavily / Serper) and the GitHub API. It powers:
  *   • findSite — resolve a fuzzy/approximate site name to a real URL
  *   • freeApis — discover free APIs/tools for a topic
- *   • repos / scout — find GitHub repos that could make ATLAS better, and file
- *     the findings to memory
- * READ-ONLY: it searches and reports; using/acting on results is gated.
+ *   • repos / scout — find GitHub repos that could make ATLAS better, file
+ *     every find to memory, AND — for a genuinely "viral" one (past the star
+ *     threshold below) — queue a real, approval-gated action so it shows up
+ *     in the Morning Brief instead of sitting buried in a memory note Mat has
+ *     to go dig for. Requesting the action never installs anything itself:
+ *     it still waits for Mat's approve click, same as every other business.
+ * READ-ONLY beyond that one queued request: it searches and reports; using/
+ * acting on results stays gated.
  */
 export type FetchLike = (
   url: string,
@@ -62,7 +67,7 @@ export type SearchCommand =
 export function createSearchPlugin(opts: { fetcher?: FetchLike } = {}): Plugin {
   const f = opts.fetcher ?? (globalThis.fetch as unknown as FetchLike);
   return {
-    manifest: { name: "search", version: "0.1.0", capabilities: ["search"], permissions: ["secret:*", "call:memory"], role: "executor" },
+    manifest: { name: "search", version: "0.1.0", capabilities: ["search"], permissions: ["secret:*", "call:memory", "call:actions"], role: "executor" },
     register(ctx) {
       async function web(query: string, max = 6): Promise<SearchResult[]> {
         const tavily = await ctx.secret("TAVILY_API_KEY");
@@ -101,6 +106,33 @@ export function createSearchPlugin(opts: { fetcher?: FetchLike } = {}): Plugin {
                 await ctx.call("memory", { op: "remember", input: { kind: "project", content: `Repo to consider for ATLAS: ${r.title} — ${r.snippet} (${r.url})`.slice(0, 800), metadata: { url: r.url } } });
               } catch {
                 /* optional */
+              }
+            }
+            // Every find gets remembered above, but memory notes are easy to
+            // never see again. For the single most-starred result — if it
+            // clears a genuine "viral" bar, results are already sorted by
+            // stars — also queue a real, approval-gated action request so it
+            // surfaces in the Morning Brief. Requesting it never installs
+            // anything: "install" actions only ever simulate (see
+            // @atlas/actions) until Mat approves AND a real driver is wired
+            // in, and even then this only logs a plan, never runs code.
+            const VIRAL_STAR_THRESHOLD = 1000;
+            const starsOf = (snippet: string): number => Number(snippet.match(/⭐(\d+)/)?.[1] ?? 0);
+            const top = results[0];
+            if (top && starsOf(top.snippet) >= VIRAL_STAR_THRESHOLD) {
+              try {
+                await ctx.call("actions", {
+                  op: "request",
+                  request: {
+                    type: "install",
+                    title: `Worth a look: ${top.title}`,
+                    detail: `${top.snippet} — found via autonomous GitHub scouting, query: "${cmd.query}".`,
+                    target: top.title,
+                    risk: 2,
+                  },
+                });
+              } catch {
+                /* actions plugin optional — memory note above still stands either way */
               }
             }
             await ctx.emit("search.scouted", { query: cmd.query, count: results.length });

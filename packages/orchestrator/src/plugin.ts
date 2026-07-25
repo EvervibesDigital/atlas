@@ -136,9 +136,13 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
         // delays or blocks curiosity/gig-finder/media-factory/etc., and can
         // no longer stall the whole cycle (each is timeout-bounded inside
         // `optional()`).
-        const [curiosity, repoScout, freeTools, github, tidy, newsletters, gigs, kdpScan, kdpGenerate, mediaFactory, healResult] = await Promise.all([
+        const [curiosity, repoScout, businessScout, freeTools, github, tidy, newsletters, gigs, kdpScan, kdpGenerate, mediaFactory, healResult] = await Promise.all([
           optional<unknown>(ctx.call, "curiosity", { op: "ideas" }, health),
           optional<unknown>(ctx.call, "search", { op: "scout", query: "autonomous AI agent framework OR MCP server OR open-source LLM tools", max: 6 }, health),
+          // Same scout mechanism, aimed at the actual businesses instead of
+          // ATLAS's own internals — Mat's ask: "viral github repos that will
+          // help what we are doing," not just repos that improve ATLAS.
+          optional<unknown>(ctx.call, "search", { op: "scout", query: "KDP publishing automation OR real estate wholesale tools OR AI lead generation OR compliance scanner", max: 6 }, health),
           optional<unknown>(ctx.call, "search", { op: "freeApis", topic: "content automation, AI agents, and social posting" }, health),
           optional<unknown>(ctx.call, "connectors", { op: "sync", which: "github" }, health),
           optional<unknown>(ctx.call, "janitor", { op: "tidy" }, health),
@@ -176,6 +180,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
         const intel = {
           curiosity: curiosity ?? null,
           repoScout: repoScout ?? null,
+          businessScout: businessScout ?? null,
           freeTools: freeTools ?? null,
           github: github ?? null,
           tidy: tidy ?? null,

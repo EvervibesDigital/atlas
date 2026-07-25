@@ -41,7 +41,14 @@ describe("autonomous daily cycle", () => {
     });
 
     expect(report.publish.status).toBe("pending-approval");
-    expect(report.pendingApprovals.length).toBe(1);
+    // Asserting an exact total count here was already fragile — this cycle
+    // calls the real (unmocked) search.scout(), which can itself file an
+    // approval for a genuinely popular repo it finds live on GitHub. Check
+    // for the SPECIFIC publish approval instead of the whole list's size, so
+    // this test only fails if publishing itself breaks, not because some
+    // other business also had something worth approving that day.
+    const publishApproval = report.pendingApprovals.find((a) => (a as { id?: string }).id === report.publish.approvalId);
+    expect(publishApproval).toBeTruthy();
   });
 
   it("reports cycleHealth alongside the rest of the report", async () => {
