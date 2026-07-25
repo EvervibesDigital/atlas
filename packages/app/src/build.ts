@@ -60,6 +60,7 @@ export interface AtlasOptions {
   approvalsFile?: string;
   metricsTracker?: MetricsTracker;
   metricsFile?: string;
+  proposalsFile?: string;
   businessFile?: string;
   gigFile?: string;
   toolVaultFile?: string;
@@ -138,7 +139,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createPersonasPlugin());
   await atlas.use(createCreativePlugin());
   await atlas.use(createPublishingPlugin({ publisher: opts.publisher, renderer: opts.renderer }));
-  await atlas.use(createLearningPlugin({ metrics: opts.metricsTracker, metricsFile: opts.metricsFile }));
+  await atlas.use(createLearningPlugin({ metrics: opts.metricsTracker, metricsFile: opts.metricsFile, proposalsFile: opts.proposalsFile }));
 
   // Web reader (loaded before Business so it can research business sites).
   await atlas.use(createWebPlugin());

@@ -43,4 +43,6 @@ export type LearningCommand =
   | { op: "reflect"; event: string; outcome: Outcome; category: string; detail?: string }
   | { op: "metrics"; category?: string }
   | { op: "proposals" }
-  | { op: "reflections"; limit?: number };
+  | { op: "reflections"; limit?: number }
+  | { op: "adopt"; category: string }
+  | { op: "dismiss"; category: string };

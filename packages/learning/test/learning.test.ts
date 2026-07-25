@@ -52,4 +52,20 @@ describe("generateProposals", () => {
     await m.record("tiny", "failure"); // only 1 sample
     expect(generateProposals(await m.all())).toHaveLength(0);
   });
+
+  it("uses the category itself as the id, stable across regenerations", async () => {
+    const m = new MetricsTracker();
+    for (let i = 0; i < 4; i++) await m.record("dm-outreach", "failure");
+    const first = generateProposals(await m.all());
+    const second = generateProposals(await m.all());
+    expect(first[0]!.id).toBe("dm-outreach");
+    expect(first[0]!.id).toBe(second[0]!.id);
+  });
+
+  it("suppresses a category already in handledCategories", async () => {
+    const m = new MetricsTracker();
+    for (let i = 0; i < 4; i++) await m.record("dm-outreach", "failure");
+    const proposals = generateProposals(await m.all(), new Set(["dm-outreach"]));
+    expect(proposals).toHaveLength(0);
+  });
 });

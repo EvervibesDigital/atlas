@@ -14,6 +14,7 @@ import { createApprovalsPlugin } from "@atlas/approvals";
 import { createSurplusPlugin } from "@atlas/surplus";
 import { createOutreachPlugin } from "@atlas/outreach";
 import { createLeadScanPlugin } from "@atlas/leadscan";
+import { createLearningPlugin, MetricsTracker } from "@atlas/learning";
 import { createBriefPlugin } from "../src/plugin";
 import type { BriefItem } from "../src/types";
 
@@ -334,6 +335,69 @@ describe("brief plugin — the Unified Morning Brief", () => {
       } finally {
         await rm(dir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe("learning source (ATLAS's own self-improvement proposals)", () => {
+    async function buildLearningBriefAtlas() {
+      const atlas = new Atlas({ guardian: new Guardian() });
+      await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
+      await atlas.use(createLearningPlugin({ metrics: new MetricsTracker() }));
+      await atlas.use(createBriefPlugin());
+      return atlas;
+    }
+
+    it("surfaces an underperforming category as one Brief item, no manual tab visit needed", async () => {
+      const atlas = await buildLearningBriefAtlas();
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:learning", "call:brief"], role: "executor" },
+        async register(ctx) {
+          for (let i = 0; i < 4; i++) await ctx.call("learning", { op: "reflect", event: "cold-dm", outcome: "failure", category: "outreach" });
+          const r = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+          const item = r.items.find((i) => i.source === "learning")!;
+          expect(item.title).toBe("ATLAS proposal: outreach");
+          expect(item.detail).toMatch(/succeeding only 0% of the time/);
+          expect(item.id).toBe("outreach");
+        },
+      });
+    });
+
+    it("act(approve) adopts the proposal (writes a standing directive) and removes it from the next brief", async () => {
+      const atlas = await buildLearningBriefAtlas();
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:learning", "call:memory", "call:brief"], role: "executor" },
+        async register(ctx) {
+          for (let i = 0; i < 4; i++) await ctx.call("learning", { op: "reflect", event: "cold-dm", outcome: "failure", category: "outreach" });
+
+          await ctx.call("brief", { op: "act", source: "learning", id: "outreach", action: "approve" });
+
+          // "recent" by kind, not "search" — the default stub embedder in
+          // tests doesn't do real semantic filtering.
+          const directives = (await ctx.call("memory", { op: "recent", kind: "directive" })) as unknown[];
+          expect(directives.length).toBe(1);
+
+          const after = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+          expect(after.items.find((i) => i.source === "learning")).toBeUndefined();
+        },
+      });
+    });
+
+    it("act(reject) dismisses the proposal without writing to memory, and it stays gone", async () => {
+      const atlas = await buildLearningBriefAtlas();
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:learning", "call:memory", "call:brief"], role: "executor" },
+        async register(ctx) {
+          for (let i = 0; i < 4; i++) await ctx.call("learning", { op: "reflect", event: "cold-dm", outcome: "failure", category: "outreach" });
+
+          await ctx.call("brief", { op: "act", source: "learning", id: "outreach", action: "reject" });
+
+          const directives = (await ctx.call("memory", { op: "recent", kind: "directive" })) as unknown[];
+          expect(directives.length).toBe(0);
+
+          const after = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+          expect(after.items.find((i) => i.source === "learning")).toBeUndefined();
+        },
+      });
     });
   });
 });

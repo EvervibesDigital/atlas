@@ -423,7 +423,7 @@ export const PAGE = `<!doctype html>
 
     <section id="tab-proposals" class="card hide">
       <h2>💡 ATLAS's Proposals (what it learned)</h2>
-      <div class="note">When a category keeps underperforming, ATLAS proposes a fix. Click ✅ Adopt to make it a standing directive — it's stored in memory and recalled by the chat and every daily cycle.</div>
+      <div class="note">When a category keeps underperforming, ATLAS proposes a fix — checked automatically every daily cycle, no need to visit this tab (it also shows up in your Brief). Click ✅ Adopt to make it a standing directive — it's stored in memory and recalled by the chat and every daily cycle.</div>
       <div id="proposalsList" class="note" style="margin-top:10px">Loading…</div>
       <button class="sec" onclick="loadProposals()">Refresh</button>
     </section>
@@ -1135,7 +1135,7 @@ async function loadProposals(){ try { const r=await api("/api/proposals"); propo
   $("proposalsList").innerHTML=props||"<div class='note'>No proposals yet. ATLAS raises one when a category keeps failing (needs 3+ recorded outcomes under 50% success) — they appear here as it operates.</div>";
 } catch(e){ $("proposalsList").textContent="⚠ "+e.message; } }
 async function adoptProposal(i){ const p=proposalsCache[i]; if(!p) return;
-  try { const r=await api("/api/proposals/adopt","POST",{category:p.category,problem:p.problem,suggestion:p.suggestion});
+  try { const r=await api("/api/proposals/adopt","POST",{category:p.category});
     alert(r.message||"Adopted"); loadProposals();
   } catch(e){ alert(e.message); } }
 

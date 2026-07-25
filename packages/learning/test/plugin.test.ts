@@ -65,4 +65,68 @@ describe("learning plugin wired through the kernel", () => {
     expect(proposals[0]!.category).toBe("outreach");
     expect(reflections.length).toBe(4);
   });
+
+  it("adopt() writes a standing directive to memory and stops the proposal from resurfacing", async () => {
+    const atlas = new Atlas({ guardian: new Guardian() });
+    await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
+    await atlas.use(createLearningPlugin({ metrics: new MetricsTracker() }));
+
+    await atlas.use({
+      manifest: { name: "ops", version: "1", capabilities: [], permissions: ["call:learning", "call:memory"], role: "executor" },
+      async register(ctx) {
+        for (let i = 0; i < 4; i++) await ctx.call("learning", { op: "reflect", event: "cold-dm", outcome: "failure", category: "outreach" });
+
+        const before = (await ctx.call("learning", { op: "proposals" })) as Proposal[];
+        expect(before).toHaveLength(1);
+
+        const result = (await ctx.call("learning", { op: "adopt", category: "outreach" })) as { ok: boolean; message: string };
+        expect(result.ok).toBe(true);
+        expect(result.message).toMatch(/standing directive/);
+
+        // "recent" by kind, not "search" — the default stub embedder in tests
+        // doesn't do real semantic filtering (it scores every record, so a
+        // keyword "search" would also match the 4 unrelated failure lessons
+        // recorded above). Filtering by kind:"directive" is exact.
+        const directives = (await ctx.call("memory", { op: "recent", kind: "directive" })) as unknown[];
+        expect(directives.length).toBe(1);
+
+        const after = (await ctx.call("learning", { op: "proposals" })) as Proposal[];
+        expect(after).toHaveLength(0);
+      },
+    } satisfies Plugin);
+  });
+
+  it("dismiss() suppresses the proposal without touching memory", async () => {
+    const atlas = new Atlas({ guardian: new Guardian() });
+    await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
+    await atlas.use(createLearningPlugin({ metrics: new MetricsTracker() }));
+
+    await atlas.use({
+      manifest: { name: "ops", version: "1", capabilities: [], permissions: ["call:learning", "call:memory"], role: "executor" },
+      async register(ctx) {
+        for (let i = 0; i < 4; i++) await ctx.call("learning", { op: "reflect", event: "cold-dm", outcome: "failure", category: "outreach" });
+
+        await ctx.call("learning", { op: "dismiss", category: "outreach" });
+
+        const directives = (await ctx.call("memory", { op: "recent", kind: "directive" })) as unknown[];
+        expect(directives.length).toBe(0);
+
+        const after = (await ctx.call("learning", { op: "proposals" })) as Proposal[];
+        expect(after).toHaveLength(0);
+      },
+    } satisfies Plugin);
+  });
+
+  it("adopt() throws a clear error for a category with no current metrics", async () => {
+    const atlas = new Atlas({ guardian: new Guardian() });
+    await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
+    await atlas.use(createLearningPlugin({ metrics: new MetricsTracker() }));
+
+    await atlas.use({
+      manifest: { name: "ops", version: "1", capabilities: [], permissions: ["call:learning"], role: "executor" },
+      async register(ctx) {
+        await expect(ctx.call("learning", { op: "adopt", category: "nonexistent" })).rejects.toThrow(/no metrics/);
+      },
+    } satisfies Plugin);
+  });
 });

@@ -285,6 +285,9 @@ importers:
       '@atlas/leadscan':
         specifier: workspace:*
         version: link:../leadscan
+      '@atlas/learning':
+        specifier: workspace:*
+        version: link:../learning
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory

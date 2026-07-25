@@ -24,7 +24,7 @@ export function createBriefPlugin(): Plugin {
       name: "brief",
       version: "0.1.0",
       capabilities: ["brief"],
-      permissions: ["call:kdp", "call:gigfinder", "call:approvals", "call:surplus", "call:wholesale", "call:leadscan"],
+      permissions: ["call:kdp", "call:gigfinder", "call:approvals", "call:surplus", "call:wholesale", "call:leadscan", "call:learning"],
       role: "executor",
     },
 
@@ -117,6 +117,18 @@ export function createBriefPlugin(): Plugin {
         }));
       }
 
+      async function fromLearning(): Promise<BriefItem[]> {
+        const proposals = (await ctx.call("learning", { op: "proposals" })) as Array<{ id: string; category: string; problem: string; suggestion: string; createdAt: string }>;
+        return proposals.map((p) => ({
+          id: p.id,
+          source: "learning" as const,
+          title: `ATLAS proposal: ${p.category}`,
+          detail: `${p.problem} ${p.suggestion}`,
+          risk: 0 as const,
+          createdAt: p.createdAt,
+        }));
+      }
+
       async function collect(fn: () => Promise<BriefItem[]>): Promise<BriefItem[]> {
         try {
           return await fn();
@@ -129,8 +141,16 @@ export function createBriefPlugin(): Plugin {
         const cmd = payload as BriefCommand;
 
         if (cmd.op === "today") {
-          const [kdp, gigfinder, approvals, surplus, wholesale, leadscan] = await Promise.all([collect(fromKdp), collect(fromGigFinder), collect(fromApprovals), collect(fromSurplus), collect(fromWholesale), collect(fromLeadscan)]);
-          const items = [...kdp, ...gigfinder, ...approvals, ...surplus, ...wholesale, ...leadscan].sort((a, b) => b.risk - a.risk || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+          const [kdp, gigfinder, approvals, surplus, wholesale, leadscan, learning] = await Promise.all([
+            collect(fromKdp),
+            collect(fromGigFinder),
+            collect(fromApprovals),
+            collect(fromSurplus),
+            collect(fromWholesale),
+            collect(fromLeadscan),
+            collect(fromLearning),
+          ]);
+          const items = [...kdp, ...gigfinder, ...approvals, ...surplus, ...wholesale, ...leadscan, ...learning].sort((a, b) => b.risk - a.risk || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
           return { items, count: items.length };
         }
 
@@ -158,6 +178,12 @@ export function createBriefPlugin(): Plugin {
           }
           if (source === "leadscan") {
             return ctx.call("leadscan", { op: action === "approve" ? "approve" : "reject", id });
+          }
+          if (source === "learning") {
+            // id IS the category (see fromLearning/proposals.ts) — proposals
+            // are recomputed live from metrics, so there's no record to fetch
+            // by a separate id, only a category to adopt or dismiss.
+            return ctx.call("learning", { op: action === "approve" ? "adopt" : "dismiss", category: id });
           }
           throw new Error(`brief: unknown source "${source as BriefSource}"`);
         }

@@ -16,6 +16,7 @@
     "@atlas/wholesale": "workspace:*",
     "@atlas/leadscan": "workspace:*",
     "@atlas/outreach": "workspace:*",
+    "@atlas/learning": "workspace:*",
     "@atlas/brain": "workspace:*",
     "@atlas/search": "workspace:*",
     "@atlas/executor": "workspace:*"

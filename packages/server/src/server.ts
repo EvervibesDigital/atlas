@@ -433,6 +433,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       memoryFile: `${dataDir}/memory.json`,
       approvalsFile: `${dataDir}/approvals.json`,
       metricsFile: `${dataDir}/metrics.json`,
+      proposalsFile: `${dataDir}/proposals-handled.json`,
       businessFile: `${dataDir}/businesses.json`,
       gigFile: `${dataDir}/gigs.json`,
       toolVaultFile: `${dataDir}/toolvault.json`,
@@ -997,20 +998,16 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     }
 
     if (method === "POST" && path === "/api/proposals/adopt") {
-      const { category, problem, suggestion } = await readBody(req);
-      if (!suggestion) return send(res, 400, { error: "suggestion required" });
+      const { category } = await readBody(req);
+      if (!category) return send(res, 400, { error: "category required" });
       const a = await ensureAtlas();
       // Adoption is REAL: the directive goes into the same memory that the
       // chat and the daily cycle (step 1b) search before deciding anything.
-      await a.invoke("memory", {
-        op: "remember",
-        input: {
-          kind: "directive",
-          content: `ADOPTED DIRECTIVE (${String(category ?? "general")}): ${String(suggestion)} Context: ${String(problem ?? "")}`.slice(0, 800),
-          metadata: { source: "proposal", category: String(category ?? "general") },
-        },
-      });
-      return send(res, 200, { ok: true, message: "Adopted — stored as a standing directive. Chat and the daily cycle recall it when relevant." });
+      // Routed through the learning plugin's own "adopt" op (not written here
+      // directly) so this tab and the Unified Brief's "approve" both resolve
+      // through the exact same path — see packages/brief/src/plugin.ts.
+      const result = (await a.invoke("learning", { op: "adopt", category: String(category) })) as { message: string };
+      return send(res, 200, { ok: true, message: result.message });
     }
 
     if (method === "POST" && path === "/api/chat") {

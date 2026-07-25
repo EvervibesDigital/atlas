@@ -2,7 +2,8 @@ import type { Plugin } from "@atlas/core";
 import type { LearningCommand, Outcome, Reflection } from "./types";
 import { MetricsTracker } from "./metrics";
 import { reflect } from "./reflection";
-import { generateProposals } from "./proposals";
+import { generateProposals, describeProposal } from "./proposals";
+import { ProposalRegistry } from "./registry";
 
 const RECENT_CAP = 100;
 
@@ -12,10 +13,13 @@ const RECENT_CAP = 100;
  * updates confidence metrics and is written to long-term Memory (best-effort).
  *
  * Role executor: it records outcomes; it never changes policy or acts on the
- * outside world. It only advises via proposals.
+ * outside world. It only advises via proposals — "adopt" writes a standing
+ * directive to memory (a suggestion for future cycles/chat to read), it never
+ * rewrites ATLAS's own code or behavior directly.
  */
-export function createLearningPlugin(opts: { metrics?: MetricsTracker; metricsFile?: string } = {}): Plugin {
+export function createLearningPlugin(opts: { metrics?: MetricsTracker; metricsFile?: string; registry?: ProposalRegistry; proposalsFile?: string } = {}): Plugin {
   const metrics = opts.metrics ?? new MetricsTracker(opts.metricsFile);
+  const registry = opts.registry ?? new ProposalRegistry(opts.proposalsFile);
   const recent: Reflection[] = [];
 
   return {
@@ -70,9 +74,31 @@ export function createLearningPlugin(opts: { metrics?: MetricsTracker; metricsFi
           case "metrics":
             return cmd.category ? metrics.get(cmd.category) : metrics.all();
           case "proposals":
-            return generateProposals(await metrics.all());
+            return generateProposals(await metrics.all(), await registry.handledCategories());
           case "reflections":
             return recent.slice(0, cmd.limit ?? 20);
+          case "adopt": {
+            const m = (await metrics.all()).find((x) => x.category === cmd.category);
+            if (!m) throw new Error(`learning: no metrics for category "${cmd.category}" — it may have already recovered or been handled`);
+            const { problem, suggestion } = describeProposal(m);
+            try {
+              await ctx.call("memory", {
+                op: "remember",
+                input: {
+                  kind: "directive",
+                  content: `ADOPTED DIRECTIVE (${cmd.category}): ${suggestion} Context: ${problem}`.slice(0, 800),
+                  metadata: { source: "proposal", category: cmd.category },
+                },
+              });
+            } catch {
+              /* memory not available — still mark handled below so it stops resurfacing */
+            }
+            await registry.markHandled(cmd.category, "accepted");
+            return { ok: true, category: cmd.category, message: "Adopted — stored as a standing directive. Chat and the daily cycle recall it when relevant." };
+          }
+          case "dismiss":
+            await registry.markHandled(cmd.category, "dismissed");
+            return { ok: true, category: cmd.category };
           default:
             throw new Error(`learning: unknown op "${(cmd as { op: string }).op}"`);
         }
