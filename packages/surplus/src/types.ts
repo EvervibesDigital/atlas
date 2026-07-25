@@ -37,6 +37,7 @@ export interface SurplusLead {
   lead_tier?: string; // Pre-Surplus / Confirmed / Court-Held
   lead_score?: string;
   owner_name?: string;
+  owner_email?: string;
 }
 
 /** The six agents that make up the Surplus Funds Platform v2 pipeline, in order. */

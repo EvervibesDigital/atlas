@@ -106,36 +106,65 @@ describe("surplus plugin", () => {
     });
   });
 
-  it("pendingLeads filters to estimated_surplus >= $5,000 and never needs TWIN_API_KEY", async () => {
-    // Deliberately no TWIN_API_KEY in the vault — pendingLeads only needs the Sheets credential.
-    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ GOOGLE_SHEETS_CLIENT_EMAIL: "svc@x.iam.gserviceaccount.com", GOOGLE_SHEETS_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM }) });
-    const f = (async (url: string) => {
+  // Real header row, verified live against Mat's actual Leads sheet on
+  // 2026-07-25 (space-separated, NOT the underscore names the platform's own
+  // SQLite schema uses internally) — an earlier version of this fixture used
+  // underscore headers that happened to match a bug in the implementation
+  // instead of catching it. Keep this fixture honest to the real sheet.
+  const REAL_HEADER_ROW = [
+    "lead id", "county", "state", "property address", "case number", "auction date",
+    "sale price", "debt owed", "estimated surplus", "lead tier", "lead score",
+    "owner name", "owner email", "owner phone", "owner mailing address",
+    "source url", "date scraped", "email sent", "email sent date", "sms sent",
+    "call attempted", "letter generated", "attorney assigned", "claim status",
+    "estimated commission", "revenue collected",
+  ];
+  function leadsSheetFetch(rows: string[][]): typeof fetch {
+    return (async (url: string) => {
       const u = new URL(url);
       if (u.pathname === "/token") return { ok: true, status: 200, json: async () => ({ access_token: "t" }) } as Response;
       if (u.pathname.includes("/values/")) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            values: [
-              ["case_number", "owner_name", "estimated_surplus", "county", "state", "property_address"],
-              ["CASE-1", "Jane Doe", "$12,500", "Marion", "IN", "123 Main St"],
-              ["CASE-2", "John Smith", "$1,200", "Marion", "IN", "456 Oak Ave"],
-            ],
-          }),
-        } as Response;
+        return { ok: true, status: 200, json: async () => ({ values: [REAL_HEADER_ROW, ...rows] }) } as Response;
       }
       throw new Error("unexpected path " + u.pathname);
     }) as typeof fetch;
+  }
+
+  it("pendingLeads filters to estimated surplus >= $5,000 against the real sheet header row", async () => {
+    // Deliberately no TWIN_API_KEY in the vault — pendingLeads only needs the Sheets credential.
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ GOOGLE_SHEETS_CLIENT_EMAIL: "svc@x.iam.gserviceaccount.com", GOOGLE_SHEETS_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM }) });
+    const f = leadsSheetFetch([
+      ["L1", "Marion", "IN", "123 Main St", "CASE-1", "2026-01-01", "$50,000", "$37,500", "$12,500", "Confirmed", "A", "Jane Doe", "jane@example.com", "", "", "", "", "", "", "", "", "", "", "", ""],
+      ["L2", "Marion", "IN", "456 Oak Ave", "CASE-2", "2026-01-01", "$20,000", "$18,800", "$1,200", "Confirmed", "C", "John Smith", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+    ]);
 
     await atlas.use(createSurplusPlugin({ fetcher: f }));
     await atlas.use({
       manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:surplus"], role: "executor" },
       async register(ctx) {
-        const r = (await ctx.call("surplus", { op: "pendingLeads" } satisfies SurplusCommand)) as { leads: Array<{ case_number?: string; estimated_surplus?: number }> };
+        const r = (await ctx.call("surplus", { op: "pendingLeads" } satisfies SurplusCommand)) as { leads: Array<{ case_number?: string; estimated_surplus?: number; owner_email?: string }> };
         expect(r.leads).toHaveLength(1);
         expect(r.leads[0]!.case_number).toBe("CASE-1");
         expect(r.leads[0]!.estimated_surplus).toBe(12500);
+        expect(r.leads[0]!.owner_email).toBe("jane@example.com");
+      },
+    });
+  });
+
+  it("pendingLeads excludes leads whose 'email sent' column is already checked", async () => {
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ GOOGLE_SHEETS_CLIENT_EMAIL: "svc@x.iam.gserviceaccount.com", GOOGLE_SHEETS_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM }) });
+    const f = leadsSheetFetch([
+      ["L1", "Marion", "IN", "123 Main St", "CASE-1", "2026-01-01", "$50,000", "$37,500", "$12,500", "Confirmed", "A", "Jane Doe", "", "", "", "", "", "Yes", "2026-01-05", "", "", "", "", "", ""],
+      ["L2", "Marion", "IN", "789 Elm St", "CASE-2", "2026-01-01", "$60,000", "$44,000", "$16,000", "Confirmed", "A", "Bob Roe", "", "", "", "", "", "No", "", "", "", "", "", "", ""],
+    ]);
+
+    await atlas.use(createSurplusPlugin({ fetcher: f }));
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:surplus"], role: "executor" },
+      async register(ctx) {
+        const r = (await ctx.call("surplus", { op: "pendingLeads" } satisfies SurplusCommand)) as { leads: Array<{ case_number?: string }> };
+        expect(r.leads).toHaveLength(1);
+        expect(r.leads[0]!.case_number).toBe("CASE-2"); // CASE-1 already emailed, skipped
       },
     });
   });

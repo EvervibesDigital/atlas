@@ -86,20 +86,33 @@ export function createSurplusPlugin(opts: { fetcher?: FetchLike; twinBase?: stri
         if (cmd.op === "pendingLeads") {
           const sheets = await sheetsClient();
           const rows = await sheets.getRows(LEADS_SHEET_ID);
+          // Real header row (verified live 2026-07-25): "lead id", "county",
+          // "state", "property address", "case number", "auction date",
+          // "sale price", "debt owed", "estimated surplus", "lead tier",
+          // "lead score", "owner name", "owner email", "owner phone", "owner
+          // mailing address", "source url", "date scraped", "email sent",
+          // "email sent date", "sms sent", "call attempted", "letter
+          // generated", "attorney assigned", "claim status", "estimated
+          // commission", "revenue collected" — space-separated, NOT the
+          // underscore names used in the platform's own SQLite schema.
+          const num = (v: string | undefined) => (v ? Number(v.replace(/[^0-9.-]/g, "")) : undefined);
+          const alreadyEmailed = (v: string | undefined) => /^(yes|true|1|y)$/i.test((v ?? "").trim());
           const leads: SurplusLead[] = rows
+            .filter((row) => !alreadyEmailed(row["email sent"]))
             .map((row) => ({
-              lead_id: row.lead_id || row.case_number || undefined,
-              county: row.county || undefined,
-              state: row.state || undefined,
-              property_address: row.property_address || undefined,
-              case_number: row.case_number || undefined,
-              auction_date: row.auction_date || undefined,
-              sale_price: row.sale_price ? Number(row.sale_price.replace(/[^0-9.-]/g, "")) : undefined,
-              debt_owed: row.debt_owed ? Number(row.debt_owed.replace(/[^0-9.-]/g, "")) : undefined,
-              estimated_surplus: row.estimated_surplus ? Number(row.estimated_surplus.replace(/[^0-9.-]/g, "")) : 0,
-              lead_tier: row.lead_tier || undefined,
-              lead_score: row.lead_score || undefined,
-              owner_name: row.owner_name || undefined,
+              lead_id: row["lead id"] || row["case number"] || undefined,
+              county: row["county"] || undefined,
+              state: row["state"] || undefined,
+              property_address: row["property address"] || undefined,
+              case_number: row["case number"] || undefined,
+              auction_date: row["auction date"] || undefined,
+              sale_price: num(row["sale price"]),
+              debt_owed: num(row["debt owed"]),
+              estimated_surplus: num(row["estimated surplus"]) ?? 0,
+              lead_tier: row["lead tier"] || undefined,
+              lead_score: row["lead score"] || undefined,
+              owner_name: row["owner name"] || undefined,
+              owner_email: row["owner email"] || undefined,
             }))
             .filter((lead) => (lead.estimated_surplus ?? 0) >= MIN_SURPLUS)
             .slice(0, cmd.limit ?? 10);

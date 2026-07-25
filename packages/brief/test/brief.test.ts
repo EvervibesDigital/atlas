@@ -183,8 +183,8 @@ describe("brief plugin — the Unified Morning Brief", () => {
             status: 200,
             json: async () => ({
               values: [
-                ["case_number", "owner_name", "property_address", "county", "state", "estimated_surplus"],
-                ["CASE-9", "Jane Doe", "123 Main St", "Marion", "IN", "$18,000"],
+                ["case number", "owner name", "property address", "county", "state", "estimated surplus", "email sent"],
+                ["CASE-9", "Jane Doe", "123 Main St", "Marion", "IN", "$18,000", "No"],
               ],
             }),
           } as Response;
