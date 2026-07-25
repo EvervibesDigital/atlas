@@ -1,7 +1,7 @@
 import type { RiskLevel } from "@atlas/core";
 
 /** Where a brief item came from — determines how "act" resolves it. */
-export type BriefSource = "kdp" | "gigfinder" | "approvals" | "surplus" | "wholesale";
+export type BriefSource = "kdp" | "gigfinder" | "approvals" | "surplus" | "wholesale" | "leadscan";
 
 /** One thing waiting on Mat this morning, normalized across every business. */
 export interface BriefItem {

@@ -24,7 +24,7 @@ export function createBriefPlugin(): Plugin {
       name: "brief",
       version: "0.1.0",
       capabilities: ["brief"],
-      permissions: ["call:kdp", "call:gigfinder", "call:approvals", "call:surplus", "call:wholesale"],
+      permissions: ["call:kdp", "call:gigfinder", "call:approvals", "call:surplus", "call:wholesale", "call:leadscan"],
       role: "executor",
     },
 
@@ -103,6 +103,20 @@ export function createBriefPlugin(): Plugin {
         }));
       }
 
+      async function fromLeadscan(): Promise<BriefItem[]> {
+        const leads = (await ctx.call("leadscan", { op: "list", status: "new" })) as Array<{ id: string; businessName: string; website: string; niche: string; city: string; foundAt: string; scan?: { overallScore: number; issues: Array<{ issue: string }> } }>;
+        return leads.map((l) => ({
+          id: l.id,
+          source: "leadscan" as const,
+          title: `${l.businessName} — ${l.website}`,
+          detail: l.scan
+            ? `Score ${l.scan.overallScore}/100 — ${l.scan.issues.slice(0, 2).map((i) => i.issue).join("; ") || "no issues found"}. Approving emails this business.`
+            : `${l.niche} in ${l.city}. Approving emails this business.`,
+          risk: 1 as const,
+          createdAt: l.foundAt,
+        }));
+      }
+
       async function collect(fn: () => Promise<BriefItem[]>): Promise<BriefItem[]> {
         try {
           return await fn();
@@ -115,8 +129,8 @@ export function createBriefPlugin(): Plugin {
         const cmd = payload as BriefCommand;
 
         if (cmd.op === "today") {
-          const [kdp, gigfinder, approvals, surplus, wholesale] = await Promise.all([collect(fromKdp), collect(fromGigFinder), collect(fromApprovals), collect(fromSurplus), collect(fromWholesale)]);
-          const items = [...kdp, ...gigfinder, ...approvals, ...surplus, ...wholesale].sort((a, b) => b.risk - a.risk || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+          const [kdp, gigfinder, approvals, surplus, wholesale, leadscan] = await Promise.all([collect(fromKdp), collect(fromGigFinder), collect(fromApprovals), collect(fromSurplus), collect(fromWholesale), collect(fromLeadscan)]);
+          const items = [...kdp, ...gigfinder, ...approvals, ...surplus, ...wholesale, ...leadscan].sort((a, b) => b.risk - a.risk || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
           return { items, count: items.length };
         }
 
@@ -141,6 +155,9 @@ export function createBriefPlugin(): Plugin {
           }
           if (source === "wholesale") {
             return ctx.call("wholesale", action === "approve" ? { op: "approve", id } : { op: "veto", id, reason: "atlas_brief_reject" });
+          }
+          if (source === "leadscan") {
+            return ctx.call("leadscan", { op: action === "approve" ? "approve" : "reject", id });
           }
           throw new Error(`brief: unknown source "${source as BriefSource}"`);
         }

@@ -136,6 +136,16 @@ describe("routeChatIntent (chat can DO things)", () => {
     expect(out).toContain("25 matched buyers");
     expect(out).toContain("$12,000");
   });
+  it("routes 'new leads status' to the leadscan service", () => {
+    const i = routeChatIntent("show me new leads status");
+    expect(i?.service).toBe("leadscan");
+    expect((i?.payload as { op: string; status?: string }).status).toBe("new");
+  });
+  it("formats leadscan's bare-array result with scan scores", () => {
+    const out = formatIntentResult("leadscan", [{ businessName: "Joe's Plumbing", website: "https://joesplumbing.example", scan: { overallScore: 65 } }]);
+    expect(out).toContain("Joe's Plumbing");
+    expect(out).toContain("65/100");
+  });
 });
 
 describe("detectSecrets — database connection strings", () => {

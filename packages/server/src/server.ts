@@ -214,6 +214,9 @@ export function routeChatIntent(message: string): ChatIntent | null {
   if (/\bwholesale\b/.test(low) && /\b(status|deals?|pending|check|show|actions?)\b/.test(low)) {
     return { kind: "wholesale", service: "wholesale", payload: { op: "list" }, intro: `🏠 Wholesale pending actions:` };
   }
+  if (/\b(leads?|compliance)\b/.test(low) && /\b(status|new|pending|check|show|scan(ned)?)\b/.test(low)) {
+    return { kind: "leadscan", service: "leadscan", payload: { op: "list", status: "new" }, intro: `🔍 New compliance leads:` };
+  }
   return null;
 }
 
@@ -249,6 +252,11 @@ export function formatIntentResult(kind: string, result: unknown): string {
     const actions = (r.actions as Array<{ action_type: string; roi_score: number; target_summary: string | null }>) ?? [];
     if (!actions.length) return "(nothing pending — or KDP_CRON_SECRET isn't set in the Keys tab)";
     return actions.map((a) => `• ${a.action_type}${a.target_summary ? ` — ${a.target_summary}` : ""}${a.roi_score ? ` (~$${a.roi_score.toLocaleString()})` : ""}`).join("\n");
+  }
+  if (kind === "leadscan") {
+    const leads = (Array.isArray(result) ? result : []) as Array<{ businessName: string; website: string; scan?: { overallScore: number } }>;
+    if (!leads.length) return "(no new leads — is GEMINI_API_KEY set, and has 'find leads' been run recently?)";
+    return leads.map((l) => `• ${l.businessName} — ${l.website}${l.scan ? ` (score ${l.scan.overallScore}/100)` : ""}`).join("\n");
   }
   if (kind === "cycle") {
     const rep = r as {

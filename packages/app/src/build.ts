@@ -14,6 +14,7 @@ import { createGigFinderPlugin } from "@atlas/gigfinder";
 import { createKdpPlugin } from "@atlas/kdp";
 import { createSurplusPlugin } from "@atlas/surplus";
 import { createWholesalePlugin } from "@atlas/wholesale";
+import { createLeadScanPlugin } from "@atlas/leadscan";
 import { createBriefPlugin } from "@atlas/brief";
 import { createOutreachPlugin } from "@atlas/outreach";
 import { createMediaFactoryPlugin } from "@atlas/media-factory";
@@ -177,6 +178,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createSurplusPlugin());
   await atlas.use(createWholesalePlugin());
   await atlas.use(createOutreachPlugin());
+  await atlas.use(createLeadScanPlugin());
   await atlas.use(createMediaFactoryPlugin());
   await atlas.use(createBriefPlugin());
 

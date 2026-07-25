@@ -14,6 +14,8 @@
     "@atlas/gigfinder": "workspace:*",
     "@atlas/surplus": "workspace:*",
     "@atlas/wholesale": "workspace:*",
+    "@atlas/leadscan": "workspace:*",
+    "@atlas/outreach": "workspace:*",
     "@atlas/brain": "workspace:*",
     "@atlas/search": "workspace:*",
     "@atlas/executor": "workspace:*"

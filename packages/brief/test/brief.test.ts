@@ -12,6 +12,8 @@ import { createKdpPlugin } from "@atlas/kdp";
 import { createGigFinderPlugin } from "@atlas/gigfinder";
 import { createApprovalsPlugin } from "@atlas/approvals";
 import { createSurplusPlugin } from "@atlas/surplus";
+import { createOutreachPlugin } from "@atlas/outreach";
+import { createLeadScanPlugin } from "@atlas/leadscan";
 import { createBriefPlugin } from "../src/plugin";
 import type { BriefItem } from "../src/types";
 
@@ -251,6 +253,87 @@ describe("brief plugin — the Unified Morning Brief", () => {
         },
       });
       expect(sawRunBody.value).toBe("");
+    });
+  });
+
+  describe("leadscan source", () => {
+    function fakeLeadscanFetch(sawOutreachBody: { value: string }): typeof fetch {
+      return (async (url: string, init?: RequestInit) => {
+        const u = new URL(url);
+        if (u.hostname === "generativelanguage.googleapis.com") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              candidates: [{ content: { parts: [{ text: '[{"businessName":"Joe\'s Plumbing","website":"https://joesplumbing.example","phone":"555-1234","email":"joe@example.com"}]' }] } }],
+            }),
+          } as Response;
+        }
+        if (u.hostname === "joesplumbing.example") {
+          return { ok: true, status: 200, text: async () => `<html><head></head><body><img src="x.png"></body></html>` } as Response;
+        }
+        if (u.hostname === "n8n.evervibes.org") {
+          sawOutreachBody.value = String(init?.body);
+          return { ok: true, status: 200, json: async () => ({ received: true }) } as Response;
+        }
+        throw new Error(`no fake handler for ${u.hostname}`);
+      }) as typeof fetch;
+    }
+
+    async function buildLeadscanBriefAtlas(f: typeof fetch, leadFile: string) {
+      const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ GEMINI_API_KEY: "test-gemini-key", N8N_API_KEY: "test-n8n-key" }) });
+      await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
+      await atlas.use(createOutreachPlugin({ fetcher: f }));
+      await atlas.use(createLeadScanPlugin({ leadFile, fetcher: f }));
+      await atlas.use(createBriefPlugin());
+      return atlas;
+    }
+
+    it("surfaces a newly-found, scanned lead as one Brief item with its score", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "atlas-brief-leadscan-"));
+      const leadFile = join(dir, "leads.json");
+      try {
+        const sawOutreachBody = { value: "" };
+        const atlas = await buildLeadscanBriefAtlas(fakeLeadscanFetch(sawOutreachBody), leadFile);
+        await atlas.use({
+          manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:leadscan", "call:brief"], role: "executor" },
+          async register(ctx) {
+            await ctx.call("leadscan", { op: "findLeads", niche: "plumbing", city: "Columbus, OH" });
+            const r = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+            const item = r.items.find((i) => i.source === "leadscan")!;
+            expect(item.title).toBe("Joe's Plumbing — https://joesplumbing.example");
+            expect(item.detail).toMatch(/Score \d+\/100/);
+            expect(item.detail).toContain("Approving emails this business");
+          },
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("act(approve) sends outreach and removes the lead from the next brief", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "atlas-brief-leadscan-"));
+      const leadFile = join(dir, "leads.json");
+      try {
+        const sawOutreachBody = { value: "" };
+        const atlas = await buildLeadscanBriefAtlas(fakeLeadscanFetch(sawOutreachBody), leadFile);
+        await atlas.use({
+          manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:leadscan", "call:brief"], role: "executor" },
+          async register(ctx) {
+            await ctx.call("leadscan", { op: "findLeads", niche: "plumbing", city: "Columbus, OH" });
+            const before = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+            const lead = before.items.find((i) => i.source === "leadscan")!;
+
+            await ctx.call("brief", { op: "act", source: "leadscan", id: lead.id, action: "approve" });
+            expect(JSON.parse(sawOutreachBody.value).name).toBe("Joe's Plumbing");
+
+            const after = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+            expect(after.items.find((i) => i.source === "leadscan")).toBeUndefined();
+          },
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     });
   });
 });
