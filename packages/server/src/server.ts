@@ -217,6 +217,9 @@ export function routeChatIntent(message: string): ChatIntent | null {
   if (/\b(leads?|compliance)\b/.test(low) && /\b(status|new|pending|check|show|scan(ned)?)\b/.test(low)) {
     return { kind: "leadscan", service: "leadscan", payload: { op: "list", status: "new" }, intro: `🔍 New compliance leads:` };
   }
+  if (/\b(vitals|how are you doing|how'?s it going|self.?check|are you (stuck|stalled|idle|growing|learning)|health check|are we making progress)\b/.test(low)) {
+    return { kind: "vitals", service: "vitals", payload: { op: "check" }, intro: `🩺 ATLAS vitals:` };
+  }
   return null;
 }
 
@@ -257,6 +260,23 @@ export function formatIntentResult(kind: string, result: unknown): string {
     const leads = (Array.isArray(result) ? result : []) as Array<{ businessName: string; website: string; scan?: { overallScore: number } }>;
     if (!leads.length) return "(no new leads — is GEMINI_API_KEY set, and has 'find leads' been run recently?)";
     return leads.map((l) => `• ${l.businessName} — ${l.website}${l.scan ? ` (score ${l.scan.overallScore}/100)` : ""}`).join("\n");
+  }
+  if (kind === "vitals") {
+    const v = r as {
+      output?: { pending: number; stalled: number; oldestAgeDays: number; byTier: Record<string, number> };
+      growth?: { knowledge: number; knowledgeDelta: number | null };
+      learning?: { outcomes: number; categories: number; avgSuccessRate: number | null };
+      flags?: string[];
+      healthy?: boolean;
+    };
+    const o = v.output, g = v.growth, l = v.learning;
+    const lines: string[] = [];
+    if (o) lines.push(`📤 Output: ${o.pending} waiting (${o.byTier.ask ?? 0} need you, ${o.byTier.bulk ?? 0} batchable, ${o.byTier.auto ?? 0} auto)${o.stalled > 0 ? `, ${o.stalled} stalled >${o.oldestAgeDays}d` : ""}.`);
+    if (g) lines.push(`📈 Growth: ${g.knowledge} things learned${g.knowledgeDelta !== null ? ` (${g.knowledgeDelta >= 0 ? "+" : ""}${g.knowledgeDelta} since last check)` : ""}.`);
+    if (l) lines.push(`🧠 Learning: ${l.outcomes} outcome(s) recorded across ${l.categories} area(s)${l.avgSuccessRate !== null ? `, ${Math.round(l.avgSuccessRate * 100)}% success` : ""}.`);
+    const flags = v.flags ?? [];
+    lines.push(flags.length ? `\n⚠️ I noticed:\n${flags.map((f) => `• ${f}`).join("\n")}` : `\n✅ Everything's flowing — nothing stuck.`);
+    return lines.join("\n");
   }
   if (kind === "cycle") {
     const rep = r as {
@@ -437,6 +457,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       businessFile: `${dataDir}/businesses.json`,
       gigFile: `${dataDir}/gigs.json`,
       leadFile: `${dataDir}/leads.json`,
+      vitalsFile: `${dataDir}/vitals-snapshot.json`,
       toolVaultFile: `${dataDir}/toolvault.json`,
       skillsFile: `${dataDir}/skills.json`,
       auditFile: `${dataDir}/audit-log.json`,
@@ -534,7 +555,11 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   // unusable for a service that runs on its own schedule). Deliberately only
   // wired to ONE read-only endpoint below, never the write/act side or
   // anything else the normal session token can reach.
-  const ATLAS_SERVICE_TOKEN = process.env.ATLAS_SERVICE_TOKEN || "";
+  // Accept either name: ATLAS_LOGIN_TOKEN (current) or the older
+  // ATLAS_SERVICE_TOKEN (kept as a fallback so an existing deploy that still
+  // sets the old name doesn't silently lose service auth). Whichever is set
+  // wins; ATLAS_LOGIN_TOKEN takes precedence when both exist.
+  const ATLAS_SERVICE_TOKEN = process.env.ATLAS_LOGIN_TOKEN || process.env.ATLAS_SERVICE_TOKEN || "";
   const servicedAuthed = (req: IncomingMessage): boolean => !!ATLAS_SERVICE_TOKEN && req.headers["x-atlas-service-token"] === ATLAS_SERVICE_TOKEN;
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -1431,6 +1456,16 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("brief", { op: "today" }));
     }
+    // Bulk approve/reject a whole tier in one call — the "approve all emails"
+    // button. Matched BEFORE the generic /:source/:id route below so
+    // "/api/brief/bulk" isn't mistaken for a source+id pair. Default tier
+    // "bulk" (outbound emails etc.); optionally scope to one source.
+    if (method === "POST" && path === "/api/brief/bulk") {
+      const { action, tier, source } = await readBody(req);
+      if (action !== "approve" && action !== "reject") return send(res, 400, { error: "action must be 'approve' or 'reject'" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("brief", { op: "actBulk", action, tier: tier ?? "bulk", source: source || undefined }));
+    }
     const briefAct = path.match(/^\/api\/brief\/([^/]+)\/([^/]+)$/);
     if (method === "POST" && briefAct) {
       const source = decodeURIComponent(briefAct[1]!);
@@ -1439,6 +1474,12 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       if (action !== "approve" && action !== "reject") return send(res, 400, { error: "action must be 'approve' or 'reject'" });
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("brief", { op: "act", source, id, action }));
+    }
+
+    // ── Vitals (ATLAS's self-assessment: output / growth / learning) ──
+    if (method === "GET" && path === "/api/vitals") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("vitals", { op: "check" }));
     }
 
     // ── Outreach (bridges compliance + wholesale n8n workflows) ──

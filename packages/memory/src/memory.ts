@@ -46,6 +46,13 @@ export class Memory {
     return pool.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
   }
 
+  /** How many records are stored (optionally of one kind). Used by the vitals
+   * monitor to track knowledge growth over time without pulling every record. */
+  async count(kind?: MemoryKind): Promise<number> {
+    const all = await this.store.all();
+    return kind ? all.filter((r) => r.kind === kind).length : all.length;
+  }
+
   async forget(id: string): Promise<boolean> {
     return this.store.delete(id);
   }

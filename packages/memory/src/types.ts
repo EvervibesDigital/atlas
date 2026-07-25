@@ -67,4 +67,5 @@ export type MemoryCommand =
   | { op: "remember"; input: MemoryInput }
   | { op: "search"; query: string; options?: SearchOptions }
   | { op: "recent"; kind?: MemoryKind; limit?: number }
+  | { op: "count"; kind?: MemoryKind }
   | { op: "forget"; id: string };

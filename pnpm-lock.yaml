@@ -215,6 +215,9 @@ importers:
       '@atlas/vault':
         specifier: workspace:*
         version: link:../vault
+      '@atlas/vitals':
+        specifier: workspace:*
+        version: link:../vitals
       '@atlas/web':
         specifier: workspace:*
         version: link:../web
@@ -859,6 +862,28 @@ importers:
         version: link:../guardian
 
   packages/vault: {}
+
+  packages/vitals:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/approvals':
+        specifier: workspace:*
+        version: link:../approvals
+      '@atlas/brief':
+        specifier: workspace:*
+        version: link:../brief
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
+      '@atlas/learning':
+        specifier: workspace:*
+        version: link:../learning
+      '@atlas/memory':
+        specifier: workspace:*
+        version: link:../memory
 
   packages/web:
     dependencies:

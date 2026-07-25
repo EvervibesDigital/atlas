@@ -16,6 +16,7 @@ import { createSurplusPlugin } from "@atlas/surplus";
 import { createWholesalePlugin } from "@atlas/wholesale";
 import { createLeadScanPlugin } from "@atlas/leadscan";
 import { createBriefPlugin } from "@atlas/brief";
+import { createVitalsPlugin } from "@atlas/vitals";
 import { createOutreachPlugin } from "@atlas/outreach";
 import { createMediaFactoryPlugin } from "@atlas/media-factory";
 import { createOpportunityPlugin } from "@atlas/opportunity";
@@ -64,6 +65,7 @@ export interface AtlasOptions {
   businessFile?: string;
   gigFile?: string;
   leadFile?: string;
+  vitalsFile?: string;
   toolVaultFile?: string;
   skillsFile?: string;
   /** Directory ATLAS forges new plugins into (default ./forge). */
@@ -183,6 +185,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createLeadScanPlugin({ leadFile: opts.leadFile }));
   await atlas.use(createMediaFactoryPlugin());
   await atlas.use(createBriefPlugin());
+  await atlas.use(createVitalsPlugin({ snapshotFile: opts.vitalsFile }));
 
   // Phase 5 — advanced systems
   await atlas.use(createOpportunityPlugin());

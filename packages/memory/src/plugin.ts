@@ -33,6 +33,8 @@ export function createMemoryPlugin(opts: { store?: MemoryStore; embedder?: Embed
             return memory.search(cmd.query, cmd.options);
           case "recent":
             return memory.recent(cmd.kind, cmd.limit);
+          case "count":
+            return memory.count(cmd.kind);
           case "forget":
             return memory.forget(cmd.id);
           default:

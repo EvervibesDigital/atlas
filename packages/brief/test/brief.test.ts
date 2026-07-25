@@ -10,7 +10,7 @@ import { createBrainPlugin, StubAdapter } from "@atlas/brain";
 import { createSearchPlugin, type FetchLike } from "@atlas/search";
 import { createKdpPlugin } from "@atlas/kdp";
 import { createGigFinderPlugin } from "@atlas/gigfinder";
-import { createApprovalsPlugin } from "@atlas/approvals";
+import { createApprovalsPlugin, ApprovalGateway } from "@atlas/approvals";
 import { createSurplusPlugin } from "@atlas/surplus";
 import { createOutreachPlugin } from "@atlas/outreach";
 import { createLeadScanPlugin } from "@atlas/leadscan";
@@ -336,6 +336,32 @@ describe("brief plugin — the Unified Morning Brief", () => {
         await rm(dir, { recursive: true, force: true });
       }
     });
+
+    it("tags a lead email as 'bulk' tier, and actBulk sends the whole batch in one call", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "atlas-brief-leadscan-"));
+      const leadFile = join(dir, "leads.json");
+      try {
+        const sawOutreachBody = { value: "" };
+        const atlas = await buildLeadscanBriefAtlas(fakeLeadscanFetch(sawOutreachBody), leadFile);
+        await atlas.use({
+          manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:leadscan", "call:brief"], role: "executor" },
+          async register(ctx) {
+            await ctx.call("leadscan", { op: "findLeads", niche: "plumbing", city: "Columbus, OH" });
+            const before = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+            expect(before.items.find((i) => i.source === "leadscan")!.tier).toBe("bulk");
+
+            const res = (await ctx.call("brief", { op: "actBulk", action: "approve" })) as { count: number };
+            expect(res.count).toBe(1);
+            expect(JSON.parse(sawOutreachBody.value).name).toBe("Joe's Plumbing");
+
+            const after = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+            expect(after.items.find((i) => i.source === "leadscan")).toBeUndefined();
+          },
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe("learning source (ATLAS's own self-improvement proposals)", () => {
@@ -396,6 +422,55 @@ describe("brief plugin — the Unified Morning Brief", () => {
 
           const after = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
           expect(after.items.find((i) => i.source === "learning")).toBeUndefined();
+        },
+      });
+    });
+
+    it("tags a learning proposal as 'auto' tier, and autopilot adopts it unattended (no manual approve)", async () => {
+      const atlas = await buildLearningBriefAtlas();
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:learning", "call:memory", "call:brief"], role: "executor" },
+        async register(ctx) {
+          for (let i = 0; i < 4; i++) await ctx.call("learning", { op: "reflect", event: "cold-dm", outcome: "failure", category: "outreach" });
+
+          const before = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+          expect(before.items.find((i) => i.source === "learning")!.tier).toBe("auto");
+
+          // Autopilot — no per-item approve call. It should adopt the proposal.
+          const res = (await ctx.call("brief", { op: "autopilot" })) as { count: number };
+          expect(res.count).toBe(1);
+
+          const directives = (await ctx.call("memory", { op: "recent", kind: "directive" })) as unknown[];
+          expect(directives.length).toBe(1); // proposal was adopted into a standing directive
+
+          const after = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+          expect(after.items.find((i) => i.source === "learning")).toBeUndefined();
+        },
+      });
+    });
+
+    it("autopilot leaves 'ask'/'bulk' items untouched — only ever acts on 'auto'", async () => {
+      // A learning proposal (auto) alongside a generic approvals item (ask):
+      // autopilot must adopt the proposal but never touch the approval.
+      const atlas = new Atlas({ guardian: new Guardian() });
+      await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
+      await atlas.use(createApprovalsPlugin({ gateway: new ApprovalGateway() }));
+      await atlas.use(createLearningPlugin({ metrics: new MetricsTracker() }));
+      await atlas.use(createBriefPlugin());
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:learning", "call:approvals", "call:brief"], role: "executor" },
+        async register(ctx) {
+          for (let i = 0; i < 4; i++) await ctx.call("learning", { op: "reflect", event: "cold-dm", outcome: "failure", category: "outreach" });
+          await ctx.call("approvals", { op: "request", action: "Spend $500 on ads", risk: 3 });
+
+          await ctx.call("brief", { op: "autopilot" });
+
+          const after = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+          // The learning proposal is gone (auto-adopted); the risky approval remains.
+          expect(after.items.find((i) => i.source === "learning")).toBeUndefined();
+          const stillPending = after.items.find((i) => i.source === "approvals");
+          expect(stillPending).toBeTruthy();
+          expect(stillPending!.tier).toBe("ask");
         },
       });
     });

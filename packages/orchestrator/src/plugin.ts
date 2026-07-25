@@ -50,6 +50,8 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
         "call:kdp",
         "call:mediaFactory",
         "call:codebase",
+        "call:brief",
+        "call:vitals",
       ],
       role: "planner",
     },
@@ -191,6 +193,17 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
           mediaFactory: mediaFactory ?? null,
         };
 
+        // 6e. Autopilot — act on every reversible "auto"-tier item (e.g.
+        // adopting a self-improvement proposal) unattended. Runs BEFORE the
+        // proposals/approvals gather below so the report reflects the
+        // post-autopilot state, not a stale pre-autopilot one.
+        const autopilot = (await optional<{ count: number; acted: Array<{ source: string; id: string; ok: boolean; error?: string }> }>(ctx.call, "brief", { op: "autopilot" }, health)) ?? undefined;
+
+        // 6f. Vitals — ATLAS checks its OWN health (is work flowing, is it
+        // growing, is it learning?) and flags stalls. Runs AFTER autopilot so
+        // the pipeline it measures reflects what's genuinely still waiting.
+        const vitals = (await optional<unknown>(ctx.call, "vitals", { op: "check" }, health)) ?? null;
+
         // 7. Gather advice + the approval list for the report.
         const proposals = (await optional<unknown[]>(ctx.call, "learning", { op: "proposals" }, health)) ?? [];
         const pendingApprovals = (await optional<unknown[]>(ctx.call, "approvals", { op: "list", status: "pending" }, health)) ?? [];
@@ -211,6 +224,8 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
           intel,
           proposals,
           pendingApprovals,
+          autopilot,
+          vitals,
           cycleHealth: { succeeded: health.succeeded, failed: health.failures.length, failures: health.failures },
           healReport: healResult,
         };

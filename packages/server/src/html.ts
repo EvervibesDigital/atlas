@@ -140,6 +140,7 @@ export const PAGE = `<!doctype html>
       <button data-tab="vault">🧰 Vault</button>
       <button data-tab="keys">🔑 Keys & Logins</button>
       <button data-tab="run">⚙️ Run</button>
+      <button data-tab="brief">📋 Brief</button>
       <button data-tab="actions">⚡ Actions</button>
       <button data-tab="proposals">💡 Proposals</button>
       <button data-tab="gigs">💵 Gig Finder</button>
@@ -428,6 +429,17 @@ export const PAGE = `<!doctype html>
       <button class="sec" onclick="loadProposals()">Refresh</button>
     </section>
 
+    <section id="tab-brief" class="card hide">
+      <h2>📋 Morning Brief</h2>
+      <div class="note">Everything across every business in one place, sorted by how much of your attention it needs. ATLAS already auto-handled the reversible stuff. <b>Emails and low-stakes items you can clear as a batch</b>; money, phone calls, and real-person outreach stay one-at-a-time.</div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button onclick="loadBrief()">Refresh</button>
+        <button id="bulkEmailBtn" onclick="bulkApprove('approve')">✅ Approve all emails &amp; low-stakes</button>
+        <button class="sec" onclick="bulkApprove('reject')">Reject all low-stakes</button>
+      </div>
+      <div id="briefList" style="margin-top:12px">Loading…</div>
+    </section>
+
     <section id="tab-approvals" class="card hide">
       <h2>Awaiting your approval</h2>
       <div id="approvals">None loaded.</div>
@@ -653,7 +665,8 @@ document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () =>
   b.classList.add("active");
   // Null-safe: a missing tab div must never crash the switcher (a single
   // throw here blanks EVERY tab — see 2026-07-16 "all tabs blank" incident).
-  ["chat","map","businesses","learn","connect","grow","vault","keys","run","actions","proposals","approvals","media-factory","gigs","kdp"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
+  ["chat","map","businesses","learn","connect","grow","vault","keys","run","brief","actions","proposals","approvals","media-factory","gigs","kdp"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
+  if (b.dataset.tab==="brief") loadBrief();
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="proposals") loadProposals();
   if (b.dataset.tab==="gigs") loadGigs();
@@ -1244,6 +1257,39 @@ async function loadApprovals(){ try { const a = await api("/api/approvals");
     "<div class='row'><span>"+x.action+"</span><span><button class='mini' onclick=\\"decide('"+x.id+"','approve')\\">approve</button> <button class='mini sec' onclick=\\"decide('"+x.id+"','reject')\\">reject</button></span></div>").join("") || "<div class='note'>Nothing waiting. 🎉</div>";
   } catch(e){ $("approvals").textContent = e.message; } }
 async function decide(id, action){ await api("/api/approvals/"+encodeURIComponent(id)+"/"+action,"POST"); loadApprovals(); }
+
+// ── Morning Brief (unified, tiered) ──
+async function loadBrief(){ try {
+  const b = await api("/api/brief");
+  const items = b.items || [];
+  const bulkCount = items.filter(function(x){ return x.tier==="bulk"; }).length;
+  const btn = $("bulkEmailBtn"); if(btn) btn.textContent = "✅ Approve all emails & low-stakes ("+bulkCount+")";
+  if(!items.length){ $("briefList").innerHTML = "<div class='note'>Nothing waiting. 🎉 ATLAS is caught up.</div>"; return; }
+  const tierLabel = { ask:"⚠️ Needs your individual call", bulk:"✉️ Emails & low-stakes — approve as a batch", auto:"🤖 ATLAS handles these itself" };
+  const groups = { ask:[], bulk:[], auto:[] };
+  items.forEach(function(it){ (groups[it.tier]||groups.ask).push(it); });
+  let html = "";
+  ["ask","bulk","auto"].forEach(function(tier){
+    const g = groups[tier]; if(!g.length) return;
+    html += "<h4 style='margin-top:14px'>"+tierLabel[tier]+" ("+g.length+")</h4>";
+    html += g.map(function(it){
+      const btns = tier==="auto"
+        ? "<span class='note'>auto-handled each cycle</span>"
+        : "<button class='mini' onclick=\\"briefAct('"+it.source+"','"+encodeURIComponent(it.id)+"','approve')\\">approve</button> <button class='mini sec' onclick=\\"briefAct('"+it.source+"','"+encodeURIComponent(it.id)+"','reject')\\">reject</button>";
+      return "<div class='row'><span><b>"+escapeHtml(it.title||"")+"</b><br><span class='note'>["+it.source+"] "+escapeHtml(it.detail||"")+"</span></span><span style='white-space:nowrap'>"+btns+"</span></div>";
+    }).join("");
+  });
+  $("briefList").innerHTML = html;
+} catch(e){ $("briefList").textContent = e.message; } }
+
+async function briefAct(source, encId, action){ try { await api("/api/brief/"+encodeURIComponent(source)+"/"+encId,"POST",{action}); loadBrief(); } catch(e){ alert(e.message); } }
+
+async function bulkApprove(action){ try {
+  const r = await api("/api/brief/bulk","POST",{action:action, tier:"bulk"});
+  const failed = (r.acted||[]).filter(function(a){ return !a.ok; }).length;
+  alert((action==="approve"?"Approved ":"Rejected ")+r.count+" item(s)."+(failed?(" "+failed+" failed."):""));
+  loadBrief();
+} catch(e){ alert(e.message); } }
 function row(k,v){ return "<div class='row'><span>"+k+"</span><b>"+v+"</b></div>"; }
 // ── Virtual Media Factory Logic ──
 let activeCreatorId = null;

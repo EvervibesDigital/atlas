@@ -96,6 +96,12 @@ export interface DailyReport {
   intel: unknown;
   proposals: unknown[];
   pendingApprovals: unknown[];
+  /** What autopilot auto-handled this cycle (reversible "auto"-tier Brief
+   * items ATLAS acted on itself). Absent if the brief service isn't loaded. */
+  autopilot?: { count: number; acted: Array<{ source: string; id: string; ok: boolean; error?: string }> };
+  /** ATLAS's self-assessment (output/growth/learning + flags). Null if the
+   * vitals service isn't loaded. Shape is @atlas/vitals VitalsReport. */
+  vitals?: unknown;
 }
 
 /** Rotate through a persona's content pillars by day so topics don't repeat. */
