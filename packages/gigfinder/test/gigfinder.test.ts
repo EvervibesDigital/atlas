@@ -11,6 +11,24 @@ describe("isAiDoable", () => {
   it("respects exclusion phrases", () => {
     expect(isAiDoable("Automation project", "no AI or bots, humans only please")).toBe(false);
   });
+
+  it("rejects pricing/discussion content even when it hits the same keywords a real posting would", () => {
+    // These are the exact false-positive shape Mat flagged: real automation
+    // vocabulary, zero actual hiring intent — an article, not a job.
+    expect(isAiDoable("How Much Does Automation Cost for Small Businesses?", "A guide to pricing custom API integrations and workflow scripts.")).toBe(false);
+    expect(isAiDoable("What freelancers charge for web scraping in 2026", "Average rate for scraping projects, by experience level.")).toBe(false);
+    expect(isAiDoable("The Ultimate Guide to Freelance Automation Pricing", "How to price your automation and bot-building services.")).toBe(false);
+  });
+
+  it("accepts real postings that open with 'need a/an/someone' without hardcoding every profession", () => {
+    expect(isAiDoable("Need someone to build a chatbot", "Small budget, quick turnaround.")).toBe(true);
+    expect(isAiDoable("Need an automation script", "For a Shopify store, budget: $100")).toBe(true);
+    expect(isAiDoable("Looking to hire a developer", "for API integration work")).toBe(true);
+  });
+
+  it("still requires an AI-doable keyword even with hiring intent present", () => {
+    expect(isAiDoable("Hiring a dog walker", "need someone reliable, budget: $30/walk")).toBe(false);
+  });
 });
 
 describe("extractBudget", () => {

@@ -14,11 +14,37 @@ const AI_DOABLE_KEYWORDS = [
 
 const EXCLUDE_KEYWORDS = ["no ai", "humans only", "no bots", "no automated", "in-person only", "on-site only"];
 
-/** A job is AI-doable if it mentions a relevant keyword and doesn't explicitly rule out AI/bots. */
+// A page can mention "automation" and "API" and still not be a job posting —
+// a pricing article or a "how much should I charge" forum thread hits the
+// same keywords. Require an actual hiring-intent phrase too, and reject the
+// common "this is content ABOUT freelancing" phrasings outright.
+const HIRING_PHRASES = [
+  "hiring", "looking for someone", "looking for a", "seeking a", "we are hiring",
+  "job:", "gig:", "budget:", "apply now", "send proposal", "dm me", "message me",
+  "please apply", "open to work", "posting a job", "freelance job", "contract position",
+  "project for hire", "hire a", "hire someone",
+];
+// "need a/an/someone to <do X>" and "looking to hire" cover the single most
+// common real-posting opener without hardcoding every possible profession.
+const HIRING_PATTERNS = [/\bneed(?:s|ed)? (?:a|an|someone|somebody)\b/, /\blooking to hire\b/];
+
+const DISCUSSION_SIGNALS = [
+  "how much does", "how much should", "how much do", "what is the average cost",
+  "pricing guide", "cost of hiring", "how to price", "average rate for", "guide to",
+  "tips for freelancers", "best practices", "how to become a", "vs freelance",
+  "pros and cons", "ultimate guide", "what freelancers charge",
+];
+
+/** A job is AI-doable if it mentions a relevant keyword, actually reads like
+ * someone hiring (not an article/thread ABOUT freelancing or its costs), and
+ * doesn't explicitly rule out AI/bots. */
 export function isAiDoable(title: string, snippet: string): boolean {
   const text = `${title} ${snippet}`.toLowerCase();
   if (EXCLUDE_KEYWORDS.some((k) => text.includes(k))) return false;
-  return AI_DOABLE_KEYWORDS.some((k) => text.includes(k));
+  if (DISCUSSION_SIGNALS.some((k) => text.includes(k))) return false;
+  const hasAiKeyword = AI_DOABLE_KEYWORDS.some((k) => text.includes(k));
+  const hasHiringSignal = HIRING_PHRASES.some((k) => text.includes(k)) || HIRING_PATTERNS.some((p) => p.test(text));
+  return hasAiKeyword && hasHiringSignal;
 }
 
 /** Best-effort dollar amount extraction from free text (e.g. "$50", "$50-100", "50 USD"). */

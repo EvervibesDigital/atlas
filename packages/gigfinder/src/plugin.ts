@@ -31,10 +31,15 @@ export type GigFinderCommand =
   | { op: "updateStatus"; id: string; status: GigStatus; paidAmount?: number }
   | { op: "stats" };
 
+// Phrased to match how real job POSTINGS talk ("looking for", "budget:",
+// site-scoped to actual gig boards) rather than casual natural language,
+// which just as easily surfaces pricing articles and "how much should I
+// charge" discussion threads that happen to share the same keywords.
 const WEB_SEARCH_QUERIES = [
-  "hire freelancer AI automation script $50",
-  "need python scraper built freelance gig",
-  "looking for someone to automate workflow small project",
+  "site:reddit.com/r/forhire looking for python automation",
+  "site:reddit.com/r/forhire budget scraper OR API OR bot",
+  "\"looking for someone\" freelance automation script budget",
+  "\"need a developer\" small project API integration hire",
 ];
 
 export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRegistry } = {}): Plugin {
