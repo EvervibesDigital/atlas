@@ -211,6 +211,9 @@ export function routeChatIntent(message: string): ChatIntent | null {
   if (/\b(n8n|outreach)\b/.test(low) && /\b(status|workflows?|running|check|show)\b/.test(low)) {
     return { kind: "outreach", service: "outreach", payload: { op: "listWorkflows" }, intro: `🔌 n8n workflows:` };
   }
+  if (/\bwholesale\b/.test(low) && /\b(status|deals?|pending|check|show|actions?)\b/.test(low)) {
+    return { kind: "wholesale", service: "wholesale", payload: { op: "list" }, intro: `🏠 Wholesale pending actions:` };
+  }
   return null;
 }
 
@@ -241,6 +244,11 @@ export function formatIntentResult(kind: string, result: unknown): string {
     const agents = (r.agents as Array<{ name: string; latest_run_status?: string; last_activity_at?: string }>) ?? [];
     if (!agents.length) return "(no surplus agents found — is TWIN_API_KEY set in the Keys tab?)";
     return agents.map((a) => `• ${a.name}${a.latest_run_status ? ` — ${a.latest_run_status}` : ""}${a.last_activity_at ? ` (${a.last_activity_at.slice(0, 10)})` : ""}`).join("\n");
+  }
+  if (kind === "wholesale") {
+    const actions = (r.actions as Array<{ action_type: string; roi_score: number; target_summary: string | null }>) ?? [];
+    if (!actions.length) return "(nothing pending — or KDP_CRON_SECRET isn't set in the Keys tab)";
+    return actions.map((a) => `• ${a.action_type}${a.target_summary ? ` — ${a.target_summary}` : ""}${a.roi_score ? ` (~$${a.roi_score.toLocaleString()})` : ""}`).join("\n");
   }
   if (kind === "cycle") {
     const rep = r as {

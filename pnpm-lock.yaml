@@ -215,6 +215,9 @@ importers:
       '@atlas/web':
         specifier: workspace:*
         version: link:../web
+      '@atlas/wholesale':
+        specifier: workspace:*
+        version: link:../wholesale
 
   packages/approvals:
     dependencies:
@@ -285,6 +288,9 @@ importers:
       '@atlas/surplus':
         specifier: workspace:*
         version: link:../surplus
+      '@atlas/wholesale':
+        specifier: workspace:*
+        version: link:../wholesale
 
   packages/browser: {}
 
@@ -832,6 +838,16 @@ importers:
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
+
+  packages/wholesale:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
 
 packages:
 

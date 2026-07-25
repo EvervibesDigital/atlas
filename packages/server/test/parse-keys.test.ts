@@ -125,6 +125,17 @@ describe("routeChatIntent (chat can DO things)", () => {
   it("formats search results as a list", () => {
     expect(formatIntentResult("freeApis", { results: [{ title: "edge-tts", url: "https://x" }] })).toContain("edge-tts");
   });
+  it("routes 'wholesale status' to the wholesale service", () => {
+    const i = routeChatIntent("show me wholesale status");
+    expect(i?.service).toBe("wholesale");
+    expect((i?.payload as { op: string }).op).toBe("list");
+  });
+  it("formats wholesale pending actions with ROI", () => {
+    const out = formatIntentResult("wholesale", { actions: [{ action_type: "deal_blast", roi_score: 12000, target_summary: "25 matched buyers" }] });
+    expect(out).toContain("deal_blast");
+    expect(out).toContain("25 matched buyers");
+    expect(out).toContain("$12,000");
+  });
 });
 
 describe("detectSecrets — database connection strings", () => {

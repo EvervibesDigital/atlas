@@ -24,7 +24,7 @@ export function createBriefPlugin(): Plugin {
       name: "brief",
       version: "0.1.0",
       capabilities: ["brief"],
-      permissions: ["call:kdp", "call:gigfinder", "call:approvals", "call:surplus"],
+      permissions: ["call:kdp", "call:gigfinder", "call:approvals", "call:surplus", "call:wholesale"],
       role: "executor",
     },
 
@@ -84,6 +84,25 @@ export function createBriefPlugin(): Plugin {
         }));
       }
 
+      const WHOLESALE_LABEL: Record<string, string> = {
+        deal_blast: "Blast deal to matched buyers",
+        sms_deal_alert: "SMS deal alert",
+        bland_call: "Bland verification call",
+        outreach_email: "Investor outreach email",
+      };
+
+      async function fromWholesale(): Promise<BriefItem[]> {
+        const res = (await ctx.call("wholesale", { op: "list" })) as { actions?: Array<{ id: string; action_type: string; roi_score: number; target_count: number; target_summary: string | null; reason: string | null; created_at: string }> };
+        return (res.actions ?? []).map((a) => ({
+          id: a.id,
+          source: "wholesale" as const,
+          title: `${WHOLESALE_LABEL[a.action_type] ?? a.action_type}${a.target_summary ? ` — ${a.target_summary}` : ""}`,
+          detail: `${a.reason ?? ""}${a.roi_score ? ` (~$${a.roi_score.toLocaleString()} at stake)` : ""}`.trim() || undefined,
+          risk: (a.roi_score >= 5000 ? 2 : 1) as BriefItem["risk"],
+          createdAt: a.created_at,
+        }));
+      }
+
       async function collect(fn: () => Promise<BriefItem[]>): Promise<BriefItem[]> {
         try {
           return await fn();
@@ -96,8 +115,8 @@ export function createBriefPlugin(): Plugin {
         const cmd = payload as BriefCommand;
 
         if (cmd.op === "today") {
-          const [kdp, gigfinder, approvals, surplus] = await Promise.all([collect(fromKdp), collect(fromGigFinder), collect(fromApprovals), collect(fromSurplus)]);
-          const items = [...kdp, ...gigfinder, ...approvals, ...surplus].sort((a, b) => b.risk - a.risk || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+          const [kdp, gigfinder, approvals, surplus, wholesale] = await Promise.all([collect(fromKdp), collect(fromGigFinder), collect(fromApprovals), collect(fromSurplus), collect(fromWholesale)]);
+          const items = [...kdp, ...gigfinder, ...approvals, ...surplus, ...wholesale].sort((a, b) => b.risk - a.risk || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
           return { items, count: items.length };
         }
 
@@ -119,6 +138,9 @@ export function createBriefPlugin(): Plugin {
             if (!lead) throw new Error(`brief: surplus lead "${id}" not found (it may have already been handled)`);
             const message = `Reach out to ${lead.owner_name ?? "the property owner"} regarding case ${lead.case_number ?? id}, property ${lead.property_address ?? "unknown address"}, estimated surplus $${(lead.estimated_surplus ?? 0).toLocaleString()}.`;
             return ctx.call("surplus", { op: "run", role: "outreach", message });
+          }
+          if (source === "wholesale") {
+            return ctx.call("wholesale", action === "approve" ? { op: "approve", id } : { op: "veto", id, reason: "atlas_brief_reject" });
           }
           throw new Error(`brief: unknown source "${source as BriefSource}"`);
         }
