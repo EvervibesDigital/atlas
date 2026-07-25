@@ -102,10 +102,19 @@ export class OllamaAdapter implements ProviderAdapter {
     const endpoint = getEndpoint();
 
     try {
-      // Ollama can be slow (model loading, inference on CPU).
-      // Give it up to 120 seconds — it's worth the wait for unlimited free brain.
+      // Ollama can be slow (model loading, inference on CPU). 120s covers the
+      // small/fast models, but the larger opt-in ones (dolphin3:8b for
+      // unfiltered chat, qwen3.6's 35b MoE) can legitimately exceed that on
+      // this CPU-only box under a real prompt (full system prompt + history +
+      // recalled memory) even though a trivial one-liner returns in ~35s —
+      // confirmed by direct testing 2026-07-18 after Mat hit the abort.
+      const SLOW_MODEL_TIMEOUT_MS: Record<string, number> = {
+        "dolphin3:8b": 240000,
+        "qwen3.6:35b-a3b": 240000,
+      };
+      const timeoutMs = SLOW_MODEL_TIMEOUT_MS[model.id] ?? 120000;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120000);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       const response = await fetch(endpoint, {
         method: "POST",
