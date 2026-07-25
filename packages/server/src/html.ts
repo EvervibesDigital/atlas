@@ -352,11 +352,19 @@ export const PAGE = `<!doctype html>
           <h3 style="margin-top:20px">Active API Providers</h3>
           <div id="providers"></div>
           <label>Manual key name</label>
-          <select id="keyName" style="width:100%;">
+          <input id="keyName" list="keyNameOptions" placeholder="pick one or type any name" style="width:100%;" />
+          <datalist id="keyNameOptions">
             <option>GROQ_API_KEY</option><option>GEMINI_API_KEY</option>
             <option>OPENROUTER_API_KEY</option><option>ANTHROPIC_API_KEY</option>
             <option>ELEVENLABS_API_KEY</option><option>FAL_API_KEY</option>
-          </select>
+            <option>HUGGINGFACE_API_KEY</option><option>GITHUB_TOKEN</option>
+            <option>TAVILY_API_KEY</option><option>SERPER_API_KEY</option>
+            <option>KDP_CRON_SECRET</option><option>TWIN_API_KEY</option>
+            <option>N8N_API_KEY</option><option>GOOGLE_SHEETS_CLIENT_EMAIL</option>
+            <option>GOOGLE_SHEETS_PRIVATE_KEY</option><option>EVERVIBES_APP_URL</option>
+            <option>EMAIL_USER</option><option>EMAIL_PASS</option>
+            <option>EMAIL_SMTP_HOST</option><option>EMAIL_IMAP_HOST</option>
+          </datalist>
           <label>Key value</label>
           <input id="keyVal" type="password" placeholder="paste key value" style="width:100%;" />
           <button onclick="saveKey()" style="width:100%;margin-top:8px;">Save key</button>

@@ -44,12 +44,12 @@ export function createBriefPlugin(): Plugin {
       }
 
       async function fromGigFinder(): Promise<BriefItem[]> {
-        const gigs = (await ctx.call("gigfinder", { op: "list", status: "new" })) as Array<{ id: string; title: string; snippet: string; foundAt: string; budget?: number }>;
+        const gigs = (await ctx.call("gigfinder", { op: "list", status: "new" })) as Array<{ id: string; title: string; snippet: string; foundAt: string; budget?: number; draftBid?: string }>;
         return gigs.map((g) => ({
           id: g.id,
           source: "gigfinder" as const,
           title: g.title,
-          detail: g.budget ? `${g.snippet} (budget: $${g.budget})` : g.snippet,
+          detail: `${g.budget ? `${g.snippet} (budget: $${g.budget})` : g.snippet}${g.draftBid ? " — pitch already drafted, ready to copy" : ""}`,
           risk: 0 as const,
           createdAt: g.foundAt,
         }));

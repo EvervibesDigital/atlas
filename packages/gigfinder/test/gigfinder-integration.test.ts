@@ -7,9 +7,21 @@ import { Guardian } from "@atlas/guardian";
 import { createMemoryPlugin, InMemoryStore } from "@atlas/memory";
 import { createBrainPlugin } from "@atlas/brain";
 import { StubAdapter } from "@atlas/brain";
+import type { BrainRequest, ModelSpec } from "@atlas/brain";
 import { createSearchPlugin, type FetchLike } from "@atlas/search";
 import { createGigFinderPlugin } from "../src/plugin";
 import type { Gig } from "../src/types";
+
+// Counts every brain.generate() call, so tests can prove drafting happens
+// exactly once per gig (at search time) and approve reuses it rather than
+// drafting again.
+class CountingStubAdapter extends StubAdapter {
+  calls = 0;
+  async generate(model: ModelSpec, req: BrainRequest) {
+    this.calls++;
+    return super.generate(model, req);
+  }
+}
 
 // Full command-flow integration test — the existing gigfinder.test.ts only
 // covers the pure helper functions (matching/dedup/registry). This exercises
@@ -81,6 +93,35 @@ describe("gigfinder plugin — full command flow", () => {
           const stats = (await ctx.call("gigfinder", { op: "stats" })) as { submitted: number; new: number };
           expect(stats.submitted).toBe(1);
           expect(stats.new).toBe(0);
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("pre-drafts a pitch at search time, so approve reuses it instead of drafting again", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atlas-gigfinder-"));
+    const gigFile = join(dir, "gigs.json");
+    try {
+      const adapter = new CountingStubAdapter();
+      const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ TAVILY_API_KEY: "test-tavily-key" }) });
+      await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
+      await atlas.use(createBrainPlugin({ adapters: [adapter] }));
+      await atlas.use(createSearchPlugin({ fetcher: fakeTavily() }));
+      await atlas.use(createGigFinderPlugin({ gigFile }));
+
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:gigfinder"], role: "executor" },
+        async register(ctx) {
+          const found = (await ctx.call("gigfinder", { op: "search" })) as { jobs: Gig[] };
+          expect(found.jobs[0]!.draftBid).toBeTruthy(); // drafted before anyone approved anything
+          expect(found.jobs[0]!.status).toBe("new"); // pre-drafting never fast-forwards status
+          expect(adapter.calls).toBe(1);
+
+          const approved = (await ctx.call("gigfinder", { op: "approve", id: found.jobs[0]!.id })) as Gig;
+          expect(approved.draftBid).toBe(found.jobs[0]!.draftBid); // same draft, not regenerated
+          expect(adapter.calls).toBe(1); // approve made zero additional brain calls
         },
       });
     } finally {

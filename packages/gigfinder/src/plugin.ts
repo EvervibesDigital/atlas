@@ -125,8 +125,20 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
           } catch {
             /* memory optional */
           }
+          // Pre-draft a pitch for every new gig right away, so by the time Mat
+          // looks at the Brief the draft is already sitting there — approve is
+          // just "yes, use this," not a wait-for-the-AI step. Status stays
+          // "new": drafting ahead of time is honest (nothing submitted, nothing
+          // marked reviewed) whereas auto-approving would misrepresent that Mat
+          // signed off on something he hasn't seen yet.
+          const drafted: Gig[] = [];
+          for (const gig of added) {
+            const bid = await draftBid(gig);
+            const updated = await registry.update(gig.id, { draftBid: bid });
+            if (updated) drafted.push(updated);
+          }
           await ctx.emit("gigfinder.searched", { sources, found: added.length });
-          return { found: added.length, candidatesScanned: all.length, jobs: added };
+          return { found: added.length, candidatesScanned: all.length, jobs: drafted.length === added.length ? drafted : added };
         }
 
         if (cmd.op === "list") return registry.list(cmd.status);
@@ -134,7 +146,7 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
         if (cmd.op === "approve") {
           const gig = await registry.get(cmd.id);
           if (!gig) throw new Error(`no gig "${cmd.id}"`);
-          const bid = await draftBid(gig);
+          const bid = gig.draftBid ?? (await draftBid(gig)); // pre-drafted at search time; fall back for older gigs
           const updated = await registry.update(cmd.id, { status: "approved", draftBid: bid });
           await ctx.emit("gigfinder.approved", { id: cmd.id });
           return updated;
