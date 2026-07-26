@@ -19,9 +19,12 @@ function getPool(): pg.Pool {
       // or slow-to-handshake DB hangs the query forever instead of failing.
       // That's exactly what turned "loading creators" into a permanent
       // spinner: the frontend's fetch never resolves OR rejects, so its own
-      // try/catch never fires. Same 8s value as the working DATABASE_URL
-      // probe in packages/server/src/server.ts's "Test my keys (live)".
-      connectionTimeoutMillis: 8000,
+      // try/catch never fires. 20s (not the 8s the one-off "Test my keys"
+      // probe uses) because a free-tier Supabase project that's gone idle
+      // can take real time to wake on its FIRST connection — this pool is
+      // a long-lived singleton, so that cost is paid once, not per query;
+      // an 8s cutoff was mistaking "still waking up" for "broken."
+      connectionTimeoutMillis: 20000,
     });
   }
   return pool;
