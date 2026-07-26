@@ -2,12 +2,13 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Atlas } from "@atlas/core";
+import { Atlas, ConfigVault } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
 import { createMemoryPlugin, InMemoryStore } from "@atlas/memory";
 import { createApprovalsPlugin, ApprovalGateway } from "@atlas/approvals";
 import { createLearningPlugin, MetricsTracker } from "@atlas/learning";
 import { createBriefPlugin } from "@atlas/brief";
+import { createCfoPlugin, type FetchLike } from "@atlas/cfo";
 import { createVitalsPlugin } from "../src/plugin";
 import type { VitalsReport } from "../src/types";
 
@@ -75,6 +76,41 @@ describe("vitals plugin wired through the kernel", () => {
         await ctx.call("vitals", { op: "check" }); // 0 outcomes -> flagged
         const notes = (await ctx.call("memory", { op: "recent", kind: "timeline" })) as unknown[];
         expect(notes.length).toBeGreaterThan(0);
+      },
+    });
+  });
+
+  it("picks up real MRR from the cfo bridge when it's wired", async () => {
+    const fakeFetch: FetchLike = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ as_of: "x", mrr: 328, one_time_this_month: 0, breakdown: {} }),
+    })) as unknown as FetchLike;
+
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ KDP_CRON_SECRET: "test-secret" }) });
+    await atlas.use(createMemoryPlugin({ store: new InMemoryStore() }));
+    await atlas.use(createApprovalsPlugin({ gateway: new ApprovalGateway() }));
+    await atlas.use(createLearningPlugin({ metrics: new MetricsTracker() }));
+    await atlas.use(createBriefPlugin());
+    await atlas.use(createCfoPlugin({ fetcher: fakeFetch }));
+    await atlas.use(createVitalsPlugin());
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:vitals"], role: "executor" },
+      async register(ctx) {
+        const report = (await ctx.call("vitals", { op: "check" })) as VitalsReport;
+        expect(report.revenue.mrr).toBe(328);
+      },
+    });
+  });
+
+  it("leaves revenue.mrr null when cfo isn't wired at all (no crash)", async () => {
+    const atlas = await buildAtlas(); // no cfo plugin registered
+    await atlas.use(createVitalsPlugin());
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:vitals"], role: "executor" },
+      async register(ctx) {
+        const report = (await ctx.call("vitals", { op: "check" })) as VitalsReport;
+        expect(report.revenue.mrr).toBeNull();
       },
     });
   });

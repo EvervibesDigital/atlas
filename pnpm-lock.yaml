@@ -875,6 +875,9 @@ importers:
       '@atlas/brief':
         specifier: workspace:*
         version: link:../brief
+      '@atlas/cfo':
+        specifier: workspace:*
+        version: link:../cfo
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian

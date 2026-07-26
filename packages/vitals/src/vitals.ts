@@ -23,7 +23,7 @@ function ageDays(createdAt: string | undefined, now: number): number | null {
  * Returns both the report and the fresh snapshot to persist for next time.
  */
 export function computeVitals(input: VitalsInput, now: number = Date.now()): { report: VitalsReport; snapshot: VitalsSnapshot } {
-  const { pending, knowledge, metrics, prev } = input;
+  const { pending, knowledge, metrics, prev, mrr } = input;
 
   // ── Output: is work flowing? ──────────────────────────────────────────
   const byTier: Record<AutonomyTier, number> = { auto: 0, bulk: 0, ask: 0 };
@@ -47,6 +47,10 @@ export function computeVitals(input: VitalsInput, now: number = Date.now()): { r
   const knowledgeDelta = prev ? knowledge - prev.knowledge : null;
   const pendingDelta = prev ? pending.length - prev.pending : null;
   const outcomesDelta = prev ? outcomes - prev.outcomes : null;
+  // mrrDelta only computed when BOTH snapshots actually have a real number —
+  // prev.mrr being undefined means the bridge wasn't configured yet back
+  // then, not that revenue was $0, so a delta against it would be fiction.
+  const mrrDelta = mrr !== undefined && prev?.mrr !== undefined ? Number((mrr - prev.mrr).toFixed(2)) : null;
 
   // ── Flags: ATLAS noticing its own idleness / stalls ───────────────────
   const flags: string[] = [];
@@ -66,16 +70,20 @@ export function computeVitals(input: VitalsInput, now: number = Date.now()): { r
   if (outcomesDelta !== null && outcomesDelta === 0 && pending.length > 0) {
     flags.push("Items are queuing but none are completing — throughput is stalled, not just quiet.");
   }
+  if (mrrDelta !== null && mrrDelta < 0) {
+    flags.push(`Real MRR dropped $${Math.abs(mrrDelta).toFixed(2)} since the last check.`);
+  }
 
   const report: VitalsReport = {
     output: { pending: pending.length, stalled, oldestAgeDays: Math.floor(oldestAgeDays), byTier },
     growth: { knowledge, knowledgeDelta, pendingDelta },
     learning: { outcomes, outcomesDelta, categories, avgSuccessRate },
+    revenue: { mrr: mrr ?? null, mrrDelta },
     flags,
     healthy: flags.length === 0,
   };
 
-  const snapshot: VitalsSnapshot = { at: new Date(now).toISOString(), knowledge, pending: pending.length, outcomes };
+  const snapshot: VitalsSnapshot = { at: new Date(now).toISOString(), knowledge, pending: pending.length, outcomes, ...(mrr !== undefined ? { mrr } : {}) };
 
   return { report, snapshot };
 }

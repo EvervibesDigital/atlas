@@ -231,6 +231,9 @@ export function routeChatIntent(message: string): ChatIntent | null {
   if (/\b(vitals|how are you doing|how'?s it going|self.?check|are you (stuck|stalled|idle|growing|learning)|health check|are we making progress)\b/.test(low)) {
     return { kind: "vitals", service: "vitals", payload: { op: "check" }, intro: `🩺 ATLAS vitals:` };
   }
+  if (/\b(revenue|mrr|how much (money|are we making)|are we (making money|profitable))\b/.test(low)) {
+    return { kind: "revenue", service: "cfo", payload: { op: "pullReal" }, intro: `💵 Real revenue:` };
+  }
   return null;
 }
 
@@ -272,19 +275,33 @@ export function formatIntentResult(kind: string, result: unknown): string {
     if (!leads.length) return "(no new leads — is GEMINI_API_KEY set, and has 'find leads' been run recently?)";
     return leads.map((l) => `• ${l.businessName} — ${l.website}${l.scan ? ` (score ${l.scan.overallScore}/100)` : ""}`).join("\n");
   }
+  if (kind === "revenue") {
+    const rev = r as { mrr?: number; one_time_this_month?: number; breakdown?: Record<string, number> };
+    if (typeof rev.mrr !== "number") return "(no real revenue bridge configured — set KDP_CRON_SECRET in the Keys tab, same value as evervibes' CRON_SECRET)";
+    const b = rev.breakdown ?? {};
+    return [
+      `$${rev.mrr.toFixed(2)}/mo real MRR, $${(rev.one_time_this_month ?? 0).toFixed(2)} one-time revenue this month.`,
+      `• SaaS: $${(b.saas_mrr ?? 0).toFixed(2)}/mo across ${b.saas_active_subscribers ?? 0} active subscriber(s)`,
+      `• Wholesale investor subs: $${(b.wholesale_investor_mrr ?? 0).toFixed(2)}/mo across ${b.wholesale_paying_investors ?? 0} payer(s)`,
+      `• Module purchases this month: $${(b.module_purchases_this_month ?? 0).toFixed(2)}`,
+      `• Deal unlocks this month: $${(b.deal_unlocks_this_month ?? 0).toFixed(2)}`,
+    ].join("\n");
+  }
   if (kind === "vitals") {
     const v = r as {
       output?: { pending: number; stalled: number; oldestAgeDays: number; byTier: Record<string, number> };
       growth?: { knowledge: number; knowledgeDelta: number | null };
       learning?: { outcomes: number; categories: number; avgSuccessRate: number | null };
+      revenue?: { mrr: number | null; mrrDelta: number | null };
       flags?: string[];
       healthy?: boolean;
     };
-    const o = v.output, g = v.growth, l = v.learning;
+    const o = v.output, g = v.growth, l = v.learning, rv = v.revenue;
     const lines: string[] = [];
     if (o) lines.push(`📤 Output: ${o.pending} waiting (${o.byTier.ask ?? 0} need you, ${o.byTier.bulk ?? 0} batchable, ${o.byTier.auto ?? 0} auto)${o.stalled > 0 ? `, ${o.stalled} stalled >${o.oldestAgeDays}d` : ""}.`);
     if (g) lines.push(`📈 Growth: ${g.knowledge} things learned${g.knowledgeDelta !== null ? ` (${g.knowledgeDelta >= 0 ? "+" : ""}${g.knowledgeDelta} since last check)` : ""}.`);
     if (l) lines.push(`🧠 Learning: ${l.outcomes} outcome(s) recorded across ${l.categories} area(s)${l.avgSuccessRate !== null ? `, ${Math.round(l.avgSuccessRate * 100)}% success` : ""}.`);
+    if (rv) lines.push(rv.mrr !== null ? `💵 Revenue: $${rv.mrr.toFixed(2)}/mo real MRR${rv.mrrDelta !== null ? ` (${rv.mrrDelta >= 0 ? "+" : ""}$${rv.mrrDelta.toFixed(2)} since last check)` : ""}.` : `💵 Revenue: no real revenue bridge configured yet.`);
     const flags = v.flags ?? [];
     lines.push(flags.length ? `\n⚠️ I noticed:\n${flags.map((f) => `• ${f}`).join("\n")}` : `\n✅ Everything's flowing — nothing stuck.`);
     return lines.join("\n");

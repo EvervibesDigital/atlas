@@ -20,6 +20,10 @@ export interface VitalsSnapshot {
   knowledge: number;
   pending: number;
   outcomes: number;
+  /** Real MRR at the time of this snapshot, dollars. Undefined when no
+   * revenue bridge was configured/reachable — never coerced to 0, so a
+   * missing bridge is never mistaken for "revenue dropped to zero". */
+  mrr?: number;
 }
 
 /** Everything computeVitals needs, gathered by the plugin from other services. */
@@ -31,6 +35,9 @@ export interface VitalsInput {
   metrics: LearningMetricLike[];
   /** The previous snapshot, if any — enables growth/throughput deltas. */
   prev?: VitalsSnapshot;
+  /** Real MRR right now, dollars — undefined when the revenue bridge isn't
+   * configured/reachable (kept distinct from "$0 MRR", a real state). */
+  mrr?: number;
 }
 
 /** ATLAS's self-assessment across the three axes Mat cares about. */
@@ -54,6 +61,13 @@ export interface VitalsReport {
     outcomesDelta: number | null;
     categories: number;
     avgSuccessRate: number | null;
+  };
+  /** Is ATLAS making MONEY? Real MRR, not activity — null when no revenue
+   * bridge is configured (distinct from $0, which means "configured, no
+   * revenue yet"). */
+  revenue: {
+    mrr: number | null;
+    mrrDelta: number | null;
   };
   /** Human-readable alerts — how ATLAS tells Mat it noticed its own problems. */
   flags: string[];

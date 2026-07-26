@@ -50,7 +50,7 @@ export function createVitalsPlugin(opts: { snapshotFile?: string } = {}): Plugin
       name: "vitals",
       version: "0.1.0",
       capabilities: ["vitals"],
-      permissions: ["call:brief", "call:memory", "call:learning"],
+      permissions: ["call:brief", "call:memory", "call:learning", "call:cfo"],
       role: "executor",
     },
 
@@ -93,8 +93,17 @@ export function createVitalsPlugin(opts: { snapshotFile?: string } = {}): Plugin
           /* learning unavailable */
         }
 
+        // Real MRR, undefined (not 0) when the bridge isn't configured/reachable.
+        let mrr: number | undefined;
+        try {
+          const real = (await ctx.call("cfo", { op: "pullReal" })) as { mrr?: number };
+          if (typeof real.mrr === "number") mrr = real.mrr;
+        } catch {
+          /* cfo unavailable or bridge not configured — mrr stays undefined */
+        }
+
         const prev = await loadPrev();
-        const { report, snapshot } = computeVitals({ pending, knowledge, metrics, prev });
+        const { report, snapshot } = computeVitals({ pending, knowledge, metrics, prev, mrr });
         await savePrev(snapshot);
 
         // Persist a timeline note ONLY when something's flagged — a healthy

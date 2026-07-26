@@ -41,5 +41,10 @@ export function roi(cost: number, expectedReturn: number): number {
 }
 
 export type CfoCommand =
-  | { op: "forecast"; inputs: FinancialInputs }
-  | { op: "roi"; cost: number; expectedReturn: number };
+  // monthlyRevenue is optional here (unlike forecast()'s own FinancialInputs) —
+  // when omitted, the plugin auto-fills it from real pulled MRR (see
+  // revenue.ts). cashOnHand/monthlyExpenses have no live data source (no
+  // bank/expense integration exists), so those stay Mat-supplied always.
+  | { op: "forecast"; inputs: Omit<FinancialInputs, "monthlyRevenue"> & { monthlyRevenue?: number } }
+  | { op: "roi"; cost: number; expectedReturn: number }
+  | { op: "pullReal" };

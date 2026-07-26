@@ -116,4 +116,36 @@ describe("computeVitals", () => {
     expect(snapshot.outcomes).toBe(7);
     expect(typeof snapshot.at).toBe("string");
   });
+
+  describe("revenue", () => {
+    it("reports mrr as null (not $0) when no revenue bridge is configured", () => {
+      const { report, snapshot } = computeVitals({ pending: [], knowledge: 1, metrics: [] });
+      expect(report.revenue.mrr).toBeNull();
+      expect(report.revenue.mrrDelta).toBeNull();
+      expect(snapshot.mrr).toBeUndefined(); // never persists a fake $0
+    });
+
+    it("reports real mrr with no delta on the first check (no prior snapshot)", () => {
+      const { report, snapshot } = computeVitals({ pending: [], knowledge: 1, metrics: [], mrr: 428 });
+      expect(report.revenue.mrr).toBe(428);
+      expect(report.revenue.mrrDelta).toBeNull();
+      expect(snapshot.mrr).toBe(428);
+    });
+
+    it("computes a positive mrrDelta once both snapshots have real revenue", () => {
+      const { report } = computeVitals({ pending: [], knowledge: 1, metrics: [], mrr: 500, prev: { at: "x", knowledge: 1, pending: 0, outcomes: 0, mrr: 428 } });
+      expect(report.revenue.mrrDelta).toBe(72);
+    });
+
+    it("flags a real MRR drop since the last check", () => {
+      const { report } = computeVitals({ pending: [], knowledge: 5, metrics: [{ category: "x", total: 3, successRate: 1 }], mrr: 300, prev: { at: "x", knowledge: 5, pending: 0, outcomes: 3, mrr: 400 } });
+      expect(report.flags.some((f) => /MRR dropped \$100/.test(f))).toBe(true);
+    });
+
+    it("does NOT compute a delta when the previous snapshot predates the revenue bridge (prev.mrr undefined)", () => {
+      const { report } = computeVitals({ pending: [], knowledge: 5, metrics: [], mrr: 300, prev: { at: "x", knowledge: 5, pending: 0, outcomes: 0 } });
+      expect(report.revenue.mrr).toBe(300);
+      expect(report.revenue.mrrDelta).toBeNull(); // no fabricated delta against a snapshot with no real number
+    });
+  });
 });
