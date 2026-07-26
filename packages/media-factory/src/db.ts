@@ -14,7 +14,14 @@ function getPool(): pg.Pool {
     if (!connectionString) throw new Error("media-factory-db: DATABASE_URL not set");
     pool = new pg.Pool({
       connectionString,
-      ssl: { rejectUnauthorized: false }
+      ssl: { rejectUnauthorized: false },
+      // node-postgres has NO connection timeout by default — an unreachable
+      // or slow-to-handshake DB hangs the query forever instead of failing.
+      // That's exactly what turned "loading creators" into a permanent
+      // spinner: the frontend's fetch never resolves OR rejects, so its own
+      // try/catch never fires. Same 8s value as the working DATABASE_URL
+      // probe in packages/server/src/server.ts's "Test my keys (live)".
+      connectionTimeoutMillis: 8000,
     });
   }
   return pool;

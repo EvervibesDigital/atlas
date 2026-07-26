@@ -635,8 +635,21 @@ export const PAGE = `<!doctype html>
 <script>
 let TOKEN = null;
 const $ = (id) => document.getElementById(id);
-async function api(path, method="GET", body) {
-  const r = await fetch(path, { method, headers: { "Content-Type":"application/json", ...(TOKEN?{"x-atlas-token":TOKEN}:{}) }, body: body?JSON.stringify(body):undefined });
+async function api(path, method="GET", body, timeoutMs=120000) {
+  // Client-side safety net: a backend call that hangs (a DB with no
+  // connection timeout, a stuck upstream request) must never leave a page
+  // spinning forever with no way to tell it's actually broken — that turned
+  // one missing pg timeout into "Media Factory won't let me do anything."
+  // 2 minutes covers ordinary calls with room to spare; genuinely long ones
+  // (running a full cycle, self-improve, forge verify) pass a longer
+  // explicit timeoutMs below.
+  let r;
+  try {
+    r = await fetch(path, { method, headers: { "Content-Type":"application/json", ...(TOKEN?{"x-atlas-token":TOKEN}:{}) }, body: body?JSON.stringify(body):undefined, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    if (e.name === "TimeoutError" || e.name === "AbortError") throw new Error("Request timed out after " + Math.round(timeoutMs/1000) + "s — the server may be stuck. Try again, or check the Run tab for errors.");
+    throw e;
+  }
   const data = await r.json().catch(()=>({}));
   if (!r.ok) throw new Error(data.error || ("HTTP "+r.status));
   return data;
@@ -696,7 +709,7 @@ $("skInput") && $("skInput").addEventListener("keydown", async (e)=>{ if(e.key==
 async function forgeDraft(){ const name=$("fgName").value.trim(), purpose=$("fgPurpose").value.trim(); if(!name||!purpose) return; $("fgOut").classList.remove("hide"); $("fgOut").textContent="ATLAS is writing the plugin…";
   try { const r=await api("/api/forge/draft","POST",{name,purpose,capability:name}); $("fgOut").textContent="🔧 Drafted "+r.file+"\\n\\n"+r.code.slice(0,900); } catch(e){ $("fgOut").textContent="⚠ "+e.message; } }
 async function forgeVerify(){ $("fgOut").classList.remove("hide"); $("fgOut").textContent="Typechecking the whole project…";
-  try { const r=await api("/api/forge/verify","POST"); $("fgOut").textContent=(r.ok?"✅ ":"❌ ")+r.output.slice(0,1500); } catch(e){ $("fgOut").textContent="⚠ "+e.message; } }
+  try { const r=await api("/api/forge/verify","POST",undefined,240000); $("fgOut").textContent=(r.ok?"✅ ":"❌ ")+r.output.slice(0,1500); } catch(e){ $("fgOut").textContent="⚠ "+e.message; } }
 async function forgeActivate(){ const name=$("fgName").value.trim(); if(!name){ alert("Enter the capability name you drafted."); return; } try { const r=await api("/api/forge/activate","POST",{name}); alert("Backup taken. Activation sent to Approvals — approve it there to make it live (then relock/unlock)."); } catch(e){ alert(e.message);} }
 
 // ── Connectors + inbox + history ──
@@ -1137,7 +1150,7 @@ async function reviewDraft(id){ try { const r=await api("/api/self-improve/draft
   const code=r.draft.suggestedPatch.split("\\n").slice(0,20).join("\\n");
   $("improveDrafts").innerHTML+="<pre style='background:var(--bg2);padding:8px;margin-top:8px;font-size:11px;border-left:2px solid var(--acc)'>"+code+"…</pre><button onclick='applyDraft(\\""+id+"\\")' style='margin-top:8px'>✅ Approve &amp; apply</button>";
 } catch(e){ alert(e.message); } }
-async function applyDraft(id){ try { await api("/api/self-improve/apply","POST",{id,approved:true});
+async function applyDraft(id){ try { await api("/api/self-improve/apply","POST",{id,approved:true},240000);
   $("improveDrafts").textContent="✅ Improvement applied! Rebuilding ATLAS…"; $("improveGoal").value="";
   setTimeout(()=>{ $("improveOut").textContent=""; $("improveDrafts").textContent=""; }, 3000);
 } catch(e){ alert(e.message); } }
@@ -1249,7 +1262,7 @@ async function loadCreds(){ const c = await api("/api/credentials");
 async function saveCred(){ try{ await api("/api/credentials","POST",{platform:$("cPlat").value,username:$("cUser").value,password:$("cPass").value,notes:$("cNote").value}); ["cPlat","cUser","cPass","cNote"].forEach(i=>$(i).value=""); loadCreds(); loadStatus(); }catch(e){ alert(e.message);} }
 async function delCred(p){ await api("/api/credentials/"+encodeURIComponent(p),"DELETE"); loadCreds(); loadStatus(); }
 async function runCycle(){ $("report").classList.remove("hide"); $("report").textContent="Running…";
-  try { const r = await api("/api/cycle","POST");
+  try { const r = await api("/api/cycle","POST",undefined,300000);
     $("report").textContent =
       "Topic: "+r.topic+"\\nHook: "+r.reel.hook+"\\nCouncil: "+(r.council?r.council.consensus+" — "+r.council.recommendation:"n/a")+
       "\\nPublish: "+r.publish.status+"\\nCompliance flags: "+(r.compliance?.length||0)+"\\nAwaiting approval: "+(r.pendingApprovals?.length||0);
