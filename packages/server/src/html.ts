@@ -1586,6 +1586,7 @@ async function loadContentItems() {
           <span class="pill \${item.status === 'published' ? 'on' : (item.status === 'review' ? 'on' : 'off')}" style="text-transform:uppercase;">\${item.status}</span>
         </div>
         <p class="note" style="margin: 6px 0;"><b>Hook:</b> "\${item.hook}"</p>
+        \${item.assets?.image_path ? \`<img src="/api/media-factory/image/\${item.assets.image_path}" style="max-width:180px;border-radius:6px;margin-top:6px;display:block" loading="lazy"/>\` : ''}
         \${item.script ? \`<div style="background:rgba(0,0,0,0.2); padding:8px; border-radius:4px; margin-top:8px; font-size:13px; font-family:monospace; border-left:3px solid var(--acc); white-space:pre-wrap;"><b>Voiceover:</b> \${item.script}</div>\` : ''}
         \${item.caption ? \`<p class="note" style="margin-top:6px;"><b>Caption:</b> \${item.caption}</p>\` : ''}
         <div style="margin-top: 10px; display:flex; gap: 6px;">
@@ -1603,11 +1604,11 @@ async function loadContentItems() {
 
 async function runProductionAgent(id, title, hook, brief, platform) {
   try {
-    alert("Running Content Production Agent... this will take a few seconds.");
-    const res = await api("/api/media-factory/produce", "POST", { creatorId: activeCreatorId, title, hook, brief, platform });
-    
+    alert("Running Content Production Agent... this will take a few seconds (generating script + a real image).");
+    const res = await api("/api/media-factory/produce", "POST", { creatorId: activeCreatorId, title, hook, brief, platform, contentId: id });
+
     await api("/api/media-factory/content/" + id, "PATCH", { status: "review" });
-    
+
     await api("/api/media-factory/content", "POST", {
       id,
       creator_id: activeCreatorId,
@@ -1617,9 +1618,9 @@ async function runProductionAgent(id, title, hook, brief, platform) {
       script: res.script,
       caption: res.caption,
       hashtags: res.hashtags,
-      assets: { image_prompt: res.image_prompt, visual_brief: brief }
+      assets: { image_prompt: res.image_prompt, image_path: res.imagePath, visual_brief: brief }
     });
-    
+
     loadContentItems();
   } catch (e) {
     alert("Production Agent failed: " + e.message);

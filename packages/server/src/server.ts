@@ -1,5 +1,6 @@
 import { createServer as httpCreateServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
+import { resolve, relative, isAbsolute } from "node:path";
 import { randomUUID, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import pg from "pg";
 import type { Atlas } from "@atlas/core";
@@ -25,6 +26,16 @@ const selfImprovementDrafts = new Map<string, SelfImprovementDraft>();
  * lines: `KEY=value`, `export KEY=value`, `KEY: value`, `KEY value`, optional
  * quotes; ignores blank lines and #/// comments.
  */
+/** Resolve `rel` under `baseDir`, refusing anything that escapes it (no
+ * `../` traversal). Returns null if the result would land outside baseDir. */
+export function resolvePathSafe(baseDir: string, rel: string): string | null {
+  const base = resolve(baseDir);
+  const full = resolve(base, rel);
+  const r = relative(base, full);
+  if (r.startsWith("..") || isAbsolute(r)) return null;
+  return full;
+}
+
 export function parseKeyLines(text: string): Array<{ name: string; value: string }> {
   const out: Array<{ name: string; value: string }> = [];
   for (const raw of text.split(/\r?\n/)) {
@@ -355,6 +366,7 @@ export interface ControlPanel {
 export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel {
   const vaultFile = opts.vaultFile ?? "./data/vault.enc.json";
   const dataDir = opts.dataDir ?? "./data";
+  const mediaFactoryImagesDir = `${dataDir}/media-factory-images`;
   const envFile = opts.envFile ?? "./.env";
   const maxUnlockFails = opts.maxUnlockFails ?? 5;
   const lockoutMs = opts.lockoutMs ?? 15 * 60 * 1000;
@@ -527,6 +539,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       gigFile: `${dataDir}/gigs.json`,
       leadFile: `${dataDir}/leads.json`,
       vitalsFile: `${dataDir}/vitals-snapshot.json`,
+      mediaFactoryImagesDir,
       toolVaultFile: `${dataDir}/toolvault.json`,
       skillsFile: `${dataDir}/skills.json`,
       auditFile: `${dataDir}/audit-log.json`,
@@ -1083,9 +1096,26 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
           hook: String(bodyData.hook),
           brief: bodyData.brief ? String(bodyData.brief) : undefined,
           platform: String(bodyData.platform),
+          contentId: bodyData.contentId ? String(bodyData.contentId) : undefined,
         }));
       } catch (err) {
         return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    // Serve a generated persona image from disk. Path is "<creatorId>/<file>"
+    // — validated to stay inside mediaFactoryImagesDir (no traversal).
+    if (method === "GET" && path.startsWith("/api/media-factory/image/")) {
+      const rel = decodeURIComponent(path.slice("/api/media-factory/image/".length));
+      const full = resolvePathSafe(mediaFactoryImagesDir, rel);
+      if (!full) return send(res, 400, { error: "invalid path" });
+      try {
+        const buf = await readFile(full);
+        const ext = full.split(".").pop()?.toLowerCase();
+        const type = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "webp" ? "image/webp" : "image/png";
+        res.writeHead(200, { "Content-Type": type, "Cache-Control": "public, max-age=86400" });
+        return void res.end(buf);
+      } catch {
+        return send(res, 404, { error: "image not found" });
       }
     }
     if (method === "POST" && path === "/api/media-factory/auto-cycle") {

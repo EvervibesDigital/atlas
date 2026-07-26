@@ -43,7 +43,17 @@ export class MediaFactoryAgents {
     const targetNiche = niche?.trim() || RANDOM_NICHES[Math.floor(Math.random() * RANDOM_NICHES.length)] || RANDOM_NICHES[0]!;
     const seed = Math.random().toString(36).slice(2, 8); // nudges the model away from repeating its favorite answer
 
-    const system = `You are a Virtual Creator Persona Generator. Invent ONE specific, memorable virtual social media creator — not a generic template. Give them a real-sounding name, a distinct personality, a concrete backstory with real specificity (not "loves fitness" but an actual detail that makes them feel like a real person), and a physical appearance description detailed enough to guide an image generator later.
+    const system = `You are a Virtual Creator Persona Generator. Invent ONE specific, memorable virtual social media creator — not a generic template. Give them a real-sounding name, a distinct personality, a concrete backstory with real specificity (not "loves fitness" but an actual detail that makes them feel like a real person).
+
+    Most important field: appearance_profile.description is a CHARACTER SHEET, not a vibe. It gets reused verbatim as the prefix on EVERY image this persona ever appears in — it is the ONLY thing keeping their face consistent across dozens of separate image-generation calls that share no memory of each other. Every physical detail must be locked and specific, never vague:
+    - ethnicity
+    - exact hair color, length, and style (not "brown hair" — "shoulder-length wavy chestnut-brown hair with subtle caramel highlights")
+    - eye color and shape
+    - skin tone
+    - face shape and distinguishing facial features (nose, jawline, any freckles/marks)
+    - body type and approximate height
+    - one or two signature clothing/style choices they're rarely without
+    Write it as one dense paragraph an image model can prepend to any scene prompt and get the same person back every time.
 
     Return ONLY a strict JSON object with EXACTLY these fields:
     {
@@ -51,7 +61,7 @@ export class MediaFactoryAgents {
       "handle": "string — lowercase, no spaces, social-media-style, derived from the name",
       "age_range": "string, e.g. \\"24-28\\"",
       "gender": "string",
-      "appearance_profile": { "description": "string — detailed physical/style description for an image generator: build, hair, style, vibe" },
+      "appearance_profile": { "description": "string — the locked character-sheet paragraph described above" },
       "personality_traits": ["string", "string", "string"],
       "speaking_style": "string — how they talk/write",
       "humor_style": "string",
@@ -331,4 +341,18 @@ export class MediaFactoryAgents {
       };
     }
   }
+}
+
+/**
+ * The consistency trick, ported from the Twin "Influencer Persona Generator"
+ * agent: every image prompt for a creator gets their locked character-sheet
+ * description prepended verbatim, so an image model with no memory between
+ * calls still renders the same face every time. `scenePrompt` is the
+ * per-post visual idea (produceContentDraft's `image_prompt`); the character
+ * sheet always wins on any conflicting detail.
+ */
+export function buildImagePrompt(creator: VirtualCreator, scenePrompt: string): string {
+  const sheet = (creator.appearance_profile as { description?: string } | undefined)?.description?.trim();
+  if (!sheet) return scenePrompt; // no character sheet yet (older/manually-created creator) — best effort
+  return `${sheet}\n\nScene: ${scenePrompt}\n\nThe person in this image MUST match the physical description above exactly — same face, same hair, same build. Photorealistic, high quality.`;
 }

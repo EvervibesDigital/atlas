@@ -66,6 +66,7 @@ export interface AtlasOptions {
   gigFile?: string;
   leadFile?: string;
   vitalsFile?: string;
+  mediaFactoryImagesDir?: string;
   toolVaultFile?: string;
   skillsFile?: string;
   /** Directory ATLAS forges new plugins into (default ./forge). */
@@ -183,7 +184,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createWholesalePlugin());
   await atlas.use(createOutreachPlugin());
   await atlas.use(createLeadScanPlugin({ leadFile: opts.leadFile }));
-  await atlas.use(createMediaFactoryPlugin());
+  await atlas.use(createMediaFactoryPlugin({ imagesDir: opts.mediaFactoryImagesDir }));
   await atlas.use(createBriefPlugin());
   await atlas.use(createVitalsPlugin({ snapshotFile: opts.vitalsFile }));
 

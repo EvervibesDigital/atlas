@@ -1,6 +1,8 @@
-import type { Plugin } from "@atlas/core";
+import type { Plugin, AtlasContext } from "@atlas/core";
 import { MediaFactoryDB, type VirtualCreator, type CreatorMemory, type ContentItem, type MonetizationPartnership, type AnalyticsSnapshot } from "./db";
-import { MediaFactoryAgents, type BrainInvoker } from "./agents";
+import { MediaFactoryAgents, buildImagePrompt, type BrainInvoker } from "./agents";
+import { generateImage, type FetchLike } from "./image-gen";
+import { saveGeneratedImage } from "./images";
 
 export type MediaFactoryCommand =
   | { op: "listCreators" }
@@ -15,7 +17,10 @@ export type MediaFactoryCommand =
   | { op: "updateContentStatus"; id: string; status: string; publishedAt?: string }
   | { op: "scout"; niche: string }
   | { op: "plan"; creatorId: string; trendsSummary?: string }
-  | { op: "produce"; creatorId: string; title: string; hook: string; brief?: string; platform: string }
+  // contentId is optional (kept for callers that only want the drafted
+  // text); when supplied, the plugin also generates + saves a real image and
+  // includes its path in the response.
+  | { op: "produce"; creatorId: string; title: string; hook: string; brief?: string; platform: string; contentId?: string }
   | { op: "listPartnerships"; creatorId: string }
   | { op: "addPartnership"; partnership: MonetizationPartnership }
   | { op: "getAnalytics"; creatorId: string }
@@ -37,19 +42,46 @@ export type MediaFactoryCommand =
  *
  * Requires DATABASE_URL (Supabase) — gracefully reports itself unavailable
  * if unset, same pattern as kdp needing KDP_CRON_SECRET.
+ *
+ * Real image generation (ported from Twin's "Influencer Persona Generator"
+ * agent): every produced draft's image_prompt is prefixed with the creator's
+ * locked character-sheet description (buildImagePrompt) and sent to Gemini's
+ * image model, so the SAME face shows up across every post — not a new
+ * random face each time. Best-effort: a missing GEMINI_API_KEY or a failed
+ * generation never blocks the text draft from saving; the item just lands in
+ * review without an image, same as it did before this existed.
  */
-export function createMediaFactoryPlugin(): Plugin {
+export function createMediaFactoryPlugin(opts: { imagesDir?: string; imageFetcher?: FetchLike } = {}): Plugin {
   return {
     manifest: {
       name: "mediaFactory",
       version: "0.1.0",
       capabilities: ["mediaFactory"],
-      permissions: ["call:brain", "call:memory"],
+      permissions: ["call:brain", "call:memory", "secret:GEMINI_API_KEY"],
       role: "executor",
     },
 
-    register(ctx) {
+    register(ctx: AtlasContext) {
       const invoke: BrainInvoker = (s, p) => ctx.call(s, p);
+      const imagesDir = opts.imagesDir ?? "./data/media-factory-images";
+
+      /** Generate + save an image for a content item, best-effort. Returns
+       * the {image_prompt, image_path} to merge into `assets`, or just
+       * {image_prompt} if generation isn't available/fails. */
+      async function attachGeneratedImage(creator: VirtualCreator, contentId: string, imagePrompt: string | undefined): Promise<Record<string, unknown>> {
+        if (!imagePrompt) return {};
+        const assets: Record<string, unknown> = { image_prompt: imagePrompt };
+        try {
+          const apiKey = await ctx.secret("GEMINI_API_KEY");
+          if (!apiKey) return assets; // not configured — text draft still saves fine
+          const fullPrompt = buildImagePrompt(creator, imagePrompt);
+          const image = await generateImage(fullPrompt, apiKey, { fetcher: opts.imageFetcher });
+          assets.image_path = await saveGeneratedImage(imagesDir, creator.id!, contentId, image);
+        } catch (err) {
+          console.error(`[mediaFactory] Image generation failed for content ${contentId} — draft still saved without it:`, (err as Error).message);
+        }
+        return assets;
+      }
 
       async function autoCycle(): Promise<Record<string, unknown>> {
         const creators = await MediaFactoryDB.listCreators();
@@ -100,15 +132,16 @@ export function createMediaFactoryPlugin(): Plugin {
           hashtags?: string[];
           image_prompt?: string;
         };
+        const imageAssets = await attachGeneratedImage(creator, next.id!, draft.image_prompt);
         const updated = await MediaFactoryDB.updateContentItemDraft(next.id!, {
           script: draft.script,
           caption: draft.caption,
           hashtags: draft.hashtags,
-          assets: { image_prompt: draft.image_prompt },
+          assets: imageAssets,
           status: "review",
         });
         await ctx.emit("mediaFactory.produced", { creatorId: creator.id, contentId: next.id });
-        return { action: "produced", creator: creator.name, title: next.title, status: updated.status, draft };
+        return { action: "produced", creator: creator.name, title: next.title, status: updated.status, draft, imagePath: imageAssets.image_path };
       }
 
       ctx.provide("mediaFactory", async (payload) => {
@@ -133,7 +166,10 @@ export function createMediaFactoryPlugin(): Plugin {
         if (cmd.op === "produce") {
           const creator = await MediaFactoryDB.getCreator(cmd.creatorId);
           if (!creator) throw new Error("creator not found");
-          return MediaFactoryAgents.produceContentDraft(invoke, creator, cmd.title, cmd.hook, cmd.brief ?? "", cmd.platform);
+          const draft = (await MediaFactoryAgents.produceContentDraft(invoke, creator, cmd.title, cmd.hook, cmd.brief ?? "", cmd.platform)) as { image_prompt?: string };
+          if (!cmd.contentId) return draft;
+          const imageAssets = await attachGeneratedImage(creator, cmd.contentId, draft.image_prompt);
+          return { ...draft, imagePath: imageAssets.image_path };
         }
         if (cmd.op === "listPartnerships") return MediaFactoryDB.listPartnerships(cmd.creatorId);
         if (cmd.op === "addPartnership") return MediaFactoryDB.addPartnership(cmd.partnership);
