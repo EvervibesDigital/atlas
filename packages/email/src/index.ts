@@ -97,7 +97,13 @@ async function realSender(ctx: AtlasContext): Promise<MailSender> {
 interface Approval {
   id: string;
 }
-export type EmailCommand = { op: "check"; limit?: number } | { op: "send"; to: string; subject: string; body: string };
+export type EmailCommand =
+  | { op: "check"; limit?: number }
+  | { op: "send"; to: string; subject: string; body: string }
+  // Direct send to the OWNER's own address only (no approval gate) — for system
+  // notifications like the morning brief. Not an outbound-spam vector the way
+  // `send` is, because it can never reach a third party.
+  | { op: "ownerNotify"; subject: string; body: string };
 
 /** Email plugin (service "email"). Inject reader/sender for tests. */
 export function createEmailPlugin(opts: { reader?: MailReader; sender?: MailSender } = {}): Plugin {
@@ -129,6 +135,14 @@ export function createEmailPlugin(opts: { reader?: MailReader; sender?: MailSend
           const approval = (await ctx.call("approvals", { op: "request", action: `Send email to ${cmd.to}`, detail: cmd.subject, risk: 2 })) as Approval;
           jobs.set(approval.id, { to: cmd.to, subject: cmd.subject, body: cmd.body });
           return { status: "pending-approval", approvalId: approval.id };
+        }
+        if (cmd.op === "ownerNotify") {
+          const owner = (await ctx.secret("OWNER_EMAIL")) || (await ctx.secret("EMAIL_USER"));
+          if (!owner) throw new Error("email: no owner address — set EMAIL_USER (or OWNER_EMAIL)");
+          const sender = opts.sender ?? (await realSender(ctx));
+          await sender.send(owner, cmd.subject, cmd.body);
+          await ctx.emit("email.sent", { to: owner });
+          return { sent: true, to: owner };
         }
         throw new Error(`email: unknown op "${(cmd as { op: string }).op}"`);
       });

@@ -2,8 +2,16 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHmac } from "node:crypto";
 import { StubAdapter } from "@atlas/brain";
 import { createControlPanel, formatIntentResult, type ControlPanel } from "../src/server";
+
+/** Build a brief magic-link token the same way the server signs one. */
+function mkBriefToken(secret: string, ttlMs = 3_600_000): string {
+  const exp = Date.now() + ttlMs;
+  const sig = createHmac("sha256", secret).update(`brief:${exp}`).digest("hex");
+  return `${exp}.${sig}`;
+}
 
 let dir = "";
 let panel: ControlPanel | null = null;
@@ -192,6 +200,36 @@ describe("control panel", () => {
       expect(h.unlocked).toBe(false);
     } finally {
       if (prevEnv !== undefined) process.env.ATLAS_MASTER_PASSWORD = prevEnv;
+    }
+  });
+
+  it("serves the phone brief + its API to a valid magic-link token, and rejects a bad one", async () => {
+    process.env.ATLAS_LINK_SECRET = "test-link-secret";
+    try {
+      await start();
+      await post("/api/setup", { masterPassword: "pw-for-brief" });
+      const tok = mkBriefToken("test-link-secret");
+
+      // API reachable WITH a valid token (no session), returns the brief shape.
+      const ok = await fetch(base + "/api/brief", { headers: { "x-brief-token": tok } });
+      expect(ok.status).toBe(200);
+      const body = (await ok.json()) as { items: unknown[]; count: number };
+      expect(Array.isArray(body.items)).toBe(true);
+
+      // A bad token gets no access — falls through to the session gate → 401.
+      const bad = await fetch(base + "/api/brief", { headers: { "x-brief-token": "not.a.real.token" } });
+      expect(bad.status).toBe(401);
+
+      // The mobile page renders for a valid token…
+      const page = await fetch(base + "/m?t=" + encodeURIComponent(tok));
+      expect(page.status).toBe(200);
+      expect(await page.text()).toContain("Morning Brief");
+
+      // …and shows the expired notice with no/invalid token.
+      const expired = await fetch(base + "/m");
+      expect(await expired.text()).toMatch(/expired/i);
+    } finally {
+      delete process.env.ATLAS_LINK_SECRET;
     }
   });
 

@@ -436,7 +436,9 @@ export const PAGE = `<!doctype html>
         <button onclick="loadBrief()">Refresh</button>
         <button id="bulkEmailBtn" onclick="bulkApprove('approve')">✅ Approve all emails &amp; low-stakes</button>
         <button class="sec" onclick="bulkApprove('reject')">Reject all low-stakes</button>
+        <button class="sec" onclick="sendBriefToPhone()">📲 Send to my phone now</button>
       </div>
+      <div class="note" style="margin-top:6px;font-size:11px">A morning digest with a one-tap approve link auto-sends to your email each day (~7am ET). Use the button to test it now.</div>
       <div id="briefList" style="margin-top:12px">Loading…</div>
     </section>
 
@@ -1290,6 +1292,12 @@ async function bulkApprove(action){ try {
   alert((action==="approve"?"Approved ":"Rejected ")+r.count+" item(s)."+(failed?(" "+failed+" failed."):""));
   loadBrief();
 } catch(e){ alert(e.message); } }
+
+async function sendBriefToPhone(){ try {
+  const r = await api("/api/brief/send","POST",{});
+  if(r.sent) alert("Sent to "+(r.to||"your email")+" — "+r.count+" item(s). Check your phone and tap the link.");
+  else alert("Not sent: "+(r.skipped||"unknown")+".");
+} catch(e){ alert("Couldn't send: "+e.message+"\\n(Email needs EMAIL_USER + EMAIL_PASS set in the Keys tab.)"); } }
 function row(k,v){ return "<div class='row'><span>"+k+"</span><b>"+v+"</b></div>"; }
 // ── Virtual Media Factory Logic ──
 let activeCreatorId = null;
@@ -1767,3 +1775,99 @@ boot();
 </script>
 </body>
 </html>`;
+
+/** The phone morning-brief page — reached via a signed magic link (?t=...).
+ * Self-contained; authorizes its own API calls with the token from its URL,
+ * scoped to the brief only. No control-panel session involved. */
+export const MOBILE_BRIEF_PAGE = `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>ATLAS Morning Brief</title>
+<style>
+  :root{--bg:#0c0f14;--panel:#141922;--ink:#e8ecf1;--muted:#8b95a4;--line:#232a35;--accent:#34d3e6;--run:#34d17d;--block:#f2b13d;--part:#6aa6ff;--danger:#ff6b6b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.5;padding:0 0 40px}
+  header{padding:20px 16px 14px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2}
+  h1{font-size:19px;margin:0 0 2px} .sub{color:var(--muted);font-size:13px}
+  .wrap{padding:14px 16px}
+  .bulkbar{position:sticky;bottom:0;background:linear-gradient(transparent,var(--bg) 22%);padding:16px;display:flex;gap:10px}
+  button{font:inherit;border:0;border-radius:12px;padding:13px 16px;font-weight:600;cursor:pointer}
+  .primary{background:var(--run);color:#04160d;flex:1}
+  .ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+  .grp{margin-top:18px} .grp h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:0 0 8px;font-weight:600}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:10px;border-left:4px solid var(--edge)}
+  .card.ask{--edge:var(--block)} .card.bulk{--edge:var(--part)} .card.auto{--edge:var(--run)}
+  .card .t{font-weight:600;font-size:14.5px} .card .d{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .card .row{display:flex;gap:8px;margin-top:11px}
+  .card .row button{flex:1;padding:10px}
+  .ok{background:var(--run);color:#04160d} .no{background:var(--panel);color:var(--muted);border:1px solid var(--line)}
+  .src{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .empty{text-align:center;color:var(--muted);padding:60px 20px}
+  .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);background:var(--accent);color:#04222a;padding:10px 16px;border-radius:20px;font-weight:600;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .done{opacity:.4}
+</style></head><body>
+<header><h1>☀️ Morning Brief</h1><div class="sub" id="sub">Loading…</div></header>
+<div class="wrap" id="list"></div>
+<div class="bulkbar" id="bulkbar" style="display:none">
+  <button class="primary" id="allBtn">✅ Approve all emails</button>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+var T = new URLSearchParams(location.search).get("t") || "";
+function api(path, method, body){
+  return fetch(path, {method:method||"GET", headers:{"Content-Type":"application/json","x-brief-token":T}, body:body?JSON.stringify(body):undefined})
+    .then(function(r){ return r.json().then(function(d){ if(!r.ok) throw new Error(d.error||("HTTP "+r.status)); return d; }); });
+}
+function toast(msg){ var t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); setTimeout(function(){t.classList.remove("show");},1800); }
+function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+var TIER={ask:"⚠️ Need your call",bulk:"✉️ Emails & low-stakes",auto:"🤖 ATLAS handles these"};
+function render(items){
+  var sub=document.getElementById("sub"), list=document.getElementById("list"), bar=document.getElementById("bulkbar");
+  var bulk=items.filter(function(i){return i.tier==="bulk";}).length;
+  var ask=items.filter(function(i){return i.tier==="ask";}).length;
+  if(!items.length){ sub.textContent="All clear 🎉"; list.innerHTML='<div class="empty">Nothing waiting. ATLAS is caught up.</div>'; bar.style.display="none"; return; }
+  sub.textContent=items.length+" waiting — "+ask+" need you, "+bulk+" batchable";
+  var groups={ask:[],bulk:[],auto:[]}; items.forEach(function(i){(groups[i.tier]||groups.ask).push(i);});
+  var html="";
+  ["ask","bulk","auto"].forEach(function(tier){
+    var g=groups[tier]; if(!g.length) return;
+    html+='<div class="grp"><h2>'+TIER[tier]+" ("+g.length+')</h2>';
+    g.forEach(function(i){
+      var id="card_"+i.source+"_"+encodeURIComponent(i.id).replace(/[^a-zA-Z0-9]/g,"");
+      var da='data-source="'+i.source+'" data-id="'+encodeURIComponent(i.id)+'"';
+      var btns = tier==="auto" ? '<div class="d">auto-handled each cycle</div>'
+        : '<div class="row"><button class="ok" data-act="approve" '+da+'>Approve</button><button class="no" data-act="reject" '+da+'>Skip</button></div>';
+      html+='<div class="card '+tier+'" id="'+id+'"><div class="src">'+i.source+'</div><div class="t">'+esc(i.title)+'</div>'+(i.detail?'<div class="d">'+esc(i.detail)+'</div>':'')+btns+'</div>';
+    });
+    html+="</div>";
+  });
+  list.innerHTML=html;
+  document.getElementById("allBtn").textContent="✅ Approve all emails ("+bulk+")";
+  bar.style.display = bulk>0 ? "flex" : "none";
+}
+function act(btn, source, encId, action){
+  btn.disabled=true; var card=btn.closest(".card");
+  api("/api/brief/"+encodeURIComponent(source)+"/"+encId, "POST", {action:action})
+    .then(function(){ card.classList.add("done"); card.querySelector(".row").innerHTML='<div class="d">'+(action==="approve"?"✅ Approved":"⏭️ Skipped")+'</div>'; toast(action==="approve"?"Approved":"Skipped"); })
+    .catch(function(e){ btn.disabled=false; toast("⚠️ "+e.message); });
+}
+document.getElementById("list").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-act]"); if(!b || b.disabled) return;
+  act(b, b.getAttribute("data-source"), b.getAttribute("data-id"), b.getAttribute("data-act"));
+});
+document.getElementById("allBtn").onclick=function(){
+  var b=this; b.disabled=true;
+  api("/api/brief/bulk","POST",{action:"approve",tier:"bulk"})
+    .then(function(r){ toast("Approved "+(r.count||0)+" email(s)"); load(); })
+    .catch(function(e){ b.disabled=false; toast("⚠️ "+e.message); });
+};
+function load(){ api("/api/brief").then(function(r){ render(r.items||[]); }).catch(function(e){ document.getElementById("sub").textContent="⚠️ "+e.message; }); }
+load();
+</script></body></html>`;
+
+/** Shown when the magic link is missing/expired. */
+export const MOBILE_BRIEF_EXPIRED = `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Link expired</title>
+<style>body{margin:0;background:#0c0f14;color:#e8ecf1;font-family:system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}</style></head>
+<body><div><div style="font-size:40px">🔒</div><h2>This link has expired</h2><p style="color:#8b95a4;max-width:34ch">Morning-brief links are good for 24 hours. Open ATLAS and send a fresh brief, or wait for tomorrow morning's email.</p></div></body></html>`;

@@ -1,6 +1,6 @@
 import { createServer as httpCreateServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import pg from "pg";
 import type { Atlas } from "@atlas/core";
 import type { ProviderAdapter } from "@atlas/brain";
@@ -10,7 +10,7 @@ import { Vault } from "@atlas/vault";
 import { TaskQueue } from "../../orchestrator/src/task-queue";
 import { LiveBrowserPublisher } from "@atlas/publishing";
 import { SessionStore } from "./sessions";
-import { PAGE } from "./html";
+import { PAGE, MOBILE_BRIEF_PAGE, MOBILE_BRIEF_EXPIRED } from "./html";
 import { getSelfImprovementTarget, generateSelfImprovementDraft, applySelfImprovementPatch, type SelfImprovementRequest, type SelfImprovementDraft } from "./self-improve";
 import { checkFabricatedActionClaim, FABRICATION_CORRECTION } from "./chat-safety";
 
@@ -370,6 +370,46 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   let isAutomationRunning = false;
   let isAutomationEnabled = false;
   const automationStateFile = `${dataDir}/automation.json`;
+  const briefStateFile = `${dataDir}/brief-digest.json`;
+
+  // ── Morning-brief magic links ─────────────────────────────────────────
+  // The digest email carries ONE signed link; tapping it opens a phone page
+  // that can read the brief and approve/reject — scoped to the brief only,
+  // never the whole control panel. HMAC-signed with a persisted secret so
+  // links survive restarts but can't be forged. Publicly reachable route,
+  // so the signature IS the auth.
+  let linkSecretCache: string | null = null;
+  async function linkSecret(): Promise<string> {
+    if (linkSecretCache) return linkSecretCache;
+    if (process.env.ATLAS_LINK_SECRET) return (linkSecretCache = process.env.ATLAS_LINK_SECRET);
+    const f = `${dataDir}/link-secret`;
+    try {
+      const s = (await readFile(f, "utf8")).trim();
+      if (s) return (linkSecretCache = s);
+    } catch { /* first run */ }
+    linkSecretCache = randomBytes(32).toString("hex");
+    try { await writeFile(f, linkSecretCache); } catch { /* best-effort persist */ }
+    return linkSecretCache;
+  }
+  async function signBriefToken(ttlMs = 24 * 60 * 60 * 1000): Promise<string> {
+    const exp = Date.now() + ttlMs;
+    const sig = createHmac("sha256", await linkSecret()).update(`brief:${exp}`).digest("hex");
+    return `${exp}.${sig}`;
+  }
+  async function verifyBriefToken(raw: string | undefined): Promise<boolean> {
+    if (!raw) return false;
+    const [expStr, sig] = String(raw).split(".");
+    if (!expStr || !sig) return false;
+    const exp = Number(expStr);
+    if (!Number.isFinite(exp) || exp < Date.now()) return false;
+    const expected = createHmac("sha256", await linkSecret()).update(`brief:${exp}`).digest("hex");
+    try {
+      const a = Buffer.from(sig, "hex"), b = Buffer.from(expected, "hex");
+      return a.length === b.length && timingSafeEqual(a, b);
+    } catch {
+      return false;
+    }
+  }
 
   async function runAutomationCycleOnce(): Promise<void> {
     if (isAutomationRunning) return;
@@ -411,6 +451,35 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       }
     })
     .catch(() => { /* no saved state yet */ });
+
+  // ── Morning brief scheduler ───────────────────────────────────────────
+  // Once a day, when the clock hits ATLAS_BRIEF_HOUR (UTC; default 12 ≈ 7-8am
+  // US Eastern), email Mat the digest with a fresh magic link. Self-gating:
+  // silent while the vault is locked, and won't double-send (tracked by date
+  // in brief-digest.json). Checks every 15 min so it can't miss its window.
+  const BRIEF_HOUR = Number(process.env.ATLAS_BRIEF_HOUR ?? 12);
+  let briefTimer: NodeJS.Timeout | null = null;
+  async function maybeSendMorningBrief(): Promise<void> {
+    if (!vault.unlocked) return;
+    const now = new Date();
+    if (now.getUTCHours() !== BRIEF_HOUR) return;
+    const today = now.toISOString().slice(0, 10);
+    try {
+      const raw = await readFile(briefStateFile, "utf8");
+      if ((JSON.parse(raw) as { lastSentDate?: string }).lastSentDate === today) return; // already sent today
+    } catch { /* never sent — fall through */ }
+    try {
+      await sendBriefDigest(process.env.ATLAS_PUBLIC_URL || "https://atlas.evervibesdigital.com");
+      console.log("[BRIEF] Morning digest sent.");
+    } catch (e) {
+      console.error("[BRIEF] Morning digest failed:", (e as Error).message);
+    }
+  }
+  function startBriefScheduler(): void {
+    if (briefTimer) return;
+    briefTimer = setInterval(() => void maybeSendMorningBrief(), 15 * 60 * 1000);
+  }
+  startBriefScheduler();
 
   let pendingRebuild: Promise<void> | null = null;
 
@@ -562,10 +631,48 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   const ATLAS_SERVICE_TOKEN = process.env.ATLAS_LOGIN_TOKEN || process.env.ATLAS_SERVICE_TOKEN || "";
   const servicedAuthed = (req: IncomingMessage): boolean => !!ATLAS_SERVICE_TOKEN && req.headers["x-atlas-service-token"] === ATLAS_SERVICE_TOKEN;
 
+  /** Build the plain-text morning digest + a fresh magic link, and send it to
+   * the owner's own email. Returns what was sent. `baseUrl` is the public
+   * origin the tap-link should point at. */
+  async function sendBriefDigest(baseUrl: string): Promise<{ sent: boolean; to?: string; count: number; skipped?: string }> {
+    if (!vault.unlocked) return { sent: false, count: 0, skipped: "vault locked" };
+    const a = await ensureAtlas();
+    const brief = (await a.invoke("brief", { op: "today" })) as { items: Array<{ source: string; title: string; detail?: string; tier: string }>; count: number };
+    const items = brief.items ?? [];
+    const tok = await signBriefToken();
+    const link = `${baseUrl.replace(/\/+$/, "")}/m?t=${encodeURIComponent(tok)}`;
+    const emails = items.filter((i) => i.tier === "bulk").length;
+    const asks = items.filter((i) => i.tier === "ask").length;
+    const lines = [
+      `Good morning. Here's what ATLAS has ready.`,
+      ``,
+      `${items.length} item(s) waiting: ${asks} need your call, ${emails} email(s)/low-stakes you can batch-approve.`,
+      ``,
+      ...items.slice(0, 15).map((i) => `• [${i.source}] ${i.title}${i.detail ? ` — ${i.detail.slice(0, 120)}` : ""}`),
+      items.length > 15 ? `…and ${items.length - 15} more.` : ``,
+      ``,
+      `👉 Review & approve from your phone (link good for 24h):`,
+      link,
+      ``,
+      `— ATLAS`,
+    ];
+    const subject = `☀️ ATLAS morning brief — ${items.length} waiting (${asks} need you)`;
+    const result = (await a.invoke("email", { op: "ownerNotify", subject, body: lines.filter((l) => l !== undefined).join("\n") })) as { to?: string };
+    try {
+      await writeFile(briefStateFile, JSON.stringify({ lastSentDate: new Date().toISOString().slice(0, 10), at: new Date().toISOString() }), "utf8");
+    } catch { /* best-effort */ }
+    return { sent: true, to: result.to, count: items.length };
+  }
+
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
     const method = req.method ?? "GET";
+    // Magic-link auth for the phone brief: a valid signed token in ?t= or the
+    // x-brief-token header grants brief-ONLY access (read + approve/reject),
+    // nothing else. Evaluated per-request so the mobile page and its API calls
+    // both work without a full control-panel session.
+    const briefTapAuthed = async (): Promise<boolean> => verifyBriefToken(url.searchParams.get("t") ?? (req.headers["x-brief-token"] as string | undefined));
 
     if (method === "GET" && path === "/") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store, must-revalidate" });
@@ -667,6 +774,39 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "GET" && path === "/api/brief" && servicedAuthed(req)) {
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("brief", { op: "today" }));
+    }
+
+    // ── Phone morning brief (magic-link, no session needed) ──────────────
+    // The digest email links here. This route + the brief API calls it makes
+    // are authorized by a signed token ONLY, and grant brief access ONLY.
+    if (method === "GET" && path === "/m") {
+      if (!(await briefTapAuthed())) {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        return void res.end(MOBILE_BRIEF_EXPIRED);
+      }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      return void res.end(MOBILE_BRIEF_PAGE);
+    }
+    // Brief API reachable with a valid magic-link token (read + act + bulk).
+    if (path === "/api/brief" || path.startsWith("/api/brief/")) {
+      if (await briefTapAuthed()) {
+        const a = await ensureAtlas();
+        if (method === "GET" && path === "/api/brief") {
+          return send(res, 200, await a.invoke("brief", { op: "today" }));
+        }
+        if (method === "POST" && path === "/api/brief/bulk") {
+          const { action, tier, source } = await readBody(req);
+          if (action !== "approve" && action !== "reject") return send(res, 400, { error: "action must be 'approve' or 'reject'" });
+          return send(res, 200, await a.invoke("brief", { op: "actBulk", action, tier: tier ?? "bulk", source: source || undefined }));
+        }
+        const tapAct = path.match(/^\/api\/brief\/([^/]+)\/([^/]+)$/);
+        if (method === "POST" && tapAct && tapAct[1] !== "bulk") {
+          const { action } = await readBody(req);
+          if (action !== "approve" && action !== "reject") return send(res, 400, { error: "action must be 'approve' or 'reject'" });
+          return send(res, 200, await a.invoke("brief", { op: "act", source: decodeURIComponent(tapAct[1]!), id: decodeURIComponent(tapAct[2]!), action }));
+        }
+      }
+      // else: fall through to the session-gated copies below.
     }
 
     // ── everything below requires an unlocked session ──
@@ -1456,6 +1596,15 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("brief", { op: "today" }));
     }
+    // Send (or test-send) the morning digest to Mat's phone right now.
+    if (method === "POST" && path === "/api/brief/send") {
+      const base = process.env.ATLAS_PUBLIC_URL || `https://${req.headers.host ?? "atlas.evervibesdigital.com"}`;
+      try {
+        return send(res, 200, await sendBriefDigest(base));
+      } catch (e) {
+        return send(res, 500, { error: (e as Error).message });
+      }
+    }
     // Bulk approve/reject a whole tier in one call — the "approve all emails"
     // button. Matched BEFORE the generic /:source/:id route below so
     // "/api/brief/bulk" isn't mistaken for a source+id pair. Default tier
@@ -1673,6 +1822,8 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       });
     },
     async close(): Promise<void> {
+      if (briefTimer) clearInterval(briefTimer);
+      if (automationIntervalId) clearInterval(automationIntervalId);
       if (pendingRebuild) await pendingRebuild;
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
