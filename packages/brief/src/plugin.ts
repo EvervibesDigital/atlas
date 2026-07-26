@@ -109,18 +109,29 @@ export function createBriefPlugin(): Plugin {
       };
 
       async function fromWholesale(): Promise<BriefItem[]> {
-        const res = (await ctx.call("wholesale", { op: "list" })) as { actions?: Array<{ id: string; action_type: string; roi_score: number; target_count: number; target_summary: string | null; reason: string | null; created_at: string }> };
-        return (res.actions ?? []).map((a) => ({
-          id: a.id,
-          source: "wholesale" as const,
-          title: `${WHOLESALE_LABEL[a.action_type] ?? a.action_type}${a.target_summary ? ` — ${a.target_summary}` : ""}`,
-          detail: `${a.reason ?? ""}${a.roi_score ? ` (~$${a.roi_score.toLocaleString()} at stake)` : ""}`.trim() || undefined,
-          risk: (a.roi_score >= 5000 ? 2 : 1) as BriefItem["risk"],
-          // A single outbound investor email batches with the other emails;
-          // a mass buyer blast, an SMS, or a phone call stays individual.
-          tier: (a.action_type === "outreach_email" ? "bulk" : "ask") as AutonomyTier,
-          createdAt: a.created_at,
-        }));
+        const res = (await ctx.call("wholesale", { op: "list" })) as {
+          actions?: Array<{ id: string; action_type: string; roi_score: number; target_count: number; target_summary: string | null; reason: string | null; payload?: { kind?: string }; created_at: string }>;
+        };
+        return (res.actions ?? []).map((a) => {
+          // The daily-engine wholesale flywheel's seller cold-outreach/follow-up
+          // reuses action_type "outreach_email" (queued instead of auto-sent as
+          // of 2026-07-26) — payload.kind distinguishes it from investor
+          // outreach so the label doesn't lie about who's being emailed.
+          const isSellerOutreach = a.action_type === "outreach_email" && a.payload?.kind === "seller";
+          const label = isSellerOutreach ? "Seller outreach email" : (WHOLESALE_LABEL[a.action_type] ?? a.action_type);
+          return {
+            id: a.id,
+            source: "wholesale" as const,
+            title: `${label}${a.target_summary ? ` — ${a.target_summary}` : ""}`,
+            detail: `${a.reason ?? ""}${a.roi_score ? ` (~$${a.roi_score.toLocaleString()} at stake)` : ""}`.trim() || undefined,
+            risk: (a.roi_score >= 5000 ? 2 : 1) as BriefItem["risk"],
+            // A single outbound email (seller or investor) batches with the
+            // other emails; a mass buyer blast, an SMS, or a phone call stays
+            // individual.
+            tier: (a.action_type === "outreach_email" ? "bulk" : "ask") as AutonomyTier,
+            createdAt: a.created_at,
+          };
+        });
       }
 
       async function fromLeadscan(): Promise<BriefItem[]> {

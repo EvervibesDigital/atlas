@@ -15,6 +15,7 @@ import { createSurplusPlugin } from "@atlas/surplus";
 import { createOutreachPlugin } from "@atlas/outreach";
 import { createLeadScanPlugin } from "@atlas/leadscan";
 import { createLearningPlugin, MetricsTracker } from "@atlas/learning";
+import { createWholesalePlugin } from "@atlas/wholesale";
 import { createBriefPlugin } from "../src/plugin";
 import type { BriefItem } from "../src/types";
 
@@ -471,6 +472,46 @@ describe("brief plugin — the Unified Morning Brief", () => {
           const stillPending = after.items.find((i) => i.source === "approvals");
           expect(stillPending).toBeTruthy();
           expect(stillPending!.tier).toBe("ask");
+        },
+      });
+    });
+  });
+
+  describe("wholesale source", () => {
+    async function buildWholesaleBriefAtlas(actions: unknown[]) {
+      const f: FetchLike = (async (url: string) => {
+        expect(String(url)).toContain("/api/wholesale/pending-actions/list");
+        return { ok: true, status: 200, json: async () => ({ actions }) };
+      }) as unknown as FetchLike;
+      const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ KDP_CRON_SECRET: "test-secret" }) });
+      await atlas.use(createWholesalePlugin({ fetcher: f as unknown as typeof fetch }));
+      await atlas.use(createBriefPlugin());
+      return atlas;
+    }
+
+    it("labels seller-kind outreach_email distinctly from investor outreach, and batches both as 'bulk'", async () => {
+      const atlas = await buildWholesaleBriefAtlas([
+        { id: "a1", action_type: "outreach_email", roi_score: 0, target_count: 1, target_summary: "Jane Doe — 123 Main St, Columbus", reason: "Cold outreach, touch 1", payload: { kind: "seller" }, created_at: "2026-07-26T00:00:00Z" },
+        { id: "a2", action_type: "outreach_email", roi_score: 0, target_count: 1, target_summary: "Some Investor", reason: "Investor pitch", payload: { kind: "investor" }, created_at: "2026-07-26T00:00:00Z" },
+        { id: "a3", action_type: "bland_call", roi_score: 12000, target_count: 1, target_summary: "Mike (bird dog)", reason: "$12K spread", created_at: "2026-07-26T00:00:00Z" },
+      ]);
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:brief"], role: "executor" },
+        async register(ctx) {
+          const r = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+          const seller = r.items.find((i) => i.id === "a1")!;
+          const investor = r.items.find((i) => i.id === "a2")!;
+          const call = r.items.find((i) => i.id === "a3")!;
+
+          expect(seller.title).toContain("Seller outreach email");
+          expect(seller.title).not.toContain("Investor");
+          expect(seller.tier).toBe("bulk");
+
+          expect(investor.title).toContain("Investor outreach email");
+          expect(investor.tier).toBe("bulk");
+
+          // A phone call still stays individual, unaffected by this change.
+          expect(call.tier).toBe("ask");
         },
       });
     });
