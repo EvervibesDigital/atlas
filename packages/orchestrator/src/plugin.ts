@@ -1,6 +1,7 @@
 import type { AtlasContext, Plugin } from "@atlas/core";
 import type { DailyReport, OrchestratorCommand, ReelLike, CycleHealthTracker } from "./core";
 import { deriveTopic, reelToPublishInput, optional } from "./core";
+import { shouldPauseGeneration, type KdpBook } from "@atlas/kdp";
 
 /**
  * Orchestrator plugin (service "orchestrator") — the autonomous agent loop.
@@ -57,6 +58,20 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
     },
 
     register(ctx) {
+      const KDP_BACKLOG_CAP = 10;
+
+      /** Matches optional()'s `(service, payload) => Promise<unknown>` shape
+       * so it drops straight into the existing Promise.all/optional() slot.
+       * Checks the current unreviewed backlog before generating more. */
+      async function kdpGenerateIfRoom(service: string, payload: unknown): Promise<unknown> {
+        const status = (await ctx.call("kdp", { op: "status" })) as { books?: KdpBook[] };
+        const books = status.books ?? [];
+        if (shouldPauseGeneration(books, KDP_BACKLOG_CAP)) {
+          return { skipped: true, reason: `backlog at or above ${KDP_BACKLOG_CAP} unreviewed book(s) — pausing until some are downloaded/uploaded` };
+        }
+        return ctx.call(service, payload);
+      }
+
       ctx.provide("orchestrator", async (payload) => {
         const cmd = payload as OrchestratorCommand;
         if (cmd.op !== "runDailyCycle") throw new Error(`orchestrator: unknown op "${(cmd as { op: string }).op}"`);
@@ -162,7 +177,11 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
           // pipeline lives in evervibes; this just keeps it fed. Skipped
           // gracefully if KDP_CRON_SECRET isn't configured yet.
           optional<unknown>(ctx.call, "kdp", { op: "scan" }, health),
-          optional<unknown>(ctx.call, "kdp", { op: "generate", limit: 3 }, health),
+          // Paused once the "generated but not yet downloaded" backlog hits
+          // KDP_BACKLOG_CAP — Amazon upload is always a manual step, so
+          // generating faster than Mat can review just floods the Brief with
+          // near-identical journal/planner titles every hour.
+          optional<unknown>(kdpGenerateIfRoom, "kdp", { op: "generate", limit: 3 }, health),
           // Media Factory — "constantly creating": one autoCycle step per
           // orchestrator run (plan a fresh calendar for a creator with an
           // empty queue, or produce the next planned post's script). Never

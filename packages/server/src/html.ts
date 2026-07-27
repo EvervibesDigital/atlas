@@ -1820,6 +1820,7 @@ export const MOBILE_BRIEF_PAGE = `<!doctype html>
   .empty{text-align:center;color:var(--muted);padding:60px 20px}
   .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);background:var(--accent);color:#04222a;padding:10px 16px;border-radius:20px;font-weight:600;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
   .toast.show{opacity:1}
+  .toast.err{pointer-events:auto;top:70px;bottom:auto;background:var(--danger);color:#fff;max-width:88vw;white-space:pre-wrap;word-break:break-word;text-align:left;border-radius:12px;-webkit-user-select:text;user-select:text}
   .done{opacity:.4}
 </style></head><body>
 <header><h1>☀️ Morning Brief</h1><div class="sub" id="sub">Loading…</div></header>
@@ -1834,7 +1835,20 @@ function api(path, method, body){
   return fetch(path, {method:method||"GET", headers:{"Content-Type":"application/json","x-brief-token":T}, body:body?JSON.stringify(body):undefined})
     .then(function(r){ return r.json().then(function(d){ if(!r.ok) throw new Error(d.error||("HTTP "+r.status)); return d; }); });
 }
-function toast(msg){ var t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); setTimeout(function(){t.classList.remove("show");},1800); }
+function toast(msg, isErr){
+  var t=document.getElementById("toast");
+  if(t._hideTimer){ clearTimeout(t._hideTimer); t._hideTimer=null; }
+  if(isErr){
+    t.textContent=msg+" (tap to dismiss)";
+    t.className="toast show err";
+    t.onclick=function(){ t.classList.remove("show"); };
+  } else {
+    t.textContent=msg;
+    t.className="toast show";
+    t.onclick=null;
+    t._hideTimer=setTimeout(function(){t.classList.remove("show");},1800);
+  }
+}
 function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 var TIER={ask:"⚠️ Need your call",bulk:"✉️ Emails & low-stakes",auto:"🤖 ATLAS handles these"};
 function render(items){
@@ -1865,7 +1879,7 @@ function act(btn, source, encId, action){
   btn.disabled=true; var card=btn.closest(".card");
   api("/api/brief/"+encodeURIComponent(source)+"/"+encId, "POST", {action:action})
     .then(function(){ card.classList.add("done"); card.querySelector(".row").innerHTML='<div class="d">'+(action==="approve"?"✅ Approved":"⏭️ Skipped")+'</div>'; toast(action==="approve"?"Approved":"Skipped"); })
-    .catch(function(e){ btn.disabled=false; toast("⚠️ "+e.message); });
+    .catch(function(e){ btn.disabled=false; toast("⚠️ "+e.message, true); });
 }
 document.getElementById("list").addEventListener("click", function(e){
   var b = e.target.closest("button[data-act]"); if(!b || b.disabled) return;
@@ -1875,7 +1889,7 @@ document.getElementById("allBtn").onclick=function(){
   var b=this; b.disabled=true;
   api("/api/brief/bulk","POST",{action:"approve",tier:"bulk"})
     .then(function(r){ toast("Approved "+(r.count||0)+" email(s)"); load(); })
-    .catch(function(e){ b.disabled=false; toast("⚠️ "+e.message); });
+    .catch(function(e){ b.disabled=false; toast("⚠️ "+e.message, true); });
 };
 function load(){ api("/api/brief").then(function(r){ render(r.items||[]); }).catch(function(e){ document.getElementById("sub").textContent="⚠️ "+e.message; }); }
 load();
