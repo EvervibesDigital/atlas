@@ -14,6 +14,7 @@ import { SessionStore } from "./sessions";
 import { PAGE, MOBILE_BRIEF_PAGE, MOBILE_BRIEF_EXPIRED } from "./html";
 import { getSelfImprovementTarget, generateSelfImprovementDraft, applySelfImprovementPatch, type SelfImprovementRequest, type SelfImprovementDraft } from "./self-improve";
 import { checkFabricatedActionClaim, FABRICATION_CORRECTION } from "./chat-safety";
+import { alertKey, findNewUrgentItems, buildUrgentAlertEmail, type AlertableItem } from "./urgent-alerts";
 
 const KNOWN_PROVIDERS = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"];
 const CRED_PREFIX = "cred:";
@@ -400,6 +401,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   let isAutomationEnabled = false;
   const automationStateFile = `${dataDir}/automation.json`;
   const briefStateFile = `${dataDir}/brief-digest.json`;
+  const urgentAlertStateFile = `${dataDir}/urgent-alerts.json`;
 
   // ── Morning-brief magic links ─────────────────────────────────────────
   // The digest email carries ONE signed link; tapping it opens a phone page
@@ -440,6 +442,43 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     }
   }
 
+  /** Separate from the once-daily digest: after every hourly cycle, immediately
+   * email Mat about any NEW "ask"-tier item (money/phone/a specific person —
+   * see @atlas/brief's tier docs) instead of making him wait for the morning
+   * email to find out ATLAS needs a call. Dedupes against everything already
+   * alerted on (persisted to disk), so one stuck item doesn't re-email every
+   * hour it sits unapproved. Best-effort: never throws, never blocks the
+   * cycle that calls it. Runs even if the cycle itself failed — ask-tier
+   * items can already be sitting there from sources unrelated to whatever
+   * just failed. */
+  async function checkUrgentFindings(): Promise<void> {
+    if (!vault.unlocked) return;
+    try {
+      const a = await ensureAtlas();
+      const brief = (await a.invoke("brief", { op: "today" })) as { items: AlertableItem[] };
+      const items = brief.items ?? [];
+
+      let alerted: string[] = [];
+      try {
+        alerted = JSON.parse(await readFile(urgentAlertStateFile, "utf8")) as string[];
+      } catch { /* first run */ }
+
+      const fresh = findNewUrgentItems(items, new Set(alerted));
+      if (fresh.length === 0) return;
+
+      const { subject, body } = buildUrgentAlertEmail(fresh);
+      await a.invoke("email", { op: "ownerNotify", subject, body });
+      console.log(`[URGENT ALERT] Emailed Mat about ${fresh.length} new ask-tier item(s).`);
+
+      // Cap at the most recent 500 keys so this can't grow unbounded across
+      // months of hourly cycles — dedupe is all this list is for.
+      const updated = [...new Set([...alerted, ...fresh.map(alertKey)])].slice(-500);
+      await writeFile(urgentAlertStateFile, JSON.stringify(updated), "utf8");
+    } catch (err) {
+      console.error("[URGENT ALERT] check failed:", (err as Error).message);
+    }
+  }
+
   async function runAutomationCycleOnce(): Promise<void> {
     if (isAutomationRunning) return;
     try {
@@ -452,6 +491,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     } catch (err) {
       console.error("[AUTOMATION] Automated cycle failed:", err);
     } finally {
+      await checkUrgentFindings();
       isAutomationRunning = false;
     }
   }
