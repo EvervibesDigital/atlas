@@ -70,6 +70,7 @@ export interface ContentItem {
   publish_schedule?: string;
   published_at?: string;
   approval_id?: string;
+  created_at?: string;
 }
 
 export interface MonetizationPartnership {
