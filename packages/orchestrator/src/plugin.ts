@@ -112,14 +112,10 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
         let videoRef = cmd.videoRef ?? null;
         if (!videoRef) {
           try {
-            console.log(`[orchestrator] Rendering video for topic: ${topic}`);
-            const renderResult = (await Promise.race([
-              ctx.call("publishing", { op: "render", spec: reel }),
-              new Promise((_, reject) => setTimeout(() => reject(new Error("render timed out after 30s")), 30_000)),
-            ])) as { videoPath: string };
-            videoRef = renderResult.videoPath || null;
+            const { jobId } = (await ctx.call("publishing", { op: "enqueueRender", spec: reel })) as { jobId: string };
+            console.log(`[orchestrator] Video render job ${jobId} queued for topic: ${topic} (renders in the background, doesn't block this cycle)`);
           } catch (err) {
-            console.error("[orchestrator] Video rendering failed or timed out, proceeding without videoRef:", err);
+            console.error("[orchestrator] Failed to queue video render:", err);
           }
         }
 

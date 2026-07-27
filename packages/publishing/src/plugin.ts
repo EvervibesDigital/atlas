@@ -3,10 +3,12 @@ import type { Approval } from "@atlas/approvals";
 import type { PublishCommand, PublishInput, PublishResult } from "./types";
 import { validateForInstagram } from "./instagram";
 import { existsSync, readdirSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DryRunPublisher, type Publisher } from "./publisher";
 import { VideoRenderer, NoOpRenderer, type Renderer } from "./video-renderer";
 import { MontageRenderer } from "./montage-renderer";
+import { enqueueJob, type VideoRenderJob } from "./video-queue";
 
 /**
  * Locate a Piper install. Precedence: PIPER_BIN/PIPER_MODEL env vars, then the
@@ -67,7 +69,7 @@ function defaultRenderer(): Renderer {
  * The default Publisher is DryRunPublisher, so ATLAS is fully wired to post but
  * posts nothing until a live publisher is injected here.
  */
-export function createPublishingPlugin(opts: { publisher?: Publisher; renderer?: Renderer } = {}): Plugin {
+export function createPublishingPlugin(opts: { publisher?: Publisher; renderer?: Renderer; videoJobsFile?: string } = {}): Plugin {
   const publisher = opts.publisher ?? new DryRunPublisher();
 
   return {
@@ -83,6 +85,7 @@ export function createPublishingPlugin(opts: { publisher?: Publisher; renderer?:
       // Pending posts, keyed by the approval they're waiting on.
       const jobs = new Map<string, PublishInput>();
       const renderer = opts.renderer ?? defaultRenderer();
+      const videoJobsPath = opts.videoJobsFile ?? "data/video-jobs.json";
 
       // When Mat approves, run the publisher for the matching job.
       ctx.on("approval.granted", async (payload) => {
@@ -99,6 +102,20 @@ export function createPublishingPlugin(opts: { publisher?: Publisher; renderer?:
 
         if (cmd.op === "render") {
           const videoPath = await renderer.render(cmd.spec);
+          return { videoPath };
+        }
+
+        if (cmd.op === "enqueueRender") {
+          const raw = await readFile(videoJobsPath, "utf8").catch(() => "[]");
+          const existing = JSON.parse(raw) as VideoRenderJob[];
+          const updated = enqueueJob(existing, cmd.spec);
+          await writeFile(videoJobsPath, JSON.stringify(updated), "utf8");
+          const job = updated[updated.length - 1]!;
+          return { jobId: job.id };
+        }
+
+        if (cmd.op === "renderQueuedJob") {
+          const videoPath = await renderer.render(cmd.spec as Parameters<typeof renderer.render>[0]);
           return { videoPath };
         }
 

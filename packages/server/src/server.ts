@@ -402,6 +402,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   const automationStateFile = `${dataDir}/automation.json`;
   const briefStateFile = `${dataDir}/brief-digest.json`;
   const urgentAlertStateFile = `${dataDir}/urgent-alerts.json`;
+  const videoJobsFile = `${dataDir}/video-jobs.json`;
 
   // ── Morning-brief magic links ─────────────────────────────────────────
   // The digest email carries ONE signed link; tapping it opens a phone page
@@ -602,6 +603,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       auditFile: `${dataDir}/audit-log.json`,
       forgeDir: "./forge",
       publisher: livePublisher,
+      videoJobsFile: videoJobsFile,
     });
     warmOllama(); // fire-and-forget: preload the local model so the first
     // offline reply isn't a 25s cold start (no-op if Ollama isn't running).

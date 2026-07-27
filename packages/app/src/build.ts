@@ -92,6 +92,11 @@ export interface AtlasOptions {
    * Piper is installed, this is what the Linux cloud deploy should inject.
    */
   renderer?: Renderer;
+  /** Where queued video-render jobs persist (default "data/video-jobs.json").
+   * The orchestrator's auto-render step enqueues here instead of rendering
+   * inline; a separate background worker (packages/server/src/server.ts)
+   * reads the same file to actually render them. */
+  videoJobsFile?: string;
   /** Enable the orchestrator's automatic self-healing step (default true).
    * Tests set this false to stay fast/offline — see packages/app/test/cycle.test.ts. */
   healEnabled?: boolean;
@@ -142,7 +147,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createExecutivePlugin());
   await atlas.use(createPersonasPlugin());
   await atlas.use(createCreativePlugin());
-  await atlas.use(createPublishingPlugin({ publisher: opts.publisher, renderer: opts.renderer }));
+  await atlas.use(createPublishingPlugin({ publisher: opts.publisher, renderer: opts.renderer, videoJobsFile: opts.videoJobsFile }));
   await atlas.use(createLearningPlugin({ metrics: opts.metricsTracker, metricsFile: opts.metricsFile, proposalsFile: opts.proposalsFile }));
 
   // Web reader (loaded before Business so it can research business sites).

@@ -40,4 +40,8 @@ export interface BrowserStep {
 export type PublishCommand =
   | { op: "publish"; input: PublishInput }
   | { op: "validate"; input: PublishInput }
-  | { op: "render"; spec: { voice: string; scenes: Array<{ text: string; imageUrl: string }> } };
+  | { op: "render"; spec: { voice: string; scenes: Array<{ text: string; imageUrl: string }> } }
+  // Same spec shape as "render", but queued for a background worker to pick
+  // up instead of rendering inline — see @atlas/publishing's video-queue.ts.
+  | { op: "enqueueRender"; spec: { voice: string; scenes: Array<{ text: string; imageUrl: string }> } }
+  | { op: "renderQueuedJob"; spec: { voice: string; scenes: Array<{ text: string; imageUrl: string }> } };
