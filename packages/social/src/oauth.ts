@@ -1,23 +1,20 @@
-/** Meta's stable, documented OAuth dialog format — this part doesn't drift
- * the way response payload shapes can. Scopes match the spec's connection
- * flow: posting + reading/replying to comments and DMs. */
-const SCOPES = [
-  "pages_show_list",
-  "pages_manage_posts",
-  "pages_read_engagement",
-  "pages_messaging",
-  "instagram_basic",
-  "instagram_content_publish",
-  "instagram_manage_comments",
-];
-
-export function buildConnectUrl(appId: string, redirectUri: string, state: string): string {
+/**
+ * Meta's app for this project uses "Facebook Login for Business" (a
+ * business-type app), not plain consumer Facebook Login. Confirmed live
+ * against Meta's current docs after a real connection attempt failed with
+ * "Invalid Scopes": business-type apps can't request permissions like
+ * pages_manage_posts/instagram_content_publish/instagram_manage_comments via
+ * a raw `scope=` parameter — Meta requires a `config_id` referencing a saved
+ * Login Configuration created in the App Dashboard instead. `scope` is
+ * explicitly documented as "should not be used" once config_id is in play.
+ */
+export function buildConnectUrl(appId: string, configId: string, redirectUri: string, state: string): string {
   const params = new URLSearchParams({
     client_id: appId,
+    config_id: configId,
     redirect_uri: redirectUri,
     state,
-    scope: SCOPES.join(","),
     response_type: "code",
   });
-  return `https://www.facebook.com/v21.0/dialog/oauth?${params.toString()}`;
+  return `https://www.facebook.com/v25.0/dialog/oauth?${params.toString()}`;
 }
