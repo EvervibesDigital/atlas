@@ -1,6 +1,7 @@
 import type { Plugin, AtlasContext } from "@atlas/core";
 import { MediaFactoryDB, type VirtualCreator, type CreatorMemory, type ContentItem, type MonetizationPartnership, type AnalyticsSnapshot } from "./db";
 import { MediaFactoryAgents, buildImagePrompt, type BrainInvoker } from "./agents";
+import { creatorsWithRoom, DAILY_POST_TARGET } from "./throughput";
 import { generateImage, type FetchLike } from "./image-gen";
 import { saveGeneratedImage } from "./images";
 
@@ -115,33 +116,42 @@ export function createMediaFactoryPlugin(opts: { imagesDir?: string; imageFetche
           return { action: "planned", creator: needsPlan.name, itemsCreated: created.length };
         }
 
-        // Find the oldest unscripted "planned" item across all creators.
-        const pending = allContent
-          .filter((i) => i.status === "planned" && !i.script)
-          .sort((a, b) => (a.id! < b.id! ? -1 : 1)); // stable-ish; created_at not selected in list query today
-        const next = pending[0];
-        if (!next) return { skipped: "every creator's queue is caught up — nothing to produce right now" };
+        // Give every creator with room under today's target one item per
+        // call, instead of always picking the single globally-oldest item —
+        // the actual fix for the "1 item/hour system-wide" bottleneck that
+        // starved every creator but whichever had the oldest queue entry.
+        const eligible = creatorsWithRoom(creators, allContent, DAILY_POST_TARGET);
+        const MAX_PER_CALL = 10; // sane upper bound so one call can't run unboundedly long
+        const toProcess = eligible.slice(0, MAX_PER_CALL);
+        if (toProcess.length === 0) return { skipped: "every creator is caught up or at today's target" };
 
-        const creator = creators.find((c) => c.id === next.creator_id);
-        if (!creator) return { skipped: `creator for content item ${next.id} not found` };
+        const items: Array<{ creator: string; title: string; status: string }> = [];
+        for (const creator of toProcess) {
+          const next = allContent
+            .filter((i) => i.creator_id === creator.id && i.status === "planned" && !i.script)
+            .sort((a, b) => (a.id! < b.id! ? -1 : 1))[0];
+          if (!next) continue; // room under target, but this creator's queue happens to be empty
 
-        const brief = (next.assets as { brief?: string } | undefined)?.brief ?? "";
-        const draft = (await MediaFactoryAgents.produceContentDraft(invoke, creator, next.title, next.hook ?? "", brief, next.platform)) as {
-          script?: string;
-          caption?: string;
-          hashtags?: string[];
-          image_prompt?: string;
-        };
-        const imageAssets = await attachGeneratedImage(creator, next.id!, draft.image_prompt);
-        const updated = await MediaFactoryDB.updateContentItemDraft(next.id!, {
-          script: draft.script,
-          caption: draft.caption,
-          hashtags: draft.hashtags,
-          assets: imageAssets,
-          status: "review",
-        });
-        await ctx.emit("mediaFactory.produced", { creatorId: creator.id, contentId: next.id });
-        return { action: "produced", creator: creator.name, title: next.title, status: updated.status, draft, imagePath: imageAssets.image_path };
+          const brief = (next.assets as { brief?: string } | undefined)?.brief ?? "";
+          const draft = (await MediaFactoryAgents.produceContentDraft(invoke, creator, next.title, next.hook ?? "", brief, next.platform)) as {
+            script?: string;
+            caption?: string;
+            hashtags?: string[];
+            image_prompt?: string;
+          };
+          const imageAssets = await attachGeneratedImage(creator, next.id!, draft.image_prompt);
+          const updated = await MediaFactoryDB.updateContentItemDraft(next.id!, {
+            script: draft.script,
+            caption: draft.caption,
+            hashtags: draft.hashtags,
+            assets: imageAssets,
+            status: "review",
+          });
+          await ctx.emit("mediaFactory.produced", { creatorId: creator.id, contentId: next.id });
+          items.push({ creator: creator.name, title: next.title, status: updated.status });
+        }
+        if (items.length === 0) return { skipped: "every eligible creator's queue is empty" };
+        return { action: "produced", itemsProcessed: items.length, items };
       }
 
       ctx.provide("mediaFactory", async (payload) => {
