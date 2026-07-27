@@ -791,6 +791,23 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, { ok: true, initialized: await vault.exists(), unlocked: vault.unlocked });
     }
 
+    if (method === "GET" && path === "/api/social/oauth/callback") {
+      const code = url.searchParams.get("code");
+      if (!code) {
+        res.writeHead(400, { "Content-Type": "text/html" });
+        res.end("<h2>Connection failed</h2><p>No authorization code received.</p>");
+        return;
+      }
+      // Deliberately stops here rather than completing the token exchange
+      // automatically — that call is flagged (see @atlas/social's
+      // token-exchange.ts) for a live check the first time it actually runs
+      // against a real response, not fired unattended on an untested path
+      // handling a real OAuth code.
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(`<h2>Almost done</h2><p>Authorization received. Tell ATLAS you're ready and it'll finish connecting this account.</p><p style="color:#888;font-size:12px">code: ${code.slice(0, 8)}...</p>`);
+      return;
+    }
+
     if (method === "POST" && path === "/api/setup") {
       const { masterPassword } = await readBody(req);
       if (await vault.exists()) return send(res, 400, { error: "vault already exists — use unlock" });

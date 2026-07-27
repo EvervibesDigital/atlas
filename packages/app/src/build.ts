@@ -7,6 +7,7 @@ import { createExecutivePlugin } from "@atlas/executive";
 import { createPersonasPlugin } from "@atlas/personas";
 import { createCreativePlugin } from "@atlas/creative";
 import { createPublishingPlugin, type Publisher, type Renderer } from "@atlas/publishing";
+import { createSocialPlugin } from "@atlas/social";
 import { createLearningPlugin, MetricsTracker } from "@atlas/learning";
 import { createResearchPlugin } from "@atlas/research";
 import { createBusinessPlugin } from "@atlas/business";
@@ -207,6 +208,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createNegotiationPlugin());
   await atlas.use(createDetectivePlugin());
   await atlas.use(createEngineeringPlugin());
+  await atlas.use(createSocialPlugin({ redirectUri: `${process.env.ATLAS_PUBLIC_URL ?? "https://atlas.evervibesdigital.com"}/api/social/oauth/callback` }));
 
   // The autonomous loop — conducts every department above.
   await atlas.use(createOrchestratorPlugin({ healEnabled: opts.healEnabled }));
