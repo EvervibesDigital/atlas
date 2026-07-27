@@ -88,6 +88,19 @@ describe("routeChatIntent (chat can DO things)", () => {
   it("lets normal conversation fall through", () => {
     expect(routeChatIntent("what do you think about my week")).toBeNull();
   });
+  it("routes 'connect instagram' to the social service's getConnectUrl op", () => {
+    const i = routeChatIntent("connect instagram");
+    expect(i?.service).toBe("social");
+    expect((i?.payload as { op: string }).op).toBe("getConnectUrl");
+  });
+  it("routes 'connect my facebook account' the same way", () => {
+    expect(routeChatIntent("connect my facebook account")?.kind).toBe("socialConnect");
+  });
+  it("formats a socialConnect result as a clickable link with instructions", () => {
+    const out = formatIntentResult("socialConnect", { url: "https://www.facebook.com/v21.0/dialog/oauth?client_id=123" });
+    expect(out).toContain("https://www.facebook.com/v21.0/dialog/oauth?client_id=123");
+    expect(out.toLowerCase()).toContain("almost done");
+  });
   it("routes 'surplus funds status' to the surplus service", () => {
     const i = routeChatIntent("show me my surplus funds status");
     expect(i?.service).toBe("surplus");
