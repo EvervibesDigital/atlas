@@ -214,6 +214,9 @@ export function routeChatIntent(message: string): ChatIntent | null {
   if (/\b(check|read|any).{0,12}(email|inbox|mail)\b/.test(low)) {
     return { kind: "email", service: "email", payload: { op: "check", limit: 8 }, intro: `📧 Inbox:` };
   }
+  if (/\bconnect\b.{0,20}\b(instagram|facebook|social)\b/.test(low) || /\b(social|instagram|facebook)\b.{0,20}\bconnect\b/.test(low)) {
+    return { kind: "socialConnect", service: "social", payload: { op: "getConnectUrl" }, intro: `🔗 Connect an Instagram/Facebook account:` };
+  }
   if (/\bsurplus\b/.test(low) && /\b(status|agents?|funds?|leads?|how|check|show)\b/.test(low)) {
     return { kind: "surplus", service: "surplus", payload: { op: "listAgents" }, intro: `💰 Surplus Funds Platform:` };
   }
@@ -251,6 +254,9 @@ export function formatIntentResult(kind: string, result: unknown): string {
   if (kind === "email") {
     const msgs = (r.messages as Array<{ subject: string; from: string; links: string[] }>) ?? [];
     return msgs.length ? msgs.map((x) => `✉ ${x.subject} — ${x.from}${x.links[0] ? `\n   link: ${x.links[0]}` : ""}`).join("\n") : "(inbox empty or not configured)";
+  }
+  if (kind === "socialConnect") {
+    return `${String(r.url ?? "")}\n\nOpen it, log in, and grant access — Meta will show "Almost done" once it's ready for ATLAS to finish connecting.`;
   }
   if (kind === "morningBrief") {
     const items = (r.items as Array<{ source: string; title: string; detail?: string }>) ?? [];
