@@ -480,6 +480,41 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     }
   }
 
+  /** Picks up ONE queued video-render job every 2 minutes, independent of
+   * the hourly business cycle so a slow render (TTS + image fetch + ffmpeg
+   * can legitimately take minutes) never blocks anything else, and a cycle
+   * never again has to guess-and-timeout at 30s. */
+  async function processOneVideoJob(): Promise<void> {
+    if (!vault.unlocked) return;
+    try {
+      const raw = await readFile(videoJobsFile, "utf8").catch(() => "[]");
+      const jobs = JSON.parse(raw) as import("@atlas/publishing").VideoRenderJob[];
+      const { nextQueuedJob, markDone, markFailed } = await import("@atlas/publishing");
+      const job = nextQueuedJob(jobs);
+      if (!job) return;
+
+      const rendering = jobs.map((j) => (j.id === job.id ? { ...j, status: "rendering" as const } : j));
+      await writeFile(videoJobsFile, JSON.stringify(rendering), "utf8");
+
+      const a = await ensureAtlas();
+      try {
+        const result = (await Promise.race([
+          a.invoke("publishing", { op: "renderQueuedJob", spec: job.spec }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("render exceeded 5 minute safety bound")), 5 * 60_000)),
+        ])) as { videoPath: string };
+        await writeFile(videoJobsFile, JSON.stringify(markDone(rendering, job.id, result.videoPath)), "utf8");
+        console.log(`[VIDEO QUEUE] Job ${job.id} rendered: ${result.videoPath}`);
+      } catch (err) {
+        await writeFile(videoJobsFile, JSON.stringify(markFailed(rendering, job.id, (err as Error).message)), "utf8");
+        console.error(`[VIDEO QUEUE] Job ${job.id} failed:`, (err as Error).message);
+      }
+    } catch (err) {
+      console.error("[VIDEO QUEUE] worker tick failed:", (err as Error).message);
+    }
+  }
+
+  setInterval(() => void processOneVideoJob(), 2 * 60 * 1000);
+
   async function runAutomationCycleOnce(): Promise<void> {
     if (isAutomationRunning) return;
     try {

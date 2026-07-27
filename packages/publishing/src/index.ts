@@ -5,3 +5,4 @@ export * from "./video-renderer";
 export * from "./render-utils";
 export * from "./montage-renderer";
 export * from "./plugin";
+export * from "./video-queue";
