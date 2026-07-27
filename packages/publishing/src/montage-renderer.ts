@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 import ffmpegPath from "ffmpeg-static";
 import type { Renderer } from "./video-renderer";
-import { wrapLines, ffmpegFilterPath, parseFfmpegDuration, reviewRender } from "./render-utils";
+import { buildSrt, ffmpegFilterPath, parseFfmpegDuration, reviewRender } from "./render-utils";
 
 const execAsync = promisify(exec);
 
@@ -80,14 +80,18 @@ export class MontageRenderer implements Renderer {
         totalDuration += duration;
 
         const segmentPath = path.join(runDir, `segment_${i}.mp4`);
-        // Caption goes through drawtext's textfile= option, NOT inline text=:
-        // inline captions with newlines truncate the command line on Windows
-        // cmd (the old VideoRenderer's latent render-killing bug) and need
-        // per-shell quote escaping. A file sidesteps all of it.
-        const captionPath = path.join(runDir, `caption_${i}.txt`);
-        await fs.writeFile(captionPath, wrapLines(scene.text, 35).join("\n"), "utf8");
-        const drawTextFilter = `drawtext=textfile='${ffmpegFilterPath(captionPath)}':fontcolor=white:fontsize=40:box=1:boxcolor=black@0.6:boxborderw=12:x=(w-text_w)/2:y=h-350`;
-        const renderCmd = `"${ffmpegPath}" -y -loop 1 -i "${imgPath}" -i "${audioPath}" -vf "${drawTextFilter}" -c:v libx264 -t ${duration} -c:a aac -pix_fmt yuv420p "${segmentPath}"`;
+        // Caption goes through the `subtitles` filter (an SRT file), NOT
+        // drawtext: the Linux x64 ffmpeg-static@5.3.0 binary this repo pulls
+        // compiles in subtitles/ass (via libass) but not drawtext, even with
+        // libfreetype enabled — confirmed directly against `ffmpeg -filters`
+        // on the VPS, not assumed. subtitles gives the same file-based
+        // (not inline-text) approach that already sidesteps the Windows
+        // cmd command-line-truncation/quoting bug drawtext's textfile= was
+        // chosen for originally.
+        const captionPath = path.join(runDir, `caption_${i}.srt`);
+        await fs.writeFile(captionPath, buildSrt(scene.text, duration, 35), "utf8");
+        const subtitlesFilter = `subtitles=filename='${ffmpegFilterPath(captionPath)}':force_style='FontSize=20,PrimaryColour=&H00FFFFFF,BackColour=&H66000000,BorderStyle=3,Outline=0,Shadow=0,Alignment=2,MarginV=175'`;
+        const renderCmd = `"${ffmpegPath}" -y -loop 1 -i "${imgPath}" -i "${audioPath}" -vf "${subtitlesFilter}" -c:v libx264 -t ${duration} -c:a aac -pix_fmt yuv420p "${segmentPath}"`;
         await execAsync(renderCmd);
 
         segmentFiles.push(segmentPath);

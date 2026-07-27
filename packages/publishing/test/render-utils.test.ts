@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wrapText, parseFfmpegDuration, reviewRender } from "../src/render-utils";
+import { wrapText, parseFfmpegDuration, reviewRender, buildSrt } from "../src/render-utils";
 
 describe("wrapText", () => {
   it("wraps long text into multiple lines under maxLen", () => {
@@ -20,6 +20,21 @@ describe("parseFfmpegDuration", () => {
   });
   it("returns null when no Duration line is present", () => {
     expect(parseFfmpegDuration("no duration here")).toBeNull();
+  });
+});
+
+describe("buildSrt", () => {
+  it("produces a single SRT cue spanning the full duration", () => {
+    const srt = buildSrt("hello world", 5.32, 35);
+    expect(srt).toContain("1\n");
+    expect(srt).toContain("00:00:00,000 --> 00:00:05,320\n");
+    expect(srt).toContain("hello world");
+  });
+  it("wraps long text onto multiple lines within the cue", () => {
+    const srt = buildSrt("this is a fairly long sentence that should wrap onto more than one line", 3, 20);
+    const bodyLines = srt.split("\n").slice(2).filter(Boolean);
+    expect(bodyLines.length).toBeGreaterThan(1);
+    for (const l of bodyLines) expect(l.length).toBeLessThanOrEqual(20 + 10);
   });
 });
 

@@ -33,6 +33,29 @@ export function ffmpegFilterPath(p: string): string {
   return p.replace(/\\/g, "/").replace(/:/g, "\\:");
 }
 
+function formatSrtTimestamp(totalSeconds: number): string {
+  const clamped = Math.max(totalSeconds, 0);
+  const hours = Math.floor(clamped / 3600);
+  const minutes = Math.floor((clamped % 3600) / 60);
+  const seconds = Math.floor(clamped % 60);
+  const ms = Math.round((clamped - Math.floor(clamped)) * 1000);
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)},${pad(ms, 3)}`;
+}
+
+/**
+ * Build a single-cue SRT file spanning the whole clip duration, for ffmpeg's
+ * `subtitles` filter. Used instead of `drawtext` — some ffmpeg-static builds
+ * (confirmed: the Linux x64 5.3.0 binary this repo pulls) compile in
+ * `subtitles`/`ass` (via libass) but not `drawtext`, even with libfreetype
+ * enabled.
+ */
+export function buildSrt(text: string, durationSec: number, maxLineLen: number): string {
+  const lines = wrapLines(text, maxLineLen);
+  const end = formatSrtTimestamp(Math.max(durationSec, 0.1));
+  return `1\n00:00:00,000 --> ${end}\n${lines.join("\n")}\n`;
+}
+
 /** Parse an ffmpeg stderr blob for `Duration: HH:MM:SS.CC`, returning seconds or null if absent. */
 export function parseFfmpegDuration(stderr: string): number | null {
   const match = stderr.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
