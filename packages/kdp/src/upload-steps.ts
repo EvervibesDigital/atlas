@@ -22,8 +22,35 @@ export const PUBLISH_BUTTON_SELECTOR = "[data-testid='submit-for-publishing-butt
 const CATEGORY_SEARCH_INPUT_SELECTOR = "[data-testid='category-search-input']";
 const CATEGORY_FIRST_RESULT_SELECTOR = "[data-testid='category-search-results'] li:first-child";
 
+// Details section selectors
+const TITLE_SELECTOR = "#data-print-book-title";
+const SUBTITLE_SELECTOR = "#data-print-book-subtitle";
+const AUTHOR_FIRSTNAME_SELECTOR = "#data-print-book-author-firstname";
+const AUTHOR_LASTNAME_SELECTOR = "#data-print-book-author-lastname";
+const DESCRIPTION_SELECTOR = "#data-print-book-description";
+const KEYWORD_SELECTOR_PREFIX = "#data-print-book-keyword-";
+const NOT_PUBLIC_DOMAIN_SELECTOR = "#data-print-book-not-public-domain";
+const DETAILS_CONTINUE_SELECTOR = "[data-testid='details-save-and-continue']";
+
+// Content section selectors
+const MANUSCRIPT_UPLOAD_SELECTOR = "[data-testid='manuscript-upload-input']";
+const MANUSCRIPT_UPLOAD_SUCCESS_SELECTOR = "[data-testid='manuscript-upload-success']";
+const COVER_UPLOAD_SELECTOR = "[data-testid='cover-upload-input']";
+const COVER_UPLOAD_SUCCESS_SELECTOR = "[data-testid='cover-upload-success']";
+const CONTENT_CONTINUE_SELECTOR = "[data-testid='content-save-and-continue']";
+
+// Rights & Pricing section selectors
+const TERRITORY_WORLDWIDE_SELECTOR = "[data-testid='territory-worldwide']";
+const LIST_PRICE_SELECTOR = "[data-testid='list-price-input']";
+
+// Timeouts
+/** Generous timeout (5 min) for file processing and initial login waits. */
+const LONG_WAIT_MS = 5 * 60 * 1000;
+
+// Constants
 const AUTHOR_FIRST_NAME = "Matthew";
 const AUTHOR_LAST_NAME = "Brittingham";
+const MAX_KEYWORDS = 7; // Matches KDP's keyword-field limit
 
 /** Builds the Details -> Content -> Rights & Pricing steps for one book, up
  * through entering the list price. Stops there — categories run separately
@@ -45,35 +72,35 @@ export function buildUploadSteps(
     {
       action: "waitFor",
       selector: DASHBOARD_READY_SELECTOR,
-      timeoutMs: 5 * 60 * 1000,
+      timeoutMs: LONG_WAIT_MS,
       note: "waits up to 5 min — if this is the first run, log into KDP in this window now",
     },
-    { action: "fill", selector: "#data-print-book-title", value: book.title },
+    { action: "fill", selector: TITLE_SELECTOR, value: book.title },
   ];
-  if (book.subtitle) steps.push({ action: "fill", selector: "#data-print-book-subtitle", value: book.subtitle });
+  if (book.subtitle) steps.push({ action: "fill", selector: SUBTITLE_SELECTOR, value: book.subtitle });
   steps.push(
-    { action: "fill", selector: "#data-print-book-author-firstname", value: AUTHOR_FIRST_NAME },
-    { action: "fill", selector: "#data-print-book-author-lastname", value: AUTHOR_LAST_NAME },
+    { action: "fill", selector: AUTHOR_FIRSTNAME_SELECTOR, value: AUTHOR_FIRST_NAME },
+    { action: "fill", selector: AUTHOR_LASTNAME_SELECTOR, value: AUTHOR_LAST_NAME },
   );
-  if (book.description) steps.push({ action: "fill", selector: "#data-print-book-description", value: book.description });
-  for (const [i, keyword] of (book.keywords ?? []).slice(0, 7).entries()) {
-    steps.push({ action: "fill", selector: `#data-print-book-keyword-${i}`, value: keyword });
+  if (book.description) steps.push({ action: "fill", selector: DESCRIPTION_SELECTOR, value: book.description });
+  for (const [i, keyword] of (book.keywords ?? []).slice(0, MAX_KEYWORDS).entries()) {
+    steps.push({ action: "fill", selector: `${KEYWORD_SELECTOR_PREFIX}${i}`, value: keyword });
   }
   steps.push(
-    { action: "click", selector: "#data-print-book-not-public-domain", note: "confirms this is not a public domain work" },
-    { action: "click", selector: "[data-testid='details-save-and-continue']", note: "advances to the Content step" },
-    { action: "upload", selector: "[data-testid='manuscript-upload-input']", value: files.interiorPath },
+    { action: "click", selector: NOT_PUBLIC_DOMAIN_SELECTOR, note: "confirms this is not a public domain work" },
+    { action: "click", selector: DETAILS_CONTINUE_SELECTOR, note: "advances to the Content step" },
+    { action: "upload", selector: MANUSCRIPT_UPLOAD_SELECTOR, value: files.interiorPath },
     {
       action: "waitFor",
-      selector: "[data-testid='manuscript-upload-success']",
-      timeoutMs: 5 * 60 * 1000,
+      selector: MANUSCRIPT_UPLOAD_SUCCESS_SELECTOR,
+      timeoutMs: LONG_WAIT_MS,
       note: "manuscript processing can take minutes",
     },
-    { action: "upload", selector: "[data-testid='cover-upload-input']", value: files.coverPath },
-    { action: "waitFor", selector: "[data-testid='cover-upload-success']", timeoutMs: 5 * 60 * 1000, note: "cover processing" },
-    { action: "click", selector: "[data-testid='content-save-and-continue']", note: "advances to the Rights & Pricing step" },
-    { action: "click", selector: "[data-testid='territory-worldwide']", note: "worldwide distribution rights" },
-    { action: "fill", selector: "[data-testid='list-price-input']", value: price.toFixed(2) },
+    { action: "upload", selector: COVER_UPLOAD_SELECTOR, value: files.coverPath },
+    { action: "waitFor", selector: COVER_UPLOAD_SUCCESS_SELECTOR, timeoutMs: LONG_WAIT_MS, note: "cover processing" },
+    { action: "click", selector: CONTENT_CONTINUE_SELECTOR, note: "advances to the Rights & Pricing step" },
+    { action: "click", selector: TERRITORY_WORLDWIDE_SELECTOR, note: "worldwide distribution rights" },
+    { action: "fill", selector: LIST_PRICE_SELECTOR, value: price.toFixed(2) },
   );
   return steps;
 }
