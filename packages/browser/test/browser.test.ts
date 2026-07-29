@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SimulatedDriver, createPlaywrightDriver, type BrowserStep } from "../src/index";
+import { SimulatedDriver, createPlaywrightDriver, resolveContextOptions, type BrowserStep } from "../src/index";
 
 const steps: BrowserStep[] = [
   { action: "goto", url: "https://example.com/signup" },
@@ -28,5 +28,25 @@ describe("SimulatedDriver", () => {
 describe("createPlaywrightDriver", () => {
   it("fails with a clear install message when Playwright isn't installed", async () => {
     await expect(createPlaywrightDriver().run(steps)).rejects.toThrow(/Playwright is not installed/);
+  });
+});
+
+describe("resolveContextOptions", () => {
+  it("reuses a saved session when the file exists", () => {
+    const result = resolveContextOptions("/tmp/kdp-session.json", () => true);
+    expect(result).toEqual({ storageState: "/tmp/kdp-session.json" });
+  });
+
+  it("starts a fresh context when no path is configured, or the file doesn't exist yet", () => {
+    expect(resolveContextOptions(undefined, () => true)).toEqual({});
+    expect(resolveContextOptions("/tmp/kdp-session.json", () => false)).toEqual({});
+  });
+});
+
+describe("createPlaywrightDriver with storageState/keepOpen options", () => {
+  it("still fails with the install message even when storageState/keepOpen are set", async () => {
+    await expect(createPlaywrightDriver({ storageState: "/tmp/x.json", keepOpen: true }).run(steps)).rejects.toThrow(
+      /Playwright is not installed/,
+    );
   });
 });
