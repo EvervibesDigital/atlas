@@ -92,7 +92,11 @@ export function createPlaywrightDriver(
   } | null = null;
 
   async function getPage() {
-    if (handle) return handle;
+    if (handle) {
+      const alreadyClosed = (handle.page.isClosed as unknown as () => boolean)();
+      if (!alreadyClosed) return handle;
+      handle = null;
+    }
     // Variable specifier defeats static resolution so tsc doesn't require the
     // package to be present at build time.
     const spec = "playwright";
@@ -136,7 +140,7 @@ export function createPlaywrightDriver(
           else if (s.action === "waitFor" && s.selector) await page.waitForSelector!(s.selector, s.timeoutMs ? { timeout: s.timeoutMs } : undefined);
           else if (s.action === "press" && s.selector && s.value) await page.press!(s.selector, s.value);
           else if (s.action === "upload" && s.selector && val) await page.setInputFiles!(s.selector, val);
-          log.push(`${s.action}${s.selector ? " @ " + s.selector : ""}${s.url ? " " + s.url : ""}`);
+          log.push(`${s.action}${s.selector ? " @ " + s.selector : ""}${s.url ? " " + s.url : ""}${s.note ? " — " + s.note : ""}`);
         }
         result = { ok: true, stepsRun: steps.length, log };
       } catch (err) {

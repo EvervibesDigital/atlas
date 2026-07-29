@@ -146,7 +146,8 @@ export function createKdpPlugin(opts: { fetcher?: typeof fetch; driver?: Browser
 
         if (cmd.op === "uploadToAmazon") {
           const { book, zipBuffer } = await fetchBookAndZip(cmd.id);
-          if (pricePolicy[book.product_type] === undefined) {
+          const price = pricePolicy[book.product_type];
+          if (price === undefined) {
             throw new Error(`kdp upload: no price configured for product_type "${book.product_type}"`);
           }
           const zip = new AdmZip(zipBuffer);
@@ -161,22 +162,40 @@ export function createKdpPlugin(opts: { fetcher?: typeof fetch; driver?: Browser
             await writeFile(interiorPath, interiorEntry.getData());
             await writeFile(coverPath, coverEntry.getData());
 
-            await driver.run(buildUploadSteps(book, { interiorPath, coverPath }, pricePolicy));
+            const log: string[] = [];
+            let stepsRun = 0;
+
+            const coreResult = await driver.run(buildUploadSteps(book, { interiorPath, coverPath }, pricePolicy));
+            stepsRun += coreResult.stepsRun;
+            log.push(...coreResult.log);
 
             const categoriesMatched: string[] = [];
             const categoriesSkipped: Array<{ category: string; reason: string }> = [];
             for (const category of book.categories ?? []) {
               try {
-                await driver.run(buildCategorySteps(category));
+                const categoryResult = await driver.run(buildCategorySteps(category));
+                stepsRun += categoryResult.stepsRun;
+                log.push(...categoryResult.log);
                 categoriesMatched.push(category);
               } catch (err) {
                 categoriesSkipped.push({ category, reason: err instanceof Error ? err.message : String(err) });
               }
             }
 
-            await driver.run(buildFinalConfirmationStep());
+            const confirmResult = await driver.run(buildFinalConfirmationStep());
+            stepsRun += confirmResult.stepsRun;
+            log.push(...confirmResult.log);
 
-            const result = { ok: true, bookId: cmd.id, driver: driver.name, categoriesMatched, categoriesSkipped };
+            const result = {
+              ok: true,
+              bookId: cmd.id,
+              driver: driver.name,
+              stepsRun,
+              filled: { title: book.title, price },
+              categoriesMatched,
+              categoriesSkipped,
+              log,
+            };
             await ctx.emit("kdp.uploadedToAmazon", result);
             return result;
           } finally {

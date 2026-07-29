@@ -157,13 +157,19 @@ describe("kdp plugin uploadToAmazon", () => {
         const r = (await ctx.call("kdp", { op: "uploadToAmazon", id: "b1" })) as {
           ok: boolean;
           driver: string;
+          stepsRun: number;
+          filled: { title: string; price: number };
           categoriesMatched: string[];
           categoriesSkipped: Array<{ category: string; reason: string }>;
+          log: string[];
         };
         expect(r.ok).toBe(true);
         expect(r.driver).toBe("simulated");
+        expect(r.stepsRun).toBeGreaterThan(0);
+        expect(r.filled).toEqual({ title: "Gratitude Journal", price: 7.49 });
         expect(r.categoriesMatched).toEqual(["Crafts & Hobbies > Journals"]);
         expect(r.categoriesSkipped).toEqual([]);
+        expect(r.log.length).toBeGreaterThan(0);
       },
     });
   });
