@@ -106,13 +106,18 @@ export function createPlaywrightDriver(
       newContext: (o: { storageState?: string }) => Promise<Record<string, unknown>>;
       close: () => Promise<void>;
     };
-    const context = (await browser.newContext(resolveContextOptions(opts.storageState, existsSync))) as Record<
-      string,
-      (...a: unknown[]) => Promise<unknown>
-    >;
-    const page = (await context.newPage!()) as Record<string, (...a: unknown[]) => Promise<unknown>>;
-    handle = { browser, context, page };
-    return handle;
+    try {
+      const context = (await browser.newContext(resolveContextOptions(opts.storageState, existsSync))) as Record<
+        string,
+        (...a: unknown[]) => Promise<unknown>
+      >;
+      const page = (await context.newPage!()) as Record<string, (...a: unknown[]) => Promise<unknown>>;
+      handle = { browser, context, page };
+      return handle;
+    } catch (err) {
+      await browser.close().catch(() => {});
+      throw err;
+    }
   }
 
   return {
