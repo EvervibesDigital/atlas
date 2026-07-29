@@ -341,6 +341,21 @@ export class MediaFactoryAgents {
       };
     }
   }
+
+  /**
+   * Splits an ALREADY-WRITTEN script into `sceneCount` narration segments,
+   * each with its own visual prompt — does not re-draft the script's
+   * content or voice, only breaks it up for video. This is the missing
+   * step MontageRenderer needs (`{voice, scenes: [{text, imageUrl}]}`) that
+   * produceContentDraft alone can't produce (one script, one image).
+   */
+  static async breakScriptIntoScenes(invoke: BrainInvoker, script: string, sceneCount: number): Promise<Array<{ text: string; imagePrompt: string }>> {
+    const system = `You split an already-written script into exactly ${sceneCount} short narration segments for a short-form video, in order. Return ONLY strict JSON: {"scenes": [{"text": "segment of the script, verbatim or lightly trimmed for pacing", "image_prompt": "a distinct, high-detail photorealistic visual for this specific segment"}]}`;
+    const prompt = `Script:\n${script}\n\nSplit this into exactly ${sceneCount} scenes, preserving the original wording as closely as possible while giving each segment a distinct visual moment.`;
+    const resp = (await invoke("brain", { prompt, system, maxTokens: 1024, task: "media_factory.scenes" })) as { text: string };
+    const parsed = extractJSON<{ scenes: Array<{ text: string; image_prompt: string }> }>(resp.text);
+    return parsed.scenes.map((s) => ({ text: s.text, imagePrompt: s.image_prompt }));
+  }
 }
 
 /**

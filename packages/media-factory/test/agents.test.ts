@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildImagePrompt } from "../src/agents";
+import { buildImagePrompt, MediaFactoryAgents } from "../src/agents";
 import type { VirtualCreator } from "../src/db";
 
 function creator(appearance?: { description?: string }): VirtualCreator {
@@ -38,5 +38,29 @@ describe("buildImagePrompt", () => {
   it("falls back when the description is present but empty/whitespace", () => {
     const c = creator({ description: "   " });
     expect(buildImagePrompt(c, "a scene")).toBe("a scene");
+  });
+});
+
+describe("breakScriptIntoScenes", () => {
+  it("asks the brain to split the script and returns parsed scenes", async () => {
+    const fakeInvoke = async (_service: string, _payload: unknown) => ({
+      text: JSON.stringify({
+        scenes: [
+          { text: "Scene one narration.", image_prompt: "a person smiling at a desk" },
+          { text: "Scene two narration.", image_prompt: "a person walking outside" },
+        ],
+      }),
+    });
+
+    const scenes = await MediaFactoryAgents.breakScriptIntoScenes(fakeInvoke, "Full script text here.", 2);
+
+    expect(scenes).toHaveLength(2);
+    expect(scenes[0]).toEqual({ text: "Scene one narration.", imagePrompt: "a person smiling at a desk" });
+    expect(scenes[1]).toEqual({ text: "Scene two narration.", imagePrompt: "a person walking outside" });
+  });
+
+  it("throws a clear error if the brain returns unparseable output", async () => {
+    const fakeInvoke = async () => ({ text: "not json" });
+    await expect(MediaFactoryAgents.breakScriptIntoScenes(fakeInvoke, "script", 3)).rejects.toThrow();
   });
 });
