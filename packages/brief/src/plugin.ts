@@ -26,7 +26,7 @@ export function createBriefPlugin(): Plugin {
       name: "brief",
       version: "0.1.0",
       capabilities: ["brief"],
-      permissions: ["call:kdp", "call:gigfinder", "call:approvals", "call:surplus", "call:wholesale", "call:leadscan", "call:learning", "call:memory"],
+      permissions: ["call:kdp", "call:gigfinder", "call:approvals", "call:surplus", "call:wholesale", "call:leadscan", "call:learning", "call:memory", "call:social", "call:mediaFactory"],
       role: "executor",
     },
 
@@ -168,6 +168,35 @@ export function createBriefPlugin(): Plugin {
         }));
       }
 
+      async function fromSocial(): Promise<BriefItem[]> {
+        const { accounts } = (await ctx.call("social", { op: "listAccounts" })) as { accounts: Array<{ id: string; personaLabel: string; platform: string }> };
+        if (accounts.length === 0) return [];
+
+        const creators = (await ctx.call("mediaFactory", { op: "listCreators" })) as Array<{ id: string; name: string }>;
+        const allContent = (await ctx.call("mediaFactory", { op: "listContent" })) as Array<{ id: string; creator_id: string; status: string; caption?: string; assets?: { image_path?: string } }>;
+
+        const items: BriefItem[] = [];
+        for (const account of accounts) {
+          const creator = creators.find((c) => c.name === account.personaLabel);
+          if (!creator) continue;
+          const ready = allContent.filter((c) => c.creator_id === creator.id && c.status === "review" && c.assets?.image_path);
+          if (ready.length === 0) continue;
+
+          items.push({
+            id: account.id,
+            source: "social" as const,
+            title: `${account.personaLabel} — ${ready.length} post${ready.length === 1 ? "" : "s"} ready`,
+            detail: `Approving queues ${ready.length} post(s) to ${account.platform}, spread over the next 6 hours (not posted all at once).`,
+            risk: 1 as const,
+            // Posting AI-generated content live, batched like every other
+            // outbound-content source (leadscan/wholesale email) — reviewed
+            // per creator, one tap, never silently posted.
+            tier: "bulk" as const,
+          });
+        }
+        return items;
+      }
+
       async function collect(fn: () => Promise<BriefItem[]>): Promise<BriefItem[]> {
         try {
           return await fn();
@@ -177,7 +206,7 @@ export function createBriefPlugin(): Plugin {
       }
 
       async function collectAll(): Promise<BriefItem[]> {
-        const [kdp, gigfinder, approvals, surplus, wholesale, leadscan, learning] = await Promise.all([
+        const [kdp, gigfinder, approvals, surplus, wholesale, leadscan, learning, social] = await Promise.all([
           collect(fromKdp),
           collect(fromGigFinder),
           collect(fromApprovals),
@@ -185,8 +214,9 @@ export function createBriefPlugin(): Plugin {
           collect(fromWholesale),
           collect(fromLeadscan),
           collect(fromLearning),
+          collect(fromSocial),
         ]);
-        return [...kdp, ...gigfinder, ...approvals, ...surplus, ...wholesale, ...leadscan, ...learning].sort(
+        return [...kdp, ...gigfinder, ...approvals, ...surplus, ...wholesale, ...leadscan, ...learning, ...social].sort(
           (a, b) => b.risk - a.risk || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""),
         );
       }
@@ -221,6 +251,22 @@ export function createBriefPlugin(): Plugin {
           // id IS the category (see fromLearning) — proposals are recomputed
           // live from metrics, so there's no record to fetch by a separate id.
           return ctx.call("learning", { op: action === "approve" ? "adopt" : "dismiss", category: id });
+        }
+        if (source === "social") {
+          if (action === "reject") return { skipped: id };
+          const { accounts } = (await ctx.call("social", { op: "listAccounts" })) as { accounts: Array<{ id: string; personaLabel: string }> };
+          const account = accounts.find((a) => a.id === id);
+          if (!account) throw new Error(`brief: social account "${id}" not found`);
+          const creators = (await ctx.call("mediaFactory", { op: "listCreators" })) as Array<{ id: string; name: string }>;
+          const creator = creators.find((c) => c.name === account.personaLabel);
+          if (!creator) throw new Error(`brief: no Media Factory creator matches account "${id}"`);
+          const allContent = (await ctx.call("mediaFactory", { op: "listContent" })) as Array<{ id: string; creator_id: string; status: string; caption?: string; assets?: { image_path?: string } }>;
+          const ready = allContent.filter((c) => c.creator_id === creator.id && c.status === "review" && c.assets?.image_path);
+          return ctx.call("social", {
+            op: "queuePosts",
+            accountId: id,
+            items: ready.map((c) => ({ contentItemId: c.id, caption: c.caption ?? "", mediaUrl: c.assets!.image_path! })),
+          });
         }
         throw new Error(`brief: unknown source "${source as BriefSource}"`);
       }

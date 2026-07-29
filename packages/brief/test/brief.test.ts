@@ -516,4 +516,45 @@ describe("brief plugin — the Unified Morning Brief", () => {
       });
     });
   });
+
+  describe("social source", () => {
+    it("groups ready content by creator into one bulk item, not one per post", async () => {
+      const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({}) });
+      await atlas.use(createBriefPlugin());
+      await atlas.use({
+        manifest: { name: "social", version: "1", capabilities: ["social"], permissions: [], role: "executor" },
+        register(ctx) {
+          ctx.provide("social", async (payload: unknown) => {
+            const cmd = payload as { op: string };
+            if (cmd.op === "listAccounts") return { accounts: [{ id: "acc1", personaLabel: "Aria Vance", platform: "instagram" }] };
+            throw new Error("unexpected social op in test: " + cmd.op);
+          });
+        },
+      });
+      await atlas.use({
+        manifest: { name: "mediaFactory", version: "1", capabilities: ["mediaFactory"], permissions: [], role: "executor" },
+        register(ctx) {
+          ctx.provide("mediaFactory", async (payload: unknown) => {
+            const cmd = payload as { op: string };
+            if (cmd.op === "listCreators") return [{ id: "creator1", name: "Aria Vance" }];
+            if (cmd.op === "listContent") {
+              return [
+                { id: "item1", creator_id: "creator1", platform: "instagram", status: "review", title: "t1", caption: "cap1", assets: { image_path: "/img1.jpg" } },
+                { id: "item2", creator_id: "creator1", platform: "instagram", status: "review", title: "t2", caption: "cap2", assets: { image_path: "/img2.jpg" } },
+                { id: "item3", creator_id: "creator1", platform: "instagram", status: "planned", title: "t3" }, // not ready yet, excluded
+              ];
+            }
+            throw new Error("unexpected mediaFactory op in test: " + cmd.op);
+          });
+        },
+      });
+
+      const brief = (await atlas.invoke("brief", { op: "today" })) as { items: Array<{ source: string; title: string; tier: string; detail?: string }> };
+      const socialItems = brief.items.filter((i) => i.source === "social");
+      expect(socialItems).toHaveLength(1); // one item for the whole creator, not one per post
+      expect(socialItems[0]!.title).toContain("Aria Vance");
+      expect(socialItems[0]!.title).toContain("2"); // 2 ready posts
+      expect(socialItems[0]!.tier).toBe("bulk");
+    });
+  });
 });
