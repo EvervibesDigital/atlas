@@ -1,30 +1,41 @@
 import type { Plugin } from "@atlas/core";
+import { SimulatedDriver, type BrowserDriver } from "@atlas/browser";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import AdmZip from "adm-zip";
 import type { KdpBook, KdpBookStatus, KdpOpportunity } from "./types";
+import { buildUploadSteps, buildCategorySteps, buildFinalConfirmationStep, DEFAULT_KDP_PRICE_POLICY, type PricePolicy } from "./upload-steps";
 
 /**
  * KDP plugin (service "kdp") — bridges ATLAS to the REAL, already-built KDP
  * pipeline living in the separate `evervibes` Next.js app (trend scan → AI
- * scoring → metadata generation → PDF ZIP → manual Amazon upload). This does
- * NOT reimplement that pipeline — it calls the existing, deployed endpoints
- * over HTTP, same auth (CRON_SECRET bearer) the app's own cron jobs use.
+ * scoring → metadata generation → PDF ZIP), plus a Playwright-driven
+ * `uploadToAmazon` op that fills Amazon KDP's own book-creation wizard and
+ * stops immediately before the Publish click — Mat reviews and clicks
+ * Publish himself in the same browser window. `uploadToAmazon` uses
+ * SimulatedDriver (safe, no real browser) unless a real `driver` is passed in
+ * or `ATLAS_REAL_KDP_UPLOAD=true` is set (see packages/app/src/build.ts).
  *
- * Honest scope: this wires ATLAS to what's ACTUALLY BUILT. Cover Engine v2
- * (real finished covers, currently spec-only — see evervibes'
- * docs/superpowers/specs/2026-07-13-kdp-cover-engine-design.md) is NOT
- * implemented yet; books ship with a placeholder cover template until that
- * gets built. Amazon auto-upload and sales tracking (roadmap sub-projects
- * 3-4) are also not built — status marking here is manual (Mat tells ATLAS,
- * or uses the evervibes hub directly).
+ * Honest scope: Cover Engine v2 (real finished covers, currently spec-only —
+ * see evervibes' docs/superpowers/specs/2026-07-13-kdp-cover-engine-design.md)
+ * is NOT implemented yet; books ship with a placeholder cover template until
+ * that gets built. Sales tracking (roadmap sub-project 4) is also not built.
+ * Category selection during upload is best-effort (see upload-steps.ts) —
+ * KDP's real category tree isn't validated against.
  */
 export type KdpCommand =
   | { op: "scan" }
   | { op: "generate"; limit?: number }
   | { op: "status" }
   | { op: "markStatus"; id: string; status: KdpBookStatus; amazonUrl?: string; amazonAsin?: string }
-  | { op: "downloadZip"; id: string };
+  | { op: "downloadZip"; id: string }
+  | { op: "uploadToAmazon"; id: string };
 
-export function createKdpPlugin(opts: { fetcher?: typeof fetch } = {}): Plugin {
+export function createKdpPlugin(opts: { fetcher?: typeof fetch; driver?: BrowserDriver; pricePolicy?: PricePolicy } = {}): Plugin {
   const f = opts.fetcher ?? fetch;
+  const driver = opts.driver ?? new SimulatedDriver();
+  const pricePolicy = opts.pricePolicy ?? DEFAULT_KDP_PRICE_POLICY;
 
   return {
     manifest: {
@@ -41,6 +52,36 @@ export function createKdpPlugin(opts: { fetcher?: typeof fetch } = {}): Plugin {
         const secret = await ctx.secret("KDP_CRON_SECRET");
         if (!secret) throw new Error("kdp: no KDP_CRON_SECRET set — add it in API Keys (same value as evervibes' CRON_SECRET env var)");
         return { url, secret };
+      }
+
+      /** Shared by downloadZip and uploadToAmazon: looks up the book, then
+       * fetches its upload-ready ZIP (interior.pdf + cover.pdf + extras). */
+      async function fetchBookAndZip(id: string): Promise<{ book: KdpBook; zipBuffer: Buffer }> {
+        const { url, secret } = await base();
+        const statusR = await f(`${url}/api/kdp/status`, { headers: { Authorization: `Bearer ${secret}` } });
+        const statusData = (await statusR.json().catch(() => ({}))) as { books?: KdpBook[] };
+        const book = (statusData.books ?? []).find((b) => b.id === id);
+        if (!book) throw new Error(`kdp: book "${id}" not found`);
+
+        const zipR = await f(`${url}/api/kdp/pdf`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: book.title,
+            subtitle: book.subtitle,
+            description: book.description,
+            keywords: book.keywords,
+            coverHook: book.cover_hook,
+            backCoverText: book.back_cover_text,
+            trimSize: book.trim_size,
+            pageCount: book.page_count,
+            interiorType: book.interior_type,
+            primaryColor: book.primary_color,
+          }),
+        });
+        if (!zipR.ok) throw new Error(`kdp pdf HTTP ${zipR.status}`);
+        const zipBuffer = Buffer.from(await zipR.arrayBuffer());
+        return { book, zipBuffer };
       }
 
       ctx.provide("kdp", async (payload) => {
@@ -99,31 +140,45 @@ export function createKdpPlugin(opts: { fetcher?: typeof fetch } = {}): Plugin {
         }
 
         if (cmd.op === "downloadZip") {
-          const { url, secret } = await base();
-          const statusR = await f(`${url}/api/kdp/status`, { headers: { Authorization: `Bearer ${secret}` } });
-          const statusData = (await statusR.json().catch(() => ({}))) as { books?: KdpBook[] };
-          const book = (statusData.books ?? []).find((b) => b.id === cmd.id);
-          if (!book) throw new Error(`kdp: book "${cmd.id}" not found`);
+          const { book, zipBuffer } = await fetchBookAndZip(cmd.id);
+          return { filename: `${(book.title ?? "book").replace(/[^a-z0-9]+/gi, "_")}.zip`, base64: zipBuffer.toString("base64") };
+        }
 
-          const zipR = await f(`${url}/api/kdp/pdf`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              title: book.title,
-              subtitle: book.subtitle,
-              description: book.description,
-              keywords: book.keywords,
-              coverHook: book.cover_hook,
-              backCoverText: book.back_cover_text,
-              trimSize: book.trim_size,
-              pageCount: book.page_count,
-              interiorType: book.interior_type,
-              primaryColor: book.primary_color,
-            }),
-          });
-          if (!zipR.ok) throw new Error(`kdp pdf HTTP ${zipR.status}`);
-          const buf = Buffer.from(await zipR.arrayBuffer());
-          return { filename: `${(book.title ?? "book").replace(/[^a-z0-9]+/gi, "_")}.zip`, base64: buf.toString("base64") };
+        if (cmd.op === "uploadToAmazon") {
+          const { book, zipBuffer } = await fetchBookAndZip(cmd.id);
+          const zip = new AdmZip(zipBuffer);
+          const interiorEntry = zip.getEntry("interior.pdf");
+          const coverEntry = zip.getEntry("cover.pdf");
+          if (!interiorEntry || !coverEntry) throw new Error(`kdp upload: zip for "${cmd.id}" is missing interior.pdf or cover.pdf`);
+
+          const tmpDir = await mkdtemp(join(tmpdir(), "atlas-kdp-upload-"));
+          try {
+            const interiorPath = join(tmpDir, "interior.pdf");
+            const coverPath = join(tmpDir, "cover.pdf");
+            await writeFile(interiorPath, interiorEntry.getData());
+            await writeFile(coverPath, coverEntry.getData());
+
+            await driver.run(buildUploadSteps(book, { interiorPath, coverPath }, pricePolicy));
+
+            const categoriesMatched: string[] = [];
+            const categoriesSkipped: string[] = [];
+            for (const category of book.categories ?? []) {
+              try {
+                await driver.run(buildCategorySteps(category));
+                categoriesMatched.push(category);
+              } catch {
+                categoriesSkipped.push(category);
+              }
+            }
+
+            await driver.run(buildFinalConfirmationStep());
+
+            const result = { ok: true, bookId: cmd.id, categoriesMatched, categoriesSkipped };
+            await ctx.emit("kdp.uploadedToAmazon", result);
+            return result;
+          } finally {
+            await rm(tmpDir, { recursive: true, force: true });
+          }
         }
 
         throw new Error(`kdp: unknown op "${(cmd as { op: string }).op}"`);

@@ -3,6 +3,9 @@ import { Atlas, ConfigVault } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
 import { createMemoryPlugin, InMemoryStore } from "@atlas/memory";
 import { createKdpPlugin } from "../src/plugin";
+import AdmZip from "adm-zip";
+import type { BrowserDriver, BrowserStep, BrowserResult } from "@atlas/browser";
+import type { KdpBook } from "../src/types";
 
 function fakeFetch(handlers: Record<string, (init?: RequestInit) => unknown>): typeof fetch {
   return (async (url: string, init?: RequestInit) => {
@@ -12,6 +15,54 @@ function fakeFetch(handlers: Record<string, (init?: RequestInit) => unknown>): t
     const body = handler(init);
     return { ok: true, status: 200, json: async () => body, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(body)).buffer } as Response;
   }) as typeof fetch;
+}
+
+function fakeZipBuffer(): Buffer {
+  const zip = new AdmZip();
+  zip.addFile("interior.pdf", Buffer.from("fake interior pdf bytes"));
+  zip.addFile("cover.pdf", Buffer.from("fake cover pdf bytes"));
+  return zip.toBuffer();
+}
+
+function fakeUploadFetcher(book: KdpBook, zipBuffer: Buffer): typeof fetch {
+  return (async (url: string) => {
+    const path = new URL(url).pathname;
+    if (path === "/api/kdp/status") {
+      return { ok: true, status: 200, json: async () => ({ books: [book] }) } as Response;
+    }
+    if (path === "/api/kdp/pdf") {
+      const ab = zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength);
+      return { ok: true, status: 200, arrayBuffer: async () => ab, json: async () => ({}) } as Response;
+    }
+    throw new Error("no fake handler for " + path);
+  }) as typeof fetch;
+}
+
+function fakeDriver(opts: { failCategories?: string[] } = {}): BrowserDriver {
+  const failing = new Set(opts.failCategories ?? []);
+  return {
+    name: "fake",
+    async run(steps: BrowserStep[]): Promise<BrowserResult> {
+      const searchStep = steps.find((s) => s.action === "fill" && failing.has(s.value ?? ""));
+      if (searchStep) throw new Error(`no category match for "${searchStep.value}"`);
+      return { ok: true, stepsRun: steps.length, log: [] };
+    },
+  };
+}
+
+function testBook(overrides: Partial<KdpBook> = {}): KdpBook {
+  return {
+    id: "b1",
+    niche: "gratitude",
+    product_type: "journal",
+    trim_size: "6x9",
+    page_count: 120,
+    title: "Gratitude Journal",
+    categories: ["Crafts & Hobbies > Journals"],
+    status: "downloaded",
+    created_at: "2026-07-01T00:00:00Z",
+    ...overrides,
+  };
 }
 
 describe("kdp plugin", () => {
@@ -76,6 +127,69 @@ describe("kdp plugin", () => {
         const r = (await ctx.call("kdp", { op: "status" })) as { opportunities: unknown[]; books: unknown[] };
         expect(r.opportunities.length).toBe(1);
         expect(r.books.length).toBe(1);
+      },
+    });
+  });
+});
+
+describe("kdp plugin downloadZip (regression after fetchBookAndZip refactor)", () => {
+  it("fetches the book's PDFs and returns a base64 zip", async () => {
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ KDP_CRON_SECRET: "s3cret" }) });
+    await atlas.use(createKdpPlugin({ fetcher: fakeUploadFetcher(testBook(), fakeZipBuffer()) }));
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:kdp"], role: "executor" },
+      async register(ctx) {
+        const r = (await ctx.call("kdp", { op: "downloadZip", id: "b1" })) as { filename: string; base64: string };
+        expect(r.filename).toBe("Gratitude_Journal.zip");
+        expect(Buffer.from(r.base64, "base64").length).toBeGreaterThan(0);
+      },
+    });
+  });
+});
+
+describe("kdp plugin uploadToAmazon", () => {
+  it("unzips the book's files, runs the wizard with SimulatedDriver by default, and matches every category", async () => {
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ KDP_CRON_SECRET: "s3cret" }) });
+    await atlas.use(createKdpPlugin({ fetcher: fakeUploadFetcher(testBook(), fakeZipBuffer()) }));
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:kdp"], role: "executor" },
+      async register(ctx) {
+        const r = (await ctx.call("kdp", { op: "uploadToAmazon", id: "b1" })) as {
+          ok: boolean;
+          categoriesMatched: string[];
+          categoriesSkipped: string[];
+        };
+        expect(r.ok).toBe(true);
+        expect(r.categoriesMatched).toEqual(["Crafts & Hobbies > Journals"]);
+        expect(r.categoriesSkipped).toEqual([]);
+      },
+    });
+  });
+
+  it("skips a category that never gets a search match, without failing the whole upload", async () => {
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ KDP_CRON_SECRET: "s3cret" }) });
+    const book = testBook({ categories: ["Crafts & Hobbies > Journals", "Nonexistent Category"] });
+    await atlas.use(
+      createKdpPlugin({ fetcher: fakeUploadFetcher(book, fakeZipBuffer()), driver: fakeDriver({ failCategories: ["Nonexistent Category"] }) }),
+    );
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:kdp"], role: "executor" },
+      async register(ctx) {
+        const r = (await ctx.call("kdp", { op: "uploadToAmazon", id: "b1" })) as { categoriesMatched: string[]; categoriesSkipped: string[] };
+        expect(r.categoriesMatched).toEqual(["Crafts & Hobbies > Journals"]);
+        expect(r.categoriesSkipped).toEqual(["Nonexistent Category"]);
+      },
+    });
+  });
+
+  it("throws a clear error when the downloaded zip is missing interior.pdf or cover.pdf", async () => {
+    const emptyZip = new AdmZip().toBuffer();
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ KDP_CRON_SECRET: "s3cret" }) });
+    await atlas.use(createKdpPlugin({ fetcher: fakeUploadFetcher(testBook(), emptyZip) }));
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:kdp"], role: "executor" },
+      async register(ctx) {
+        await expect(ctx.call("kdp", { op: "uploadToAmazon", id: "b1" })).rejects.toThrow(/missing interior\.pdf or cover\.pdf/);
       },
     });
   });
