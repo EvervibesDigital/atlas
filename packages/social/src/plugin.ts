@@ -22,7 +22,9 @@ export type SocialCommand =
   | { op: "listAccounts" }
   | { op: "queuePosts"; accountId: string; items: Array<Pick<NewSocialPost, "contentItemId" | "caption" | "mediaUrl">> }
   | { op: "publishDuePosts" }
-  | { op: "pollInbox" };
+  | { op: "pollInbox" }
+  | { op: "listPendingInboxItems" }
+  | { op: "respondToInboxItem"; id: string; action: "approve" | "reject" };
 
 export function createSocialPlugin(opts: {
   redirectUri: string;
@@ -222,6 +224,34 @@ export function createSocialPlugin(opts: {
 
           await writeFile(inboxFile, JSON.stringify(inbox), "utf8");
           return { newItems: fresh.length, autoReplied, pendingApproval };
+        }
+
+        if (cmd.op === "listPendingInboxItems") {
+          const rawInbox = await readFile(inboxFile, "utf8").catch(() => "[]");
+          const inbox = JSON.parse(rawInbox) as InboxItem[];
+          return { items: inbox.filter((i) => i.status === "pending_approval") };
+        }
+
+        if (cmd.op === "respondToInboxItem") {
+          const rawInbox = await readFile(inboxFile, "utf8").catch(() => "[]");
+          let inbox = JSON.parse(rawInbox) as InboxItem[];
+          const item = inbox.find((i) => i.id === cmd.id);
+          if (!item) throw new Error(`social: inbox item "${cmd.id}" not found`);
+
+          if (cmd.action === "approve") {
+            const tokenKey = await ctx.secret("SOCIAL_TOKEN_KEY");
+            if (!tokenKey) throw new Error("social: SOCIAL_TOKEN_KEY not set");
+            const accounts = await loadAccounts(accountsFile);
+            const account = accounts.find((a) => a.id === item.accountId);
+            if (!account) throw new Error(`social: account for inbox item "${cmd.id}" not found`);
+            const pageAccessToken = decryptToken(account.accessTokenEnc, tokenKey);
+            if (item.kind === "comment") await replyToComment(item.externalId, item.draftReply, pageAccessToken, fetcher);
+            else await sendDirectMessage(account.pageId, item.fromUsername, item.draftReply, pageAccessToken, fetcher);
+          }
+
+          inbox = inbox.map((i) => (i.id === cmd.id ? { ...i, status: cmd.action === "approve" ? ("approved" as const) : ("rejected" as const) } : i));
+          await writeFile(inboxFile, JSON.stringify(inbox), "utf8");
+          return { ok: true };
         }
 
         throw new Error(`social: unknown op "${(cmd as { op: string }).op}"`);

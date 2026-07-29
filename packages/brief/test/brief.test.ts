@@ -527,6 +527,7 @@ describe("brief plugin — the Unified Morning Brief", () => {
           ctx.provide("social", async (payload: unknown) => {
             const cmd = payload as { op: string };
             if (cmd.op === "listAccounts") return { accounts: [{ id: "acc1", personaLabel: "Aria Vance", platform: "instagram" }] };
+            if (cmd.op === "listPendingInboxItems") return { items: [] };
             throw new Error("unexpected social op in test: " + cmd.op);
           });
         },
@@ -555,6 +556,30 @@ describe("brief plugin — the Unified Morning Brief", () => {
       expect(socialItems[0]!.title).toContain("Aria Vance");
       expect(socialItems[0]!.title).toContain("2"); // 2 ready posts
       expect(socialItems[0]!.tier).toBe("bulk");
+    });
+
+    it("surfaces a pending-approval inbox item as an individual ask-tier item", async () => {
+      const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({}) });
+      await atlas.use(createBriefPlugin());
+      await atlas.use({
+        manifest: { name: "social", version: "1", capabilities: ["social"], permissions: [], role: "executor" },
+        register(ctx) {
+          ctx.provide("social", async (payload: unknown) => {
+            const cmd = payload as { op: string };
+            if (cmd.op === "listAccounts") return { accounts: [] };
+            if (cmd.op === "listPendingInboxItems") {
+              return { items: [{ id: "inbox1", accountId: "acc1", kind: "comment", externalId: "c1", fromUsername: "user1", text: "why is this broken?", draftReply: "Sorry to hear that!", confidence: 40, status: "pending_approval", createdAt: "2026-01-01T00:00:00.000Z" }] };
+            }
+            throw new Error("unexpected social op: " + cmd.op);
+          });
+        },
+      });
+
+      const brief = (await atlas.invoke("brief", { op: "today" })) as { items: Array<{ id: string; source: string; title: string; tier: string; detail?: string }> };
+      const inboxItem = brief.items.find((i) => i.id === "inbox1");
+      expect(inboxItem).toBeTruthy();
+      expect(inboxItem!.tier).toBe("ask"); // individual, never batched
+      expect(inboxItem!.detail).toContain("Sorry to hear that!");
     });
   });
 });

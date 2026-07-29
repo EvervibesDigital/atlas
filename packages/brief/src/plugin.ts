@@ -169,31 +169,49 @@ export function createBriefPlugin(): Plugin {
       }
 
       async function fromSocial(): Promise<BriefItem[]> {
-        const { accounts } = (await ctx.call("social", { op: "listAccounts" })) as { accounts: Array<{ id: string; personaLabel: string; platform: string }> };
-        if (accounts.length === 0) return [];
-
-        const creators = (await ctx.call("mediaFactory", { op: "listCreators" })) as Array<{ id: string; name: string }>;
-        const allContent = (await ctx.call("mediaFactory", { op: "listContent" })) as Array<{ id: string; creator_id: string; status: string; caption?: string; assets?: { image_path?: string } }>;
-
         const items: BriefItem[] = [];
-        for (const account of accounts) {
-          const creator = creators.find((c) => c.name === account.personaLabel);
-          if (!creator) continue;
-          const ready = allContent.filter((c) => c.creator_id === creator.id && c.status === "review" && c.assets?.image_path);
-          if (ready.length === 0) continue;
 
+        const { accounts } = (await ctx.call("social", { op: "listAccounts" })) as { accounts: Array<{ id: string; personaLabel: string; platform: string }> };
+        if (accounts.length > 0) {
+          const creators = (await ctx.call("mediaFactory", { op: "listCreators" })) as Array<{ id: string; name: string }>;
+          const allContent = (await ctx.call("mediaFactory", { op: "listContent" })) as Array<{ id: string; creator_id: string; status: string; caption?: string; assets?: { image_path?: string } }>;
+
+          for (const account of accounts) {
+            const creator = creators.find((c) => c.name === account.personaLabel);
+            if (!creator) continue;
+            const ready = allContent.filter((c) => c.creator_id === creator.id && c.status === "review" && c.assets?.image_path);
+            if (ready.length === 0) continue;
+
+            items.push({
+              id: account.id,
+              source: "social" as const,
+              title: `${account.personaLabel} — ${ready.length} post${ready.length === 1 ? "" : "s"} ready`,
+              detail: `Approving queues ${ready.length} post(s) to ${account.platform}, spread over the next 6 hours (not posted all at once).`,
+              risk: 1 as const,
+              // Posting AI-generated content live, batched like every other
+              // outbound-content source (leadscan/wholesale email) — reviewed
+              // per creator, one tap, never silently posted.
+              tier: "bulk" as const,
+            });
+          }
+        }
+
+        const { items: pendingInbox } = (await ctx.call("social", { op: "listPendingInboxItems" })) as {
+          items: Array<{ id: string; text: string; draftReply: string; fromUsername: string; kind: string }>;
+        };
+        for (const inboxItem of pendingInbox) {
           items.push({
-            id: account.id,
+            id: inboxItem.id,
             source: "social" as const,
-            title: `${account.personaLabel} — ${ready.length} post${ready.length === 1 ? "" : "s"} ready`,
-            detail: `Approving queues ${ready.length} post(s) to ${account.platform}, spread over the next 6 hours (not posted all at once).`,
+            title: `Reply needed: "${inboxItem.text.slice(0, 60)}"`,
+            detail: `Drafted reply: "${inboxItem.draftReply}" — low confidence, review before sending.`,
             risk: 1 as const,
-            // Posting AI-generated content live, batched like every other
-            // outbound-content source (leadscan/wholesale email) — reviewed
-            // per creator, one tap, never silently posted.
-            tier: "bulk" as const,
+            // A specific reply to a specific person — same bar as a phone
+            // call, never batched with the "approve all" button.
+            tier: "ask" as const,
           });
         }
+
         return items;
       }
 
@@ -253,6 +271,10 @@ export function createBriefPlugin(): Plugin {
           return ctx.call("learning", { op: action === "approve" ? "adopt" : "dismiss", category: id });
         }
         if (source === "social") {
+          const { items: pendingInbox } = (await ctx.call("social", { op: "listPendingInboxItems" })) as { items: Array<{ id: string }> };
+          if (pendingInbox.some((i) => i.id === id)) {
+            return ctx.call("social", { op: "respondToInboxItem", id, action });
+          }
           if (action === "reject") return { skipped: id };
           const { accounts } = (await ctx.call("social", { op: "listAccounts" })) as { accounts: Array<{ id: string; personaLabel: string }> };
           const account = accounts.find((a) => a.id === id);
