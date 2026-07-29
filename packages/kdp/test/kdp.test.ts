@@ -216,4 +216,42 @@ describe("kdp plugin uploadToAmazon", () => {
       },
     });
   });
+
+  it("rejects a second uploadToAmazon call while the first is still in flight", async () => {
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ KDP_CRON_SECRET: "s3cret" }) });
+    let releaseFirstCall: () => void = () => {};
+    // Sync on the driver actually being reached (not a fixed setTimeout) —
+    // fetchBookAndZip + real mkdtemp/writeFile before driver.run() can take
+    // longer than a short timer on a loaded machine, which would let the
+    // "release" fire before driver.run ever reassigns it and hang the test.
+    let driverStarted: () => void = () => {};
+    const driverStartedPromise = new Promise<void>((resolve) => { driverStarted = resolve; });
+    // uploadToAmazon calls driver.run() multiple times (core steps, each
+    // category, final confirmation) — only block on the FIRST call so
+    // releasing it once lets the whole upload finish instead of hanging on
+    // the second driver.run() invocation.
+    let driverCalls = 0;
+    const slowDriver: BrowserDriver = {
+      name: "slow",
+      async run(steps) {
+        driverCalls++;
+        if (driverCalls === 1) {
+          driverStarted();
+          await new Promise<void>((resolve) => { releaseFirstCall = resolve; });
+        }
+        return { ok: true, stepsRun: steps.length, log: [] };
+      },
+    };
+    await atlas.use(createKdpPlugin({ fetcher: fakeUploadFetcher(testBook(), fakeZipBuffer()), driver: slowDriver }));
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:kdp"], role: "executor" },
+      async register(ctx) {
+        const firstCall = ctx.call("kdp", { op: "uploadToAmazon", id: "b1" });
+        await driverStartedPromise; // first call has reached driver.run — uploadInFlight is guaranteed set by now
+        await expect(ctx.call("kdp", { op: "uploadToAmazon", id: "b1" })).rejects.toThrow(/already in progress/);
+        releaseFirstCall();
+        await firstCall; // let the first call finish cleanly so the test doesn't leave a dangling promise
+      },
+    });
+  });
 });

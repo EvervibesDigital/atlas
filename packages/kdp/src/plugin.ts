@@ -36,6 +36,7 @@ export function createKdpPlugin(opts: { fetcher?: typeof fetch; driver?: Browser
   const f = opts.fetcher ?? fetch;
   const driver = opts.driver ?? new SimulatedDriver();
   const pricePolicy = opts.pricePolicy ?? DEFAULT_KDP_PRICE_POLICY;
+  let uploadInFlight = false;
 
   return {
     manifest: {
@@ -145,61 +146,67 @@ export function createKdpPlugin(opts: { fetcher?: typeof fetch; driver?: Browser
         }
 
         if (cmd.op === "uploadToAmazon") {
-          const { book, zipBuffer } = await fetchBookAndZip(cmd.id);
-          const price = pricePolicy[book.product_type];
-          if (price === undefined) {
-            throw new Error(`kdp upload: no price configured for product_type "${book.product_type}"`);
-          }
-          const zip = new AdmZip(zipBuffer);
-          const interiorEntry = zip.getEntry("interior.pdf");
-          const coverEntry = zip.getEntry("cover.pdf");
-          if (!interiorEntry || !coverEntry) throw new Error(`kdp upload: zip for "${cmd.id}" is missing interior.pdf or cover.pdf`);
-
-          const tmpDir = await mkdtemp(join(tmpdir(), "atlas-kdp-upload-"));
+          if (uploadInFlight) throw new Error("kdp upload: another upload is already in progress on this driver — wait for it to finish before starting another");
+          uploadInFlight = true;
           try {
-            const interiorPath = join(tmpDir, "interior.pdf");
-            const coverPath = join(tmpDir, "cover.pdf");
-            await writeFile(interiorPath, interiorEntry.getData());
-            await writeFile(coverPath, coverEntry.getData());
-
-            const log: string[] = [];
-            let stepsRun = 0;
-
-            const coreResult = await driver.run(buildUploadSteps(book, { interiorPath, coverPath }, pricePolicy));
-            stepsRun += coreResult.stepsRun;
-            log.push(...coreResult.log);
-
-            const categoriesMatched: string[] = [];
-            const categoriesSkipped: Array<{ category: string; reason: string }> = [];
-            for (const category of book.categories ?? []) {
-              try {
-                const categoryResult = await driver.run(buildCategorySteps(category));
-                stepsRun += categoryResult.stepsRun;
-                log.push(...categoryResult.log);
-                categoriesMatched.push(category);
-              } catch (err) {
-                categoriesSkipped.push({ category, reason: err instanceof Error ? err.message : String(err) });
-              }
+            const { book, zipBuffer } = await fetchBookAndZip(cmd.id);
+            const price = pricePolicy[book.product_type];
+            if (price === undefined) {
+              throw new Error(`kdp upload: no price configured for product_type "${book.product_type}"`);
             }
+            const zip = new AdmZip(zipBuffer);
+            const interiorEntry = zip.getEntry("interior.pdf");
+            const coverEntry = zip.getEntry("cover.pdf");
+            if (!interiorEntry || !coverEntry) throw new Error(`kdp upload: zip for "${cmd.id}" is missing interior.pdf or cover.pdf`);
 
-            const confirmResult = await driver.run(buildFinalConfirmationStep());
-            stepsRun += confirmResult.stepsRun;
-            log.push(...confirmResult.log);
+            const tmpDir = await mkdtemp(join(tmpdir(), "atlas-kdp-upload-"));
+            try {
+              const interiorPath = join(tmpDir, "interior.pdf");
+              const coverPath = join(tmpDir, "cover.pdf");
+              await writeFile(interiorPath, interiorEntry.getData());
+              await writeFile(coverPath, coverEntry.getData());
 
-            const result = {
-              ok: true,
-              bookId: cmd.id,
-              driver: driver.name,
-              stepsRun,
-              filled: { title: book.title, price },
-              categoriesMatched,
-              categoriesSkipped,
-              log,
-            };
-            await ctx.emit("kdp.uploadedToAmazon", result);
-            return result;
+              const log: string[] = [];
+              let stepsRun = 0;
+
+              const coreResult = await driver.run(buildUploadSteps(book, { interiorPath, coverPath }, pricePolicy));
+              stepsRun += coreResult.stepsRun;
+              log.push(...coreResult.log);
+
+              const categoriesMatched: string[] = [];
+              const categoriesSkipped: Array<{ category: string; reason: string }> = [];
+              for (const category of book.categories ?? []) {
+                try {
+                  const categoryResult = await driver.run(buildCategorySteps(category));
+                  stepsRun += categoryResult.stepsRun;
+                  log.push(...categoryResult.log);
+                  categoriesMatched.push(category);
+                } catch (err) {
+                  categoriesSkipped.push({ category, reason: err instanceof Error ? err.message : String(err) });
+                }
+              }
+
+              const confirmResult = await driver.run(buildFinalConfirmationStep());
+              stepsRun += confirmResult.stepsRun;
+              log.push(...confirmResult.log);
+
+              const result = {
+                ok: true,
+                bookId: cmd.id,
+                driver: driver.name,
+                stepsRun,
+                filled: { title: book.title, price },
+                categoriesMatched,
+                categoriesSkipped,
+                log,
+              };
+              await ctx.emit("kdp.uploadedToAmazon", result);
+              return result;
+            } finally {
+              await rm(tmpDir, { recursive: true, force: true });
+            }
           } finally {
-            await rm(tmpDir, { recursive: true, force: true });
+            uploadInFlight = false;
           }
         }
 

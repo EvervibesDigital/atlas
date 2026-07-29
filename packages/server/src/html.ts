@@ -1205,7 +1205,7 @@ async function loadKdp(){ try { const r=await api("/api/kdp/status");
     const pill="<span class='pill "+(b.status==='generated'?'off':'on')+"'>"+b.status+"</span>";
     let actions="<button onclick='kdpDownload(\\""+b.id+"\\")'>⬇️ Download ZIP</button>";
     if(b.status==='generated') actions+=" <button class='sec' onclick='kdpMark(\\""+b.id+"\\",\\"downloaded\\")'>Mark downloaded</button>";
-    else if(b.status==='downloaded') actions+=" <button onclick='kdpUpload(\\""+b.id+"\\")'>🤖 Upload to Amazon</button> <button class='sec' onclick='kdpMarkUploaded(\\""+b.id+"\\")'>Mark uploaded to Amazon</button>";
+    else if(b.status==='downloaded') actions+=" <button onclick='kdpUpload(this,\\""+b.id+"\\")'>🤖 Upload to Amazon</button> <button class='sec' onclick='kdpMarkUploaded(\\""+b.id+"\\")'>Mark uploaded to Amazon</button>";
     else if(b.status==='uploaded_to_amazon') actions+=" <button class='sec' onclick='kdpMark(\\""+b.id+"\\",\\"live\\")'>Mark live</button>";
     return "<div class='row' style='align-items:flex-start;flex-direction:column;border:1px solid var(--acc);padding:8px;border-radius:4px;margin-bottom:8px'><div style='display:flex;justify-content:space-between;width:100%'><span><b>"+(b.title||"(untitled)")+"</b> · "+b.product_type+" · "+b.trim_size+" "+pill+"</span></div><div class='note' style='font-size:12px'>"+(b.subtitle||"")+"</div><div style='margin-top:8px'>"+actions+"</div></div>";
   }).join(""):"<div class='note'>No books yet — click Generate books now (needs opportunities first).</div>";
@@ -1215,13 +1215,14 @@ async function kdpGenerate(){ try { const r=await api("/api/kdp/generate","POST"
 async function kdpMark(id,status){ try { await api("/api/kdp/books/"+id+"/status","POST",{status}); loadKdp(); } catch(e){ alert(e.message); } }
 async function kdpMarkUploaded(id){ const url=prompt("Amazon URL (optional):")||undefined; const asin=prompt("ASIN (optional):")||undefined;
   try { await api("/api/kdp/books/"+id+"/status","POST",{status:"uploaded_to_amazon",amazonUrl:url,amazonAsin:asin}); loadKdp(); } catch(e){ alert(e.message); } }
-async function kdpUpload(id){ if(!confirm("This opens a browser and fills in Amazon KDP's upload wizard for this book, stopping before the Publish click so you can review and finish it yourself. Continue?")) return;
-  try { const r=await api("/api/kdp/books/"+id+"/upload","POST");
+async function kdpUpload(btn,id){ if(!confirm("This opens a browser and fills in Amazon KDP's upload wizard for this book, stopping before the Publish click so you can review and finish it yourself. On the very first run it may wait for you to log into KDP. Continue?")) return;
+  btn.disabled=true; const origText=btn.textContent; btn.textContent="Working…";
+  try { const r=await api("/api/kdp/books/"+id+"/upload","POST",undefined,900000);
     let msg="Filled the KDP wizard (driver: "+r.driver+", "+r.stepsRun+" steps). Matched categories: "+((r.categoriesMatched||[]).join(", ")||"none")+".";
     if((r.categoriesSkipped||[]).length) msg+=" Skipped: "+r.categoriesSkipped.map(function(c){return c.category+" ("+c.reason+")";}).join("; ")+".";
     alert(msg);
     loadKdp();
-  } catch(e){ alert(e.message); } }
+  } catch(e){ alert(e.message); btn.disabled=false; btn.textContent=origText; } }
 async function kdpDownload(id){ try {
   const r=await fetch("/api/kdp/books/"+id+"/zip", { headers: TOKEN?{"x-atlas-token":TOKEN}:{} });
   if(!r.ok) throw new Error("download failed (HTTP "+r.status+")");
