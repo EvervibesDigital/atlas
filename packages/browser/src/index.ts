@@ -100,8 +100,10 @@ export function createPlaywrightDriver(
         >;
         const page = (await context.newPage!()) as Record<string, (...a: unknown[]) => Promise<unknown>>;
         const saveSession = async () => {
-          if (opts.storageState) await (context.storageState as (o: { path: string }) => Promise<unknown>)({ path: opts.storageState });
+          if (opts.storageState) await context.storageState!({ path: opts.storageState });
         };
+        let result: BrowserResult | undefined;
+        let stepsErr: unknown;
         try {
           for (const s of steps) {
             const val = s.valueFromCred ? (ctx.secrets?.[s.valueFromCred] ?? "") : (s.value ?? "");
@@ -113,12 +115,13 @@ export function createPlaywrightDriver(
             else if (s.action === "upload" && s.selector && val) await page.setInputFiles!(s.selector, val);
             log.push(`${s.action}${s.selector ? " @ " + s.selector : ""}${s.url ? " " + s.url : ""}`);
           }
-          await saveSession();
-          return { ok: true, stepsRun: steps.length, log };
+          result = { ok: true, stepsRun: steps.length, log };
         } catch (err) {
-          await saveSession().catch(() => {});
-          throw err;
+          stepsErr = err;
         }
+        await saveSession().catch(() => {});
+        if (stepsErr) throw stepsErr;
+        return result!;
       } finally {
         if (!opts.keepOpen) await browser.close();
       }
