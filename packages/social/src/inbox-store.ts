@@ -16,8 +16,10 @@ export interface InboxItem {
 export type NewInboxItem = Omit<InboxItem, "id" | "status" | "createdAt">;
 
 /** Candidates not already represented in the store, by externalId (Meta's
- * comment/message id — stable, dedupes across repeated polls). */
-export function newItems(candidates: NewInboxItem[], existing: InboxItem[]): NewInboxItem[] {
+ * comment/message id — stable, dedupes across repeated polls). Generic so
+ * callers can carry extra fields (e.g. which token/endpoint to reply with)
+ * through the filter without losing them to the NewInboxItem type. */
+export function newItems<T extends NewInboxItem>(candidates: T[], existing: InboxItem[]): T[] {
   const seen = new Set(existing.map((i) => i.externalId));
   return candidates.filter((c) => !seen.has(c.externalId));
 }

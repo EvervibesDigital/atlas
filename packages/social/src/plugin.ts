@@ -8,17 +8,33 @@ import { encryptToken, decryptToken } from "./crypto";
 import { addAccount, loadAccounts, type SocialAccount } from "./store";
 import { enqueueStaggeredPosts, duePosts, markPublished, markFailed, type SocialPost, type NewSocialPost } from "./post-queue";
 import { postToInstagram, postToFacebookPage } from "./posting";
+import { fetchComments, replyToComment, fetchConversationMessages, sendDirectMessage } from "./inbox-graph";
+import { scoreConfidence } from "./confidence";
+import { newItems, markAutoReplied, markPendingApproval, type InboxItem, type NewInboxItem } from "./inbox-store";
+
+export interface BrainLike {
+  (payload: { prompt: string; system?: string }): Promise<{ text: string }>;
+}
 
 export type SocialCommand =
   | { op: "getConnectUrl" }
   | { op: "completeConnection"; code: string }
   | { op: "listAccounts" }
   | { op: "queuePosts"; accountId: string; items: Array<Pick<NewSocialPost, "contentItemId" | "caption" | "mediaUrl">> }
-  | { op: "publishDuePosts" };
+  | { op: "publishDuePosts" }
+  | { op: "pollInbox" };
 
-export function createSocialPlugin(opts: { redirectUri: string; accountsFile?: string; postsFile?: string; fetcher?: FetchLike }): Plugin {
+export function createSocialPlugin(opts: {
+  redirectUri: string;
+  accountsFile?: string;
+  postsFile?: string;
+  inboxFile?: string;
+  fetcher?: FetchLike;
+  brain?: BrainLike;
+}): Plugin {
   const accountsFile = opts.accountsFile ?? "data/social-accounts.json";
   const postsFile = opts.postsFile ?? "data/social-posts.json";
+  const inboxFile = opts.inboxFile ?? "data/social-inbox.json";
   const fetcher: FetchLike = opts.fetcher ?? (fetch as unknown as FetchLike);
 
   return {
@@ -150,6 +166,62 @@ export function createSocialPlugin(opts: { redirectUri: string; accountsFile?: s
           }
           await writeFile(postsFile, JSON.stringify(posts), "utf8");
           return { published, failed };
+        }
+
+        if (cmd.op === "pollInbox") {
+          const tokenKey = await ctx.secret("SOCIAL_TOKEN_KEY");
+          if (!tokenKey) throw new Error("social: SOCIAL_TOKEN_KEY not set");
+          const brain: BrainLike = opts.brain ?? (async (p) => (await ctx.call("brain", p)) as { text: string });
+
+          const accounts = await loadAccounts(accountsFile);
+          const rawPosts = await readFile(postsFile, "utf8").catch(() => "[]");
+          const posts = JSON.parse(rawPosts) as SocialPost[];
+          const rawInbox = await readFile(inboxFile, "utf8").catch(() => "[]");
+          let inbox = JSON.parse(rawInbox) as InboxItem[];
+
+          const candidates: Array<NewInboxItem & { pageAccessToken: string; pageId: string; replyTarget: string; via: "comment" | "dm" }> = [];
+
+          for (const account of accounts) {
+            const pageAccessToken = decryptToken(account.accessTokenEnc, tokenKey);
+
+            if (account.platform === "instagram") {
+              const publishedOnThisAccount = posts.filter((p) => p.accountId === account.id && p.status === "published" && p.livePostId);
+              for (const post of publishedOnThisAccount) {
+                const comments = await fetchComments(post.livePostId!, pageAccessToken, fetcher).catch(() => []);
+                for (const c of comments) {
+                  candidates.push({ accountId: account.id, kind: "comment", externalId: c.id, fromUsername: "", text: c.text, draftReply: "", confidence: 0, pageAccessToken, pageId: account.pageId, replyTarget: c.id, via: "comment" });
+                }
+              }
+            }
+
+            const messages = await fetchConversationMessages(account.pageId, pageAccessToken, fetcher).catch(() => []);
+            for (const m of messages) {
+              candidates.push({ accountId: account.id, kind: "dm", externalId: m.id, fromUsername: m.fromId, text: m.text, draftReply: "", confidence: 0, pageAccessToken, pageId: account.pageId, replyTarget: m.fromId, via: "dm" });
+            }
+          }
+
+          const fresh = newItems(candidates, inbox);
+          let autoReplied = 0;
+          let pendingApproval = 0;
+
+          for (const item of fresh) {
+            const { text } = await brain({ prompt: `Someone left this ${item.kind === "comment" ? "comment" : "DM"} on a social post: "${item.text}"\n\nDraft a short, friendly reply in character.`, system: "You reply as a friendly social media persona. Keep it under 2 sentences." });
+            const confidence = scoreConfidence(item.text);
+            const full: NewInboxItem = { accountId: item.accountId, kind: item.kind, externalId: item.externalId, fromUsername: item.fromUsername, text: item.text, draftReply: text, confidence };
+
+            if (confidence >= 90) {
+              if (item.via === "comment") await replyToComment(item.replyTarget, text, item.pageAccessToken, fetcher);
+              else await sendDirectMessage(item.pageId, item.replyTarget, text, item.pageAccessToken, fetcher);
+              inbox = markAutoReplied(inbox, full);
+              autoReplied++;
+            } else {
+              inbox = markPendingApproval(inbox, full);
+              pendingApproval++;
+            }
+          }
+
+          await writeFile(inboxFile, JSON.stringify(inbox), "utf8");
+          return { newItems: fresh.length, autoReplied, pendingApproval };
         }
 
         throw new Error(`social: unknown op "${(cmd as { op: string }).op}"`);
