@@ -200,6 +200,9 @@ importers:
       '@atlas/skills':
         specifier: workspace:*
         version: link:../skills
+      '@atlas/social':
+        specifier: workspace:*
+        version: link:../social
       '@atlas/strategy':
         specifier: workspace:*
         version: link:../strategy
@@ -541,6 +544,9 @@ importers:
 
   packages/kdp:
     dependencies:
+      '@atlas/browser':
+        specifier: workspace:*
+        version: link:../browser
       '@atlas/core':
         specifier: workspace:*
         version: link:../core
@@ -814,6 +820,12 @@ importers:
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
+
+  packages/social:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/strategy:
     dependencies:
