@@ -55,6 +55,27 @@ describe("scout -> approval-gated action for a genuinely viral repo", () => {
     });
   });
 
+  it("does not queue a second approval for a repo it already asked about, even across separate scout calls", async () => {
+    // The real bug this guards against: a fixed hourly scout query kept
+    // resurfacing the same top-starred repo as a brand-new approval every
+    // cycle, regardless of Mat having already approved/rejected it — 63
+    // duplicate entries for the same repo, none of which stopped the next
+    // one from being queued.
+    const atlas = await buildTestAtlas(fakeGithub([{ full_name: "0x4m4/hexstrike-ai", html_url: "https://gh/0x4m4/hexstrike-ai", description: "pentest MCP server", stargazers_count: 10500 }]));
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:search", "call:actions"], role: "executor" },
+      async register(ctx) {
+        await ctx.call("search", { op: "scout", query: "ai agent framework" } satisfies SearchCommand);
+        await ctx.call("search", { op: "scout", query: "ai agent framework" } satisfies SearchCommand); // next hourly cycle, same top result
+        await ctx.call("search", { op: "scout", query: "ai agent framework" } satisfies SearchCommand); // and again
+
+        const actions = (await ctx.call("actions", { op: "list" })) as ActionRecord[];
+        expect(actions).toHaveLength(1); // still only ever queued once
+        expect(actions[0]!.request.title).toContain("hexstrike-ai");
+      },
+    });
+  });
+
   it("does not queue an action for a repo that isn't actually viral", async () => {
     const atlas = await buildTestAtlas(fakeGithub([{ full_name: "org/tiny-tool", html_url: "https://gh/org/tiny-tool", description: "niche", stargazers_count: 12 }]));
     await atlas.use({

@@ -67,7 +67,7 @@ export type SearchCommand =
 export function createSearchPlugin(opts: { fetcher?: FetchLike } = {}): Plugin {
   const f = opts.fetcher ?? (globalThis.fetch as unknown as FetchLike);
   return {
-    manifest: { name: "search", version: "0.1.0", capabilities: ["search"], permissions: ["secret:*", "call:memory", "call:actions"], role: "executor" },
+    manifest: { name: "search", version: "0.1.0", capabilities: ["search"], permissions: ["secret:*", "call:memory", "call:actions", "call:approvals"], role: "executor" },
     register(ctx) {
       async function web(query: string, max = 6): Promise<SearchResult[]> {
         const tavily = await ctx.secret("TAVILY_API_KEY");
@@ -121,18 +121,27 @@ export function createSearchPlugin(opts: { fetcher?: FetchLike } = {}): Plugin {
             const top = results[0];
             if (top && starsOf(top.snippet) >= VIRAL_STAR_THRESHOLD) {
               try {
-                await ctx.call("actions", {
-                  op: "request",
-                  request: {
-                    type: "install",
-                    title: `Worth a look: ${top.title}`,
-                    detail: `${top.snippet} — found via autonomous GitHub scouting, query: "${cmd.query}".`,
-                    target: top.title,
-                    risk: 2,
-                  },
-                });
+                // Same fixed query can easily surface the same top-starred
+                // repo every single hourly cycle forever. Without this check
+                // that queued a brand-new approval each time regardless of
+                // any decision already made on it — 63 duplicate entries for
+                // one repo in production before this was caught. Ask once.
+                const existing = (await ctx.call("approvals", { op: "list" })) as Array<{ action: string }>;
+                const alreadyAsked = existing.some((a) => a.action.includes(top.title));
+                if (!alreadyAsked) {
+                  await ctx.call("actions", {
+                    op: "request",
+                    request: {
+                      type: "install",
+                      title: `Worth a look: ${top.title}`,
+                      detail: `${top.snippet} — found via autonomous GitHub scouting, query: "${cmd.query}".`,
+                      target: top.title,
+                      risk: 2,
+                    },
+                  });
+                }
               } catch {
-                /* actions plugin optional — memory note above still stands either way */
+                /* actions/approvals plugins optional — memory note above still stands either way */
               }
             }
             await ctx.emit("search.scouted", { query: cmd.query, count: results.length });
