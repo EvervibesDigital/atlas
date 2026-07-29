@@ -1774,6 +1774,12 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return;
     }
 
+    const kdpUpload = path.match(/^\/api\/kdp\/books\/([^/]+)\/upload$/);
+    if (method === "POST" && kdpUpload) {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("kdp", { op: "uploadToAmazon", id: decodeURIComponent(kdpUpload[1]!) }));
+    }
+
     // ── Unified Morning Brief (aggregates pending items across every business) ──
     if (method === "GET" && path === "/api/brief") {
       const a = await ensureAtlas();
