@@ -156,10 +156,12 @@ describe("kdp plugin uploadToAmazon", () => {
       async register(ctx) {
         const r = (await ctx.call("kdp", { op: "uploadToAmazon", id: "b1" })) as {
           ok: boolean;
+          driver: string;
           categoriesMatched: string[];
-          categoriesSkipped: string[];
+          categoriesSkipped: Array<{ category: string; reason: string }>;
         };
         expect(r.ok).toBe(true);
+        expect(r.driver).toBe("simulated");
         expect(r.categoriesMatched).toEqual(["Crafts & Hobbies > Journals"]);
         expect(r.categoriesSkipped).toEqual([]);
       },
@@ -175,9 +177,12 @@ describe("kdp plugin uploadToAmazon", () => {
     await atlas.use({
       manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:kdp"], role: "executor" },
       async register(ctx) {
-        const r = (await ctx.call("kdp", { op: "uploadToAmazon", id: "b1" })) as { categoriesMatched: string[]; categoriesSkipped: string[] };
+        const r = (await ctx.call("kdp", { op: "uploadToAmazon", id: "b1" })) as {
+          categoriesMatched: string[];
+          categoriesSkipped: Array<{ category: string; reason: string }>;
+        };
         expect(r.categoriesMatched).toEqual(["Crafts & Hobbies > Journals"]);
-        expect(r.categoriesSkipped).toEqual(["Nonexistent Category"]);
+        expect(r.categoriesSkipped).toEqual([{ category: "Nonexistent Category", reason: expect.stringContaining("no category match") }]);
       },
     });
   });
@@ -190,6 +195,18 @@ describe("kdp plugin uploadToAmazon", () => {
       manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:kdp"], role: "executor" },
       async register(ctx) {
         await expect(ctx.call("kdp", { op: "uploadToAmazon", id: "b1" })).rejects.toThrow(/missing interior\.pdf or cover\.pdf/);
+      },
+    });
+  });
+
+  it("propagates the original error when the core wizard steps fail (not swallowed by cleanup)", async () => {
+    const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({ KDP_CRON_SECRET: "s3cret" }) });
+    const failingDriver: BrowserDriver = { name: "failing", async run() { throw new Error("wizard blew up"); } };
+    await atlas.use(createKdpPlugin({ fetcher: fakeUploadFetcher(testBook(), fakeZipBuffer()), driver: failingDriver }));
+    await atlas.use({
+      manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:kdp"], role: "executor" },
+      async register(ctx) {
+        await expect(ctx.call("kdp", { op: "uploadToAmazon", id: "b1" })).rejects.toThrow(/wizard blew up/);
       },
     });
   });

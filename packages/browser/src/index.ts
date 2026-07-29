@@ -72,59 +72,78 @@ export function resolveContextOptions(
   return {};
 }
 
-/** Real browser via Playwright, loaded lazily so it stays optional. */
+/** Real browser via Playwright, loaded lazily so it stays optional. When
+ * `keepOpen: true`, the browser/context/page launched on the FIRST `run()`
+ * call are cached and reused on every subsequent call on the same driver
+ * instance — this is what lets a caller make several `run()` calls in a row
+ * against the same live page (e.g. KDP's uploadToAmazon: core wizard steps,
+ * then one call per category, then a final confirmation — all need to see
+ * the same already-navigated page). When `keepOpen` is false/unset (the
+ * default, matching the Actions department's existing one-call-per-session
+ * usage), every call launches fresh and closes at the end, exactly as
+ * before this option existed. */
 export function createPlaywrightDriver(
   opts: { headless?: boolean; storageState?: string; keepOpen?: boolean } = {},
 ): BrowserDriver {
+  let handle: {
+    browser: { close: () => Promise<void> };
+    context: Record<string, (...a: unknown[]) => Promise<unknown>>;
+    page: Record<string, (...a: unknown[]) => Promise<unknown>>;
+  } | null = null;
+
+  async function getPage() {
+    if (handle) return handle;
+    // Variable specifier defeats static resolution so tsc doesn't require the
+    // package to be present at build time.
+    const spec = "playwright";
+    let chromium: { launch: (o: { headless: boolean }) => Promise<unknown> };
+    try {
+      ({ chromium } = (await import(spec)) as { chromium: typeof chromium });
+    } catch {
+      throw new Error("Playwright is not installed. Run: pnpm add playwright && npx playwright install chromium");
+    }
+    const browser = (await chromium.launch({ headless: opts.headless ?? false })) as {
+      newContext: (o: { storageState?: string }) => Promise<Record<string, unknown>>;
+      close: () => Promise<void>;
+    };
+    const context = (await browser.newContext(resolveContextOptions(opts.storageState, existsSync))) as Record<
+      string,
+      (...a: unknown[]) => Promise<unknown>
+    >;
+    const page = (await context.newPage!()) as Record<string, (...a: unknown[]) => Promise<unknown>>;
+    handle = { browser, context, page };
+    return handle;
+  }
+
   return {
     name: "playwright",
     async run(steps: BrowserStep[], ctx: RunContext = {}): Promise<BrowserResult> {
-      // Variable specifier defeats static resolution so tsc doesn't require the
-      // package to be present at build time.
-      const spec = "playwright";
-      let chromium: { launch: (o: { headless: boolean }) => Promise<unknown> };
-      try {
-        ({ chromium } = (await import(spec)) as { chromium: typeof chromium });
-      } catch {
-        throw new Error("Playwright is not installed. Run: pnpm add playwright && npx playwright install chromium");
-      }
-      const browser = (await chromium.launch({ headless: opts.headless ?? false })) as {
-        newContext: (o: { storageState?: string }) => Promise<Record<string, unknown>>;
-        close: () => Promise<void>;
-      };
+      const { browser, context, page } = await getPage();
       const log: string[] = [];
+      let result: BrowserResult | undefined;
+      let stepsErr: unknown;
       try {
-        const context = (await browser.newContext(resolveContextOptions(opts.storageState, existsSync))) as Record<
-          string,
-          (...a: unknown[]) => Promise<unknown>
-        >;
-        const page = (await context.newPage!()) as Record<string, (...a: unknown[]) => Promise<unknown>>;
-        const saveSession = async () => {
-          if (opts.storageState) await context.storageState!({ path: opts.storageState });
-        };
-        let result: BrowserResult | undefined;
-        let stepsErr: unknown;
-        try {
-          for (const s of steps) {
-            const val = s.valueFromCred ? (ctx.secrets?.[s.valueFromCred] ?? "") : (s.value ?? "");
-            if (s.action === "goto" && s.url) await page.goto!(s.url);
-            else if (s.action === "click" && s.selector) await page.click!(s.selector);
-            else if (s.action === "fill" && s.selector) await page.fill!(s.selector, val);
-            else if (s.action === "waitFor" && s.selector) await page.waitForSelector!(s.selector, s.timeoutMs ? { timeout: s.timeoutMs } : undefined);
-            else if (s.action === "press" && s.selector && s.value) await page.press!(s.selector, s.value);
-            else if (s.action === "upload" && s.selector && val) await page.setInputFiles!(s.selector, val);
-            log.push(`${s.action}${s.selector ? " @ " + s.selector : ""}${s.url ? " " + s.url : ""}`);
-          }
-          result = { ok: true, stepsRun: steps.length, log };
-        } catch (err) {
-          stepsErr = err;
+        for (const s of steps) {
+          const val = s.valueFromCred ? (ctx.secrets?.[s.valueFromCred] ?? "") : (s.value ?? "");
+          if (s.action === "goto" && s.url) await page.goto!(s.url);
+          else if (s.action === "click" && s.selector) await page.click!(s.selector);
+          else if (s.action === "fill" && s.selector) await page.fill!(s.selector, val);
+          else if (s.action === "waitFor" && s.selector) await page.waitForSelector!(s.selector, s.timeoutMs ? { timeout: s.timeoutMs } : undefined);
+          else if (s.action === "press" && s.selector && s.value) await page.press!(s.selector, s.value);
+          else if (s.action === "upload" && s.selector && val) await page.setInputFiles!(s.selector, val);
+          log.push(`${s.action}${s.selector ? " @ " + s.selector : ""}${s.url ? " " + s.url : ""}`);
         }
-        await saveSession().catch(() => {});
-        if (stepsErr) throw stepsErr;
-        return result!;
-      } finally {
-        if (!opts.keepOpen) await browser.close();
+        result = { ok: true, stepsRun: steps.length, log };
+      } catch (err) {
+        stepsErr = err;
       }
+      if (opts.storageState) await context.storageState!({ path: opts.storageState }).catch(() => {});
+      if (!opts.keepOpen) {
+        await browser.close();
+        handle = null;
+      }
+      if (stepsErr) throw stepsErr;
+      return result!;
     },
   };
 }

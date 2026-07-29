@@ -146,6 +146,9 @@ export function createKdpPlugin(opts: { fetcher?: typeof fetch; driver?: Browser
 
         if (cmd.op === "uploadToAmazon") {
           const { book, zipBuffer } = await fetchBookAndZip(cmd.id);
+          if (pricePolicy[book.product_type] === undefined) {
+            throw new Error(`kdp upload: no price configured for product_type "${book.product_type}"`);
+          }
           const zip = new AdmZip(zipBuffer);
           const interiorEntry = zip.getEntry("interior.pdf");
           const coverEntry = zip.getEntry("cover.pdf");
@@ -161,19 +164,19 @@ export function createKdpPlugin(opts: { fetcher?: typeof fetch; driver?: Browser
             await driver.run(buildUploadSteps(book, { interiorPath, coverPath }, pricePolicy));
 
             const categoriesMatched: string[] = [];
-            const categoriesSkipped: string[] = [];
+            const categoriesSkipped: Array<{ category: string; reason: string }> = [];
             for (const category of book.categories ?? []) {
               try {
                 await driver.run(buildCategorySteps(category));
                 categoriesMatched.push(category);
-              } catch {
-                categoriesSkipped.push(category);
+              } catch (err) {
+                categoriesSkipped.push({ category, reason: err instanceof Error ? err.message : String(err) });
               }
             }
 
             await driver.run(buildFinalConfirmationStep());
 
-            const result = { ok: true, bookId: cmd.id, categoriesMatched, categoriesSkipped };
+            const result = { ok: true, bookId: cmd.id, driver: driver.name, categoriesMatched, categoriesSkipped };
             await ctx.emit("kdp.uploadedToAmazon", result);
             return result;
           } finally {
