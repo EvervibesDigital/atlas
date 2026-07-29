@@ -98,6 +98,8 @@ export interface AtlasOptions {
    * inline; a separate background worker (packages/server/src/server.ts)
    * reads the same file to actually render them. */
   videoJobsFile?: string;
+  /** Where connected social accounts persist (default "data/social-accounts.json"). */
+  socialAccountsFile?: string;
   /** Enable the orchestrator's automatic self-healing step (default true).
    * Tests set this false to stay fast/offline — see packages/app/test/cycle.test.ts. */
   healEnabled?: boolean;
@@ -208,7 +210,10 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createNegotiationPlugin());
   await atlas.use(createDetectivePlugin());
   await atlas.use(createEngineeringPlugin());
-  await atlas.use(createSocialPlugin({ redirectUri: `${process.env.ATLAS_PUBLIC_URL ?? "https://atlas.evervibesdigital.com"}/api/social/oauth/callback` }));
+  await atlas.use(createSocialPlugin({
+    redirectUri: `${process.env.ATLAS_PUBLIC_URL ?? "https://atlas.evervibesdigital.com"}/api/social/oauth/callback`,
+    accountsFile: opts.socialAccountsFile,
+  }));
 
   // The autonomous loop — conducts every department above.
   await atlas.use(createOrchestratorPlugin({ healEnabled: opts.healEnabled }));

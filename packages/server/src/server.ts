@@ -645,6 +645,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       forgeDir: "./forge",
       publisher: livePublisher,
       videoJobsFile: videoJobsFile,
+      socialAccountsFile: `${dataDir}/social-accounts.json`,
     });
     warmOllama(); // fire-and-forget: preload the local model so the first
     // offline reply isn't a 25s cold start (no-op if Ollama isn't running).
@@ -804,13 +805,19 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         res.end("<h2>Connection failed</h2><p>No authorization code received.</p>");
         return;
       }
-      // Deliberately stops here rather than completing the token exchange
-      // automatically — that call is flagged (see @atlas/social's
-      // token-exchange.ts) for a live check the first time it actually runs
-      // against a real response, not fired unattended on an untested path
-      // handling a real OAuth code.
-      res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(`<h2>Almost done</h2><p>Authorization received. Tell ATLAS you're ready and it'll finish connecting this account.</p><p style="color:#888;font-size:12px">code: ${code.slice(0, 8)}...</p>`);
+      try {
+        const a = await ensureAtlas();
+        const result = (await a.invoke("social", { op: "completeConnection", code })) as {
+          connected: Array<{ platform: string; personaLabel: string }>;
+        };
+        const list = result.connected.map((c) => `<li>${c.platform}: <b>${c.personaLabel}</b></li>`).join("");
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(`<h2>✅ Connected</h2><p>${result.connected.length} account(s) saved:</p><ul>${list}</ul><p style="color:#888;font-size:12px">You can close this tab.</p>`);
+      } catch (err) {
+        console.error("[SOCIAL] completeConnection failed:", (err as Error).message);
+        res.writeHead(500, { "Content-Type": "text/html" });
+        res.end(`<h2>Connection failed</h2><p>${(err as Error).message}</p><p style="color:#888;font-size:12px">Tell ATLAS this exact error — it's the real cause, not a guess.</p>`);
+      }
       return;
     }
 
