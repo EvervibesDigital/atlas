@@ -5,12 +5,18 @@ import { buildConnectUrl } from "./oauth";
 import { exchangeCodeForToken, type FetchLike } from "./token-exchange";
 import { exchangeForLongLivedToken, fetchPagesWithInstagram } from "./graph";
 import { encryptToken } from "./crypto";
-import { addAccount, type SocialAccount } from "./store";
+import { addAccount, loadAccounts, type SocialAccount } from "./store";
+import { enqueueStaggeredPosts, type SocialPost, type NewSocialPost } from "./post-queue";
 
-export type SocialCommand = { op: "getConnectUrl" } | { op: "completeConnection"; code: string };
+export type SocialCommand =
+  | { op: "getConnectUrl" }
+  | { op: "completeConnection"; code: string }
+  | { op: "listAccounts" }
+  | { op: "queuePosts"; accountId: string; items: Array<Pick<NewSocialPost, "contentItemId" | "caption" | "mediaUrl">> };
 
-export function createSocialPlugin(opts: { redirectUri: string; accountsFile?: string; fetcher?: FetchLike }): Plugin {
+export function createSocialPlugin(opts: { redirectUri: string; accountsFile?: string; postsFile?: string; fetcher?: FetchLike }): Plugin {
   const accountsFile = opts.accountsFile ?? "data/social-accounts.json";
+  const postsFile = opts.postsFile ?? "data/social-posts.json";
   const fetcher: FetchLike = opts.fetcher ?? (fetch as unknown as FetchLike);
 
   return {
@@ -88,6 +94,26 @@ export function createSocialPlugin(opts: { redirectUri: string; accountsFile?: s
 
           await writeFile(accountsFile, JSON.stringify(accounts), "utf8");
           return { connected };
+        }
+
+        if (cmd.op === "listAccounts") {
+          const accounts = await loadAccounts(accountsFile);
+          return { accounts: accounts.map((a) => ({ id: a.id, personaLabel: a.personaLabel, platform: a.platform })) };
+        }
+
+        if (cmd.op === "queuePosts") {
+          const accounts = await loadAccounts(accountsFile);
+          const account = accounts.find((a) => a.id === cmd.accountId);
+          if (!account) throw new Error(`social: account "${cmd.accountId}" not found — it may have been disconnected`);
+
+          const mediaType = "image" as const; // video support waits on Media Factory's multi-scene gap, see Plan 1's "Next"
+          const newPosts: NewSocialPost[] = cmd.items.map((i) => ({ contentItemId: i.contentItemId, accountId: cmd.accountId, mediaType, caption: i.caption, mediaUrl: i.mediaUrl }));
+          const staggered = enqueueStaggeredPosts(newPosts, new Date(), 6);
+
+          const existingRaw = await readFile(postsFile, "utf8").catch(() => "[]");
+          const existing = JSON.parse(existingRaw) as SocialPost[];
+          await writeFile(postsFile, JSON.stringify([...existing, ...staggered]), "utf8");
+          return { queued: staggered.length };
         }
 
         throw new Error(`social: unknown op "${(cmd as { op: string }).op}"`);
