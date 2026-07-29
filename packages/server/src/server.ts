@@ -410,6 +410,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   const urgentAlertStateFile = `${dataDir}/urgent-alerts.json`;
   const videoJobsFile = `${dataDir}/video-jobs.json`;
   const socialPostsFile = `${dataDir}/social-posts.json`;
+  const socialInboxFile = `${dataDir}/social-inbox.json`;
 
   // ── Morning-brief magic links ─────────────────────────────────────────
   // The digest email carries ONE signed link; tapping it opens a phone page
@@ -666,6 +667,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       videoJobsFile: videoJobsFile,
       socialAccountsFile: `${dataDir}/social-accounts.json`,
       socialPostsFile: socialPostsFile,
+      socialInboxFile: socialInboxFile,
     });
     warmOllama(); // fire-and-forget: preload the local model so the first
     // offline reply isn't a 25s cold start (no-op if Ollama isn't running).

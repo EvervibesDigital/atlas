@@ -149,7 +149,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
         // delays or blocks curiosity/gig-finder/media-factory/etc., and can
         // no longer stall the whole cycle (each is timeout-bounded inside
         // `optional()`).
-        const [curiosity, repoScout, businessScout, freeTools, github, tidy, newsletters, gigs, kdpScan, kdpGenerate, mediaFactory, healResult] = await Promise.all([
+        const [curiosity, repoScout, businessScout, freeTools, github, tidy, newsletters, gigs, kdpScan, kdpGenerate, mediaFactory, socialInbox, healResult] = await Promise.all([
           optional<unknown>(ctx.call, "curiosity", { op: "ideas" }, health),
           optional<unknown>(ctx.call, "search", { op: "scout", query: "autonomous AI agent framework OR MCP server OR open-source LLM tools", max: 6 }, health),
           // Same scout mechanism, aimed at the actual businesses instead of
@@ -184,6 +184,11 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
           // posts; everything lands in "review" for Mat to approve. No-ops
           // gracefully if DATABASE_URL isn't configured yet.
           optional<unknown>(ctx.call, "mediaFactory", { op: "autoCycle" }, health),
+          // Comment/DM auto-reply — reads new comments/messages on every
+          // connected account, drafts + auto-sends confident replies, queues
+          // the rest for Mat individually. No-ops gracefully if no accounts
+          // are connected yet.
+          optional<unknown>(ctx.call, "social", { op: "pollInbox" }, health),
           // Self-healing — detect and auto-fix typecheck errors in ATLAS's own
           // code. 600s (vs the 90s default) because this can run up to three
           // full 180s workspace typechecks (one to detect errors, one per fix
@@ -206,6 +211,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
           kdpScan: kdpScan ?? null,
           kdpGenerate: kdpGenerate ?? null,
           mediaFactory: mediaFactory ?? null,
+          socialInbox: socialInbox ?? null,
         };
 
         // 6e. Autopilot — act on every reversible "auto"-tier item (e.g.
