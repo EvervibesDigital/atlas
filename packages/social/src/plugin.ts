@@ -4,15 +4,17 @@ import { readFile, writeFile } from "node:fs/promises";
 import { buildConnectUrl } from "./oauth";
 import { exchangeCodeForToken, type FetchLike } from "./token-exchange";
 import { exchangeForLongLivedToken, fetchPagesWithInstagram } from "./graph";
-import { encryptToken } from "./crypto";
+import { encryptToken, decryptToken } from "./crypto";
 import { addAccount, loadAccounts, type SocialAccount } from "./store";
-import { enqueueStaggeredPosts, type SocialPost, type NewSocialPost } from "./post-queue";
+import { enqueueStaggeredPosts, duePosts, markPublished, markFailed, type SocialPost, type NewSocialPost } from "./post-queue";
+import { postToInstagram, postToFacebookPage } from "./posting";
 
 export type SocialCommand =
   | { op: "getConnectUrl" }
   | { op: "completeConnection"; code: string }
   | { op: "listAccounts" }
-  | { op: "queuePosts"; accountId: string; items: Array<Pick<NewSocialPost, "contentItemId" | "caption" | "mediaUrl">> };
+  | { op: "queuePosts"; accountId: string; items: Array<Pick<NewSocialPost, "contentItemId" | "caption" | "mediaUrl">> }
+  | { op: "publishDuePosts" };
 
 export function createSocialPlugin(opts: { redirectUri: string; accountsFile?: string; postsFile?: string; fetcher?: FetchLike }): Plugin {
   const accountsFile = opts.accountsFile ?? "data/social-accounts.json";
@@ -114,6 +116,40 @@ export function createSocialPlugin(opts: { redirectUri: string; accountsFile?: s
           const existing = JSON.parse(existingRaw) as SocialPost[];
           await writeFile(postsFile, JSON.stringify([...existing, ...staggered]), "utf8");
           return { queued: staggered.length };
+        }
+
+        if (cmd.op === "publishDuePosts") {
+          const tokenKey = await ctx.secret("SOCIAL_TOKEN_KEY");
+          if (!tokenKey) throw new Error("social: SOCIAL_TOKEN_KEY not set");
+
+          const accounts = await loadAccounts(accountsFile);
+          const rawPosts = await readFile(postsFile, "utf8").catch(() => "[]");
+          let posts = JSON.parse(rawPosts) as SocialPost[];
+          const due = duePosts(posts, new Date());
+
+          let published = 0;
+          let failed = 0;
+          for (const post of due) {
+            const account = accounts.find((a) => a.id === post.accountId);
+            if (!account) {
+              posts = markFailed(posts, post.id, `account "${post.accountId}" no longer connected`);
+              failed++;
+              continue;
+            }
+            try {
+              const pageAccessToken = decryptToken(account.accessTokenEnc, tokenKey);
+              const result = account.platform === "instagram" && account.igBusinessAccountId
+                ? await postToInstagram({ igBusinessAccountId: account.igBusinessAccountId, imageUrl: post.mediaUrl, caption: post.caption, pageAccessToken, fetcher })
+                : await postToFacebookPage({ pageId: account.pageId, imageUrl: post.mediaUrl, caption: post.caption, pageAccessToken, fetcher });
+              posts = markPublished(posts, post.id, result.livePostId);
+              published++;
+            } catch (err) {
+              posts = markFailed(posts, post.id, (err as Error).message);
+              failed++;
+            }
+          }
+          await writeFile(postsFile, JSON.stringify(posts), "utf8");
+          return { published, failed };
         }
 
         throw new Error(`social: unknown op "${(cmd as { op: string }).op}"`);

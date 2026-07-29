@@ -100,6 +100,8 @@ export interface AtlasOptions {
   videoJobsFile?: string;
   /** Where connected social accounts persist (default "data/social-accounts.json"). */
   socialAccountsFile?: string;
+  /** Where staggered outbound social posts persist (default "data/social-posts.json"). */
+  socialPostsFile?: string;
   /** Enable the orchestrator's automatic self-healing step (default true).
    * Tests set this false to stay fast/offline — see packages/app/test/cycle.test.ts. */
   healEnabled?: boolean;
@@ -213,6 +215,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createSocialPlugin({
     redirectUri: `${process.env.ATLAS_PUBLIC_URL ?? "https://atlas.evervibesdigital.com"}/api/social/oauth/callback`,
     accountsFile: opts.socialAccountsFile,
+    postsFile: opts.socialPostsFile,
   }));
 
   // The autonomous loop — conducts every department above.

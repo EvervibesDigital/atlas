@@ -409,6 +409,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   const briefStateFile = `${dataDir}/brief-digest.json`;
   const urgentAlertStateFile = `${dataDir}/urgent-alerts.json`;
   const videoJobsFile = `${dataDir}/video-jobs.json`;
+  const socialPostsFile = `${dataDir}/social-posts.json`;
 
   // ── Morning-brief magic links ─────────────────────────────────────────
   // The digest email carries ONE signed link; tapping it opens a phone page
@@ -520,6 +521,24 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
   }
 
   setInterval(() => void processOneVideoJob(), 2 * 60 * 1000);
+
+  /** Fires any social posts whose scheduled time has arrived — same 2-minute
+   * interval pattern as the video job worker, independent of the hourly
+   * business cycle. */
+  async function publishDueSocialPosts(): Promise<void> {
+    if (!vault.unlocked) return;
+    try {
+      const a = await ensureAtlas();
+      const result = (await a.invoke("social", { op: "publishDuePosts" })) as { published: number; failed: number };
+      if (result.published > 0 || result.failed > 0) {
+        console.log(`[SOCIAL] Published ${result.published}, failed ${result.failed}.`);
+      }
+    } catch (err) {
+      console.error("[SOCIAL] publishDuePosts tick failed:", (err as Error).message);
+    }
+  }
+
+  setInterval(() => void publishDueSocialPosts(), 2 * 60 * 1000);
 
   async function runAutomationCycleOnce(): Promise<void> {
     if (isAutomationRunning) return;
@@ -646,6 +665,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       publisher: livePublisher,
       videoJobsFile: videoJobsFile,
       socialAccountsFile: `${dataDir}/social-accounts.json`,
+      socialPostsFile: socialPostsFile,
     });
     warmOllama(); // fire-and-forget: preload the local model so the first
     // offline reply isn't a 25s cold start (no-op if Ollama isn't running).
