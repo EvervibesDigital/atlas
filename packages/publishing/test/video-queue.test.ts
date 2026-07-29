@@ -16,6 +16,16 @@ describe("enqueueJob", () => {
     const jobs = enqueueJob(existing, { voice: "v", scenes: [] });
     expect(jobs).toHaveLength(2);
   });
+
+  it("carries an optional contentId through, when the caller provides one", () => {
+    const jobs = enqueueJob([], { voice: "v", scenes: [] }, "content-item-42");
+    expect(jobs[0]!.contentId).toBe("content-item-42");
+  });
+
+  it("leaves contentId undefined when the caller doesn't provide one", () => {
+    const jobs = enqueueJob([], { voice: "v", scenes: [] });
+    expect(jobs[0]!.contentId).toBeUndefined();
+  });
 });
 
 describe("nextQueuedJob", () => {

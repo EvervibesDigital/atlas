@@ -7,6 +7,10 @@ export interface VideoRenderJob {
    * only ever exists in-memory during the orchestrator's cycle, with
    * nothing durable to look it back up from later. */
   spec: unknown;
+  /** Set when the caller wants to find this job again by content item
+   * (Media Factory) rather than only by job id (the orchestrator's own
+   * daily Reel doesn't set this — it has nothing to look it back up for). */
+  contentId?: string;
   status: "queued" | "rendering" | "done" | "failed";
   requestedAt: string;
   completedAt?: string;
@@ -17,8 +21,8 @@ export interface VideoRenderJob {
 /** Add a new queued job carrying the given render spec. Pure — caller
  * persists the returned array (same load/mutate/save pattern as
  * automation.json). */
-export function enqueueJob(jobs: VideoRenderJob[], spec: unknown): VideoRenderJob[] {
-  return [...jobs, { id: randomUUID(), spec, status: "queued", requestedAt: new Date().toISOString() }];
+export function enqueueJob(jobs: VideoRenderJob[], spec: unknown, contentId?: string): VideoRenderJob[] {
+  return [...jobs, { id: randomUUID(), spec, contentId, status: "queued", requestedAt: new Date().toISOString() }];
 }
 
 /** The oldest job still waiting to be rendered, or undefined if none —

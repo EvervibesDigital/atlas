@@ -108,7 +108,7 @@ export function createPublishingPlugin(opts: { publisher?: Publisher; renderer?:
         if (cmd.op === "enqueueRender") {
           const raw = await readFile(videoJobsPath, "utf8").catch(() => "[]");
           const existing = JSON.parse(raw) as VideoRenderJob[];
-          const updated = enqueueJob(existing, cmd.spec);
+          const updated = enqueueJob(existing, cmd.spec, cmd.contentId);
           await writeFile(videoJobsPath, JSON.stringify(updated), "utf8");
           const job = updated[updated.length - 1]!;
           return { jobId: job.id };
