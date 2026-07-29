@@ -22,6 +22,7 @@ export type MediaFactoryCommand =
   // text); when supplied, the plugin also generates + saves a real image and
   // includes its path in the response.
   | { op: "produce"; creatorId: string; title: string; hook: string; brief?: string; platform: string; contentId?: string }
+  | { op: "produceVideo"; contentId: string }
   | { op: "listPartnerships"; creatorId: string }
   | { op: "addPartnership"; partnership: MonetizationPartnership }
   | { op: "getAnalytics"; creatorId: string }
@@ -58,7 +59,7 @@ export function createMediaFactoryPlugin(opts: { imagesDir?: string; imageFetche
       name: "mediaFactory",
       version: "0.1.0",
       capabilities: ["mediaFactory"],
-      permissions: ["call:brain", "call:memory", "secret:GEMINI_API_KEY"],
+      permissions: ["call:brain", "call:memory", "call:publishing", "secret:GEMINI_API_KEY"],
       role: "executor",
     },
 
@@ -180,6 +181,33 @@ export function createMediaFactoryPlugin(opts: { imagesDir?: string; imageFetche
           if (!cmd.contentId) return draft;
           const imageAssets = await attachGeneratedImage(creator, cmd.contentId, draft.image_prompt);
           return { ...draft, imagePath: imageAssets.image_path };
+        }
+        if (cmd.op === "produceVideo") {
+          const item = await MediaFactoryDB.getContentItem(cmd.contentId);
+          if (!item) throw new Error(`mediaFactory: content item "${cmd.contentId}" not found`);
+          if (!item.script) throw new Error(`mediaFactory: content item "${cmd.contentId}" has no script yet — run "produce" first`);
+          const creator = await MediaFactoryDB.getCreator(item.creator_id);
+          if (!creator) throw new Error(`mediaFactory: creator for content item "${cmd.contentId}" not found`);
+
+          const SCENE_COUNT = 4;
+          const scenes = await MediaFactoryAgents.breakScriptIntoScenes(invoke, item.script, SCENE_COUNT);
+
+          const renderScenes: Array<{ text: string; imageUrl: string }> = [];
+          for (const scene of scenes) {
+            const assets = await attachGeneratedImage(creator, `${cmd.contentId}-scene-${renderScenes.length}`, scene.imagePrompt);
+            const imageUrl = (assets as { image_path?: string }).image_path;
+            if (imageUrl) renderScenes.push({ text: scene.text, imageUrl });
+          }
+          if (renderScenes.length === 0) throw new Error(`mediaFactory: no scene images generated for "${cmd.contentId}" — check GEMINI_API_KEY`);
+
+          const { jobId } = (await ctx.call("publishing", {
+            op: "enqueueRender",
+            spec: { voice: creator.name, scenes: renderScenes },
+            contentId: cmd.contentId,
+          })) as { jobId: string };
+
+          await MediaFactoryDB.updateContentItemDraft(cmd.contentId, { assets: { video_job_id: jobId } });
+          return { jobId, sceneCount: renderScenes.length };
         }
         if (cmd.op === "listPartnerships") return MediaFactoryDB.listPartnerships(cmd.creatorId);
         if (cmd.op === "addPartnership") return MediaFactoryDB.addPartnership(cmd.partnership);
