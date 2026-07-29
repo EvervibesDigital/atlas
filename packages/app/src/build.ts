@@ -121,6 +121,21 @@ export interface AtlasOptions {
    * otherwise. Built, not turned on, exactly like `publisher` above.
    */
   actionsDriver?: BrowserDriver;
+  /**
+   * Driver for KDP's `uploadToAmazon` op (fills Amazon KDP's book wizard,
+   * stops before Publish — see packages/kdp/src/upload-steps.ts and
+   * docs/superpowers/specs/2026-07-29-kdp-upload-automation-design.md).
+   * Defaults to SimulatedDriver. A SEPARATE flag from ATLAS_REAL_ACTIONS on
+   * purpose — KDP touches a real paid publishing account, a materially
+   * different blast radius from the existing simulated-by-default actions.
+   * Set ATLAS_REAL_KDP_UPLOAD=true to flip on a real, always-headed
+   * (headless: false) Chromium with a persistent session. This needs a real
+   * display attached — run it on your own machine, not the headless VPS.
+   */
+  kdpDriver?: BrowserDriver;
+  /** Where the KDP Playwright session (cookies) persists between runs, so
+   * Mat only logs into KDP once. Default "data/kdp-session.json". */
+  kdpSessionFile?: string;
 }
 
 /**
@@ -191,7 +206,15 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createResearchPlugin());
   await atlas.use(createBusinessPlugin({ businessFile: opts.businessFile }));
   await atlas.use(createGigFinderPlugin({ gigFile: opts.gigFile }));
-  await atlas.use(createKdpPlugin());
+  await atlas.use(
+    createKdpPlugin({
+      driver:
+        opts.kdpDriver ??
+        (process.env.ATLAS_REAL_KDP_UPLOAD === "true"
+          ? createPlaywrightDriver({ headless: false, storageState: opts.kdpSessionFile ?? "data/kdp-session.json", keepOpen: true })
+          : undefined),
+    }),
+  );
   await atlas.use(createSurplusPlugin());
   await atlas.use(createWholesalePlugin());
   await atlas.use(createOutreachPlugin());

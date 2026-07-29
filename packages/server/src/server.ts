@@ -367,6 +367,10 @@ export interface ControlPanelOptions {
   healEnabled?: boolean;
   /** Driver for the Actions department — see AtlasOptions.actionsDriver in packages/app/src/build.ts for the full explanation. Defaults to SimulatedDriver unless ATLAS_REAL_ACTIONS=true. */
   actionsDriver?: BrowserDriver;
+  /** Driver for KDP's uploadToAmazon op — see AtlasOptions.kdpDriver in packages/app/src/build.ts for the full explanation. Defaults to SimulatedDriver unless ATLAS_REAL_KDP_UPLOAD=true. */
+  kdpDriver?: BrowserDriver;
+  /** Where the KDP Playwright session persists (default "data/kdp-session.json"). */
+  kdpSessionFile?: string;
   /** Where "Enable overnight runs" writes provider keys (default ./.env). */
   envFile?: string;
   /** Failed unlocks before a temporary lockout (default 5). */
@@ -650,6 +654,8 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       brainAdapters: opts.brainAdapters,
       healEnabled: opts.healEnabled,
       actionsDriver: opts.actionsDriver,
+      kdpDriver: opts.kdpDriver,
+      kdpSessionFile: opts.kdpSessionFile,
       memoryFile: `${dataDir}/memory.json`,
       approvalsFile: `${dataDir}/approvals.json`,
       metricsFile: `${dataDir}/metrics.json`,
