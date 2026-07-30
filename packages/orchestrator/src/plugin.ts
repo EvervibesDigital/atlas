@@ -149,7 +149,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
         // delays or blocks curiosity/gig-finder/media-factory/etc., and can
         // no longer stall the whole cycle (each is timeout-bounded inside
         // `optional()`).
-        const [curiosity, repoScout, businessScout, freeTools, github, tidy, newsletters, gigs, kdpScan, kdpGenerate, mediaFactory, socialInbox, healResult] = await Promise.all([
+        const [curiosity, repoScout, businessScout, freeTools, github, tidy, newsletters, gigs, gigsCheckWins, kdpScan, kdpGenerate, mediaFactory, socialInbox, healResult] = await Promise.all([
           optional<unknown>(ctx.call, "curiosity", { op: "ideas" }, health),
           optional<unknown>(ctx.call, "search", { op: "scout", query: "autonomous AI agent framework OR MCP server OR open-source LLM tools", max: 6 }, health),
           // Same scout mechanism, aimed at the actual businesses instead of
@@ -168,6 +168,11 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
           // search each time. The riskier scrape sources (craigslist/fiverr/
           // guru) stay manual-trigger-only from the UI, never automatic.
           optional<unknown>(ctx.call, "gigfinder", { op: "search", sources: ["web"] }, health),
+          // Gig Finder win detection — reads recent email for a confident
+          // "you got the job" match against pending bids and marks it won;
+          // anything less certain queues in the Brief instead of guessing.
+          // No-ops gracefully if EMAIL_USER/EMAIL_PASS aren't configured yet.
+          optional<unknown>(ctx.call, "gigfinder", { op: "checkWins" }, health),
           // KDP — "constantly creating": scan for new book opportunities, then
           // build metadata+PDF for the top few unbuilt ones every cycle. Real
           // pipeline lives in evervibes; this just keeps it fed. Skipped
@@ -208,6 +213,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
           tidy: tidy ?? null,
           newsletters: newsletters ?? null,
           gigs: gigs ?? null,
+          gigsCheckWins: gigsCheckWins ?? null,
           kdpScan: kdpScan ?? null,
           kdpGenerate: kdpGenerate ?? null,
           mediaFactory: mediaFactory ?? null,
