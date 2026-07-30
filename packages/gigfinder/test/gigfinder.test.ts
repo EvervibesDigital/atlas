@@ -193,4 +193,33 @@ describe("gigfinder plugin checkWins", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("doesn't let a later, lower-confidence email in the same batch downgrade a gig already marked won", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atlas-gigfinder-wins-"));
+    const gigFile = join(dir, "gigs.json");
+    try {
+      const gigId = await seedSubmittedGig(gigFile, "Python scraper for product pages");
+      const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({}) });
+      await atlas.use(
+        fakeEmail([
+          { from: "client@example.com", subject: "You're hired!", date: "2026-07-30T00:00:00Z", text: "Congratulations, you've been hired for the python scraper project.", links: [] },
+          { from: "client@example.com", subject: "Quick follow-up", date: "2026-07-30T01:00:00Z", text: "Can you confirm the python scraper timeline?", links: [] },
+        ]),
+      );
+      await atlas.use(createGigFinderPlugin({ gigFile }));
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:gigfinder"], role: "executor" },
+        async register(ctx) {
+          const r = (await ctx.call("gigfinder", { op: "checkWins" })) as { checked: number; won: number; flagged: number };
+          expect(r.checked).toBe(2);
+          expect(r.won).toBe(1);
+          expect(r.flagged).toBe(0); // the second email must NOT re-match and downgrade the already-won gig
+          const won = (await ctx.call("gigfinder", { op: "list", status: "won" })) as Array<{ id: string }>;
+          expect(won.map((g) => g.id)).toContain(gigId);
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

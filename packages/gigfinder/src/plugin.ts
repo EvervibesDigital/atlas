@@ -150,6 +150,7 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
 
         if (cmd.op === "checkWins") {
           const pending = await registry.list("submitted");
+          const decided = new Set<string>();
           let checked = 0;
           let won = 0;
           let flagged = 0;
@@ -161,8 +162,10 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
               checked++;
               try {
                 const emailText = `${msg.subject} ${msg.text}`;
-                const gig = matchGigForEmail(emailText, pending);
+                const candidates = pending.filter((g) => !decided.has(g.id));
+                const gig = matchGigForEmail(emailText, candidates);
                 if (!gig) continue;
+                decided.add(gig.id);
                 const confidence = scoreWinConfidence(emailText);
                 if (confidence >= WIN_CONFIDENCE_THRESHOLD) {
                   await registry.update(gig.id, { status: "won" });
@@ -172,8 +175,8 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
                   await registry.update(gig.id, { status: "responded", notes: emailText.slice(0, 500) });
                   flagged++;
                 }
-              } catch {
-                /* one email failing to classify shouldn't kill the whole batch */
+              } catch (err) {
+                console.error("[gigfinder] checkWins: failed to classify an email, skipping it:", err instanceof Error ? err.message : String(err));
               }
             }
           }
