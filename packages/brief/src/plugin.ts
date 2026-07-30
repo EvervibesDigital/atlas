@@ -70,7 +70,7 @@ export function createBriefPlugin(): Plugin {
           id: g.id,
           source: "gigfinder" as const,
           title: `Possible win: ${g.title}`,
-          detail: g.notes ? `Client replied — review before ATLAS starts the work: "${g.notes}"` : "Client replied — review before ATLAS starts the work.",
+          detail: g.notes ? `Client replied — review before ATLAS starts the work: "${g.notes.slice(0, 200)}"` : "Client replied — review before ATLAS starts the work.",
           risk: 1 as const,
           // Is this actually a win? A specific judgment call, same bar as a
           // reply to a specific person — never batched.
