@@ -189,6 +189,9 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
           const gig = await registry.get(cmd.id);
           if (!gig) throw new Error(`no gig "${cmd.id}"`);
           if (gig.status === "responded") {
+            // A responded gig already got a client reply flagged as a
+            // possible win — approving here means "yes, this is a win," not
+            // "start drafting a bid," so it skips straight to "won".
             const updated = await registry.update(cmd.id, { status: "won" });
             await ctx.emit("gigfinder.won", { id: cmd.id });
             return updated;
