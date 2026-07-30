@@ -1169,7 +1169,7 @@ async function adoptProposal(i){ const p=proposalsCache[i]; if(!p) return;
 
 // Gig Finder (search -> approve+draft -> you submit -> markSubmitted)
 async function loadGigStats(){ try { const s=await api("/api/gigs/stats");
-  $("gigStats").innerHTML="<b>"+s.new+"</b> new · <b>"+s.approved+"</b> approved · <b>"+s.submitted+"</b> submitted · <b>"+s.responded+"</b> responded · <b>"+s.completed+"</b> completed · <b>"+s.paid+"</b> paid · <b>$"+s.totalEarned+"</b> earned";
+  $("gigStats").innerHTML="<b>"+s.new+"</b> new · <b>"+s.approved+"</b> approved · <b>"+s.submitted+"</b> submitted · <b>"+s.responded+"</b> responded · <b>"+s.won+"</b> won · <b>"+s.completed+"</b> completed · <b>"+s.paid+"</b> paid · <b>$"+s.totalEarned+"</b> earned";
 } catch(e){ $("gigStats").textContent="⚠ "+e.message; } }
 async function loadGigs(){ loadGigStats(); try { const r=await api("/api/gigs"); const jobs=r.jobs||[];
   $("gigsList").innerHTML=jobs.length?jobs.map(g=>{
@@ -1180,7 +1180,8 @@ async function loadGigs(){ loadGigStats(); try { const r=await api("/api/gigs");
     if(g.status==='new') actions="<button onclick='approveGig(\\""+g.id+"\\")'>✅ Approve &amp; draft</button> <button class='sec' onclick='rejectGig(\\""+g.id+"\\")'>❌ Reject</button>";
     else if(g.status==='approved') actions="<button onclick='submittedGig(\\""+g.id+"\\")'>📨 Mark submitted (after you paste &amp; send it)</button>";
     else if(g.status==='submitted') actions="<button class='sec' onclick='gigStatus(\\""+g.id+"\\",\\"responded\\")'>Client responded</button>";
-    else if(g.status==='responded') actions="<button class='sec' onclick='gigStatus(\\""+g.id+"\\",\\"completed\\")'>Mark completed</button>";
+    else if(g.status==='responded') actions="<button onclick='approveGig(\\""+g.id+"\\")'>🏆 Confirm win</button> <button class='sec' onclick='rejectGig(\\""+g.id+"\\")'>Not a win</button>";
+    else if(g.status==='won') actions="<button class='sec' onclick='gigStatus(\\""+g.id+"\\",\\"completed\\")'>Mark completed</button>";
     else if(g.status==='completed') actions="<button class='sec' onclick='gigPaid(\\""+g.id+"\\")'>💰 Mark paid</button>";
     return "<div class='row' style='align-items:flex-start;flex-direction:column;border:1px solid var(--acc);padding:8px;border-radius:4px;margin-bottom:8px'><div style='display:flex;justify-content:space-between;width:100%'><span><b>"+g.title+"</b>"+budget+" · "+g.source+" "+pill+"</span></div><a href='"+g.url+"' target='_blank' style='font-size:11px'>"+g.url+"</a><div class='note' style='font-size:12px'>"+g.snippet+"</div>"+draft+"<div style='margin-top:8px'>"+actions+"</div></div>";
   }).join(""):"<div class='note'>No jobs yet. Click 'Search now' to look for AI-doable freelance work.</div>";
