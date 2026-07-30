@@ -11,6 +11,64 @@ describe("extractLinks", () => {
   });
 });
 
+describe("parseMessage", () => {
+  it("extracts the real message body, not the raw MIME headers, from a realistic raw email", async () => {
+    const raw = Buffer.from(
+      [
+        "Delivered-To: mat@example.com",
+        "Received: by 2002:a05:6512:3d8b:b0:519:d1a1:1b2c with SMTP id abc123",
+        "        for <mat@example.com>; Thu, 30 Jul 2026 10:00:00 -0700 (PDT)",
+        "DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=example.com; s=sel1;",
+        "        h=from:to:subject:date; bh=abcdef123456=; b=xyzsignature1234567890abcdefg",
+        "From: Client Name <client@example.com>",
+        "To: mat@example.com",
+        "Subject: Congratulations! Your proposal was accepted",
+        "Date: Thu, 30 Jul 2026 10:00:00 -0700",
+        "Content-Type: text/plain; charset=\"UTF-8\"",
+        "Content-Transfer-Encoding: 7bit",
+        "",
+        "Hi Mat,",
+        "",
+        "Congratulations! You've been hired for the python scraper project.",
+        "Looking forward to working with you.",
+        "",
+        "Best,",
+        "Client",
+      ].join("\r\n"),
+      "utf8",
+    );
+
+    const { parseMessage } = await import("../src/index");
+    const { text, links } = await parseMessage(raw);
+
+    expect(text).toContain("You've been hired for the python scraper project");
+    expect(text).not.toContain("Delivered-To");
+    expect(text).not.toContain("DKIM-Signature");
+    expect(text).not.toContain("Received:");
+    expect(links).toEqual([]);
+  });
+
+  it("extracts links from an HTML body when the message has no plain-text part", async () => {
+    const raw = Buffer.from(
+      [
+        "From: Client <client@example.com>",
+        "To: mat@example.com",
+        "Subject: Job offer",
+        "Content-Type: text/html; charset=\"UTF-8\"",
+        "",
+        "<p>You're hired! <a href=\"https://platform.example.com/contract/abc123\">View the contract</a></p>",
+      ].join("\r\n"),
+      "utf8",
+    );
+
+    const { parseMessage } = await import("../src/index");
+    const { text, links } = await parseMessage(raw);
+
+    expect(text).toContain("You're hired");
+    expect(links).toEqual(["https://platform.example.com/contract/abc123"]);
+  });
+});
+
 describe("email plugin", () => {
   const reader: MailReader = { async recent() { return [{ from: "noreply@tool.com", subject: "Confirm your email", date: "", text: "click", links: ["https://tool.com/confirm/xyz"] }]; } };
 

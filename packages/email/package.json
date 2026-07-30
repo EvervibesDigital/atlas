@@ -10,10 +10,12 @@
   "dependencies": {
     "@atlas/core": "workspace:*",
     "imapflow": "^1.4.6",
-    "nodemailer": "^9.0.3"
+    "nodemailer": "^9.0.3",
+    "mailparser": "^3.7.5"
   },
   "devDependencies": {
     "@atlas/approvals": "workspace:*",
-    "@atlas/guardian": "workspace:*"
+    "@atlas/guardian": "workspace:*",
+    "@types/mailparser": "^3.4.5"
   }
 }
