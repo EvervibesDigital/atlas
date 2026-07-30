@@ -36,6 +36,15 @@ export function createKdpPlugin(opts: { fetcher?: typeof fetch; driver?: Browser
   const f = opts.fetcher ?? fetch;
   const driver = opts.driver ?? new SimulatedDriver();
   const pricePolicy = opts.pricePolicy ?? DEFAULT_KDP_PRICE_POLICY;
+  /** Guards against two overlapping uploadToAmazon calls fighting over the
+   * same live browser page. Known residual gap: this flag lives in this
+   * plugin instance's closure, so it does NOT survive server.ts's
+   * rebuildAtlas() (which runs on /api/setup, /api/unlock, and whenever a
+   * pasted API key is auto-detected in chat) — a rebuild mid-upload starts a
+   * fresh plugin with the flag reset, so a second real upload could still
+   * begin while an orphaned first one keeps running in the background.
+   * Accepted for now; closing it fully needs a guard that outlives a single
+   * Atlas rebuild, not just a single plugin instance. */
   let uploadInFlight = false;
 
   return {
