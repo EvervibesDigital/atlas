@@ -167,6 +167,33 @@ describe("brief plugin — the Unified Morning Brief", () => {
     }
   });
 
+  it("surfaces a responded gig as an individual ask-tier 'possible win' item, and approving it confirms the win", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atlas-brief-gig-win-"));
+    const gigFile = join(dir, "gigs.json");
+    const approvalsFile = join(dir, "approvals.json");
+    try {
+      const atlas = await buildTestAtlas(gigFile, approvalsFile);
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:gigfinder", "call:brief"], role: "executor" },
+        async register(ctx) {
+          await ctx.call("gigfinder", { op: "search" });
+          const seeded = (await ctx.call("gigfinder", { op: "list", status: "new" })) as Array<{ id: string }>;
+          await ctx.call("gigfinder", { op: "updateStatus", id: seeded[0]!.id, status: "responded" });
+
+          const r = (await ctx.call("brief", { op: "today" })) as { items: BriefItem[] };
+          const possibleWin = r.items.find((i) => i.source === "gigfinder" && i.title.startsWith("Possible win:"));
+          expect(possibleWin).toBeTruthy();
+          expect(possibleWin!.tier).toBe("ask");
+
+          const acted = (await ctx.call("brief", { op: "act", source: "gigfinder", id: possibleWin!.id, action: "approve" })) as { status: string };
+          expect(acted.status).toBe("won");
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   describe("surplus source", () => {
     // A real RSA key so the Sheets client's actual JWT-signing code path runs.
     const TEST_PRIVATE_KEY_PEM = generateKeyPairSync("rsa", { modulusLength: 2048 })

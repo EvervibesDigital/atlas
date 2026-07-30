@@ -50,8 +50,11 @@ export function createBriefPlugin(): Plugin {
       }
 
       async function fromGigFinder(): Promise<BriefItem[]> {
-        const gigs = (await ctx.call("gigfinder", { op: "list", status: "new" })) as Array<{ id: string; title: string; snippet: string; foundAt: string; budget?: number; draftBid?: string }>;
-        return gigs.map((g) => ({
+        const [newGigs, respondedGigs] = await Promise.all([
+          ctx.call("gigfinder", { op: "list", status: "new" }) as Promise<Array<{ id: string; title: string; snippet: string; foundAt: string; budget?: number; draftBid?: string }>>,
+          ctx.call("gigfinder", { op: "list", status: "responded" }) as Promise<Array<{ id: string; title: string; foundAt: string; notes?: string }>>,
+        ]);
+        const bidItems = newGigs.map((g) => ({
           id: g.id,
           source: "gigfinder" as const,
           title: g.title,
@@ -63,6 +66,18 @@ export function createBriefPlugin(): Plugin {
           tier: "bulk" as const,
           createdAt: g.foundAt,
         }));
+        const possibleWinItems = respondedGigs.map((g) => ({
+          id: g.id,
+          source: "gigfinder" as const,
+          title: `Possible win: ${g.title}`,
+          detail: g.notes ? `Client replied — review before ATLAS starts the work: "${g.notes}"` : "Client replied — review before ATLAS starts the work.",
+          risk: 1 as const,
+          // Is this actually a win? A specific judgment call, same bar as a
+          // reply to a specific person — never batched.
+          tier: "ask" as const,
+          createdAt: g.foundAt,
+        }));
+        return [...bidItems, ...possibleWinItems];
       }
 
       async function fromApprovals(): Promise<BriefItem[]> {
