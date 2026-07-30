@@ -188,6 +188,11 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
         if (cmd.op === "approve") {
           const gig = await registry.get(cmd.id);
           if (!gig) throw new Error(`no gig "${cmd.id}"`);
+          if (gig.status === "responded") {
+            const updated = await registry.update(cmd.id, { status: "won" });
+            await ctx.emit("gigfinder.won", { id: cmd.id });
+            return updated;
+          }
           const bid = gig.draftBid ?? (await draftBid(gig)); // pre-drafted at search time; fall back for older gigs
           const updated = await registry.update(cmd.id, { status: "approved", draftBid: bid });
           await ctx.emit("gigfinder.approved", { id: cmd.id });

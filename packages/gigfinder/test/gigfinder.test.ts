@@ -223,3 +223,27 @@ describe("gigfinder plugin checkWins", () => {
     }
   });
 });
+
+describe("gigfinder plugin approve on a responded gig", () => {
+  it("marks a responded gig won instead of drafting a new bid", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atlas-gigfinder-approve-won-"));
+    const gigFile = join(dir, "gigs.json");
+    try {
+      const reg = new GigRegistry(gigFile);
+      const [added] = await reg.addCandidates([{ source: "web", title: "Excel cleanup job", url: "http://x", snippet: "desc" }]);
+      await reg.update(added!.id, { status: "responded", notes: "Congrats, you're hired!" });
+
+      const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({}) });
+      await atlas.use(createGigFinderPlugin({ gigFile }));
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:gigfinder"], role: "executor" },
+        async register(ctx) {
+          const r = (await ctx.call("gigfinder", { op: "approve", id: added!.id })) as { status: string };
+          expect(r.status).toBe("won");
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
