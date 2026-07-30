@@ -2,6 +2,7 @@ import type { Plugin } from "@atlas/core";
 import { GigRegistry } from "./registry";
 import { isAiDoable, extractBudget } from "./matching";
 import { renderFallbackBid, bidSystemPrompt } from "./templates";
+import { scoreWinConfidence, matchGigForEmail, WIN_CONFIDENCE_THRESHOLD } from "./win-detection";
 import type { Gig, GigCandidate, GigSource, GigStatus } from "./types";
 
 /**
@@ -29,6 +30,7 @@ export type GigFinderCommand =
   | { op: "reject"; id: string }
   | { op: "markSubmitted"; id: string }
   | { op: "updateStatus"; id: string; status: GigStatus; paidAmount?: number }
+  | { op: "checkWins" }
   | { op: "stats" };
 
 // Phrased to match how real job POSTINGS talk ("looking for", "budget:",
@@ -50,7 +52,7 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
       name: "gigfinder",
       version: "0.1.0",
       capabilities: ["gigfinder"],
-      permissions: ["call:brain", "call:memory", "call:search"],
+      permissions: ["call:brain", "call:memory", "call:search", "call:email"],
       role: "executor",
     },
 
@@ -144,6 +146,38 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
           }
           await ctx.emit("gigfinder.searched", { sources, found: added.length });
           return { found: added.length, candidatesScanned: all.length, jobs: drafted.length === added.length ? drafted : added };
+        }
+
+        if (cmd.op === "checkWins") {
+          const pending = await registry.list("submitted");
+          let checked = 0;
+          let won = 0;
+          let flagged = 0;
+          if (pending.length > 0) {
+            const { messages } = (await ctx.call("email", { op: "check", limit: 20 })) as {
+              messages: Array<{ from: string; subject: string; date: string; text: string; links: string[] }>;
+            };
+            for (const msg of messages) {
+              checked++;
+              try {
+                const emailText = `${msg.subject} ${msg.text}`;
+                const gig = matchGigForEmail(emailText, pending);
+                if (!gig) continue;
+                const confidence = scoreWinConfidence(emailText);
+                if (confidence >= WIN_CONFIDENCE_THRESHOLD) {
+                  await registry.update(gig.id, { status: "won" });
+                  await ctx.emit("gigfinder.won", { id: gig.id });
+                  won++;
+                } else {
+                  await registry.update(gig.id, { status: "responded", notes: emailText.slice(0, 500) });
+                  flagged++;
+                }
+              } catch {
+                /* one email failing to classify shouldn't kill the whole batch */
+              }
+            }
+          }
+          return { checked, won, flagged };
         }
 
         if (cmd.op === "list") return registry.list(cmd.status);

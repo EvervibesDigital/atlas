@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { isAiDoable, extractBudget, dedupeKey, scoreCandidate } from "../src/matching";
 import { GigRegistry } from "../src/registry";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Atlas, ConfigVault } from "@atlas/core";
+import { Guardian } from "@atlas/guardian";
+import { createGigFinderPlugin } from "../src/plugin";
 
 describe("isAiDoable", () => {
   it("matches relevant keywords", () => {
@@ -87,5 +93,104 @@ describe("GigRegistry", () => {
     const stats = await reg.stats();
     expect(stats.paid).toBe(1);
     expect(stats.totalEarned).toBe(75);
+  });
+});
+
+describe("gigfinder plugin checkWins", () => {
+  function fakeEmail(messages: Array<{ from: string; subject: string; date: string; text: string; links: string[] }>) {
+    return {
+      manifest: { name: "email", version: "1", capabilities: ["email"], permissions: [], role: "executor" as const },
+      register(ctx: { provide: (name: string, fn: (payload: unknown) => Promise<unknown>) => void }) {
+        ctx.provide("email", async (payload: unknown) => {
+          const cmd = payload as { op: string };
+          if (cmd.op === "check") return { messages };
+          throw new Error("unexpected email op in test: " + cmd.op);
+        });
+      },
+    };
+  }
+
+  async function seedSubmittedGig(gigFile: string, title: string): Promise<string> {
+    const reg = new GigRegistry(gigFile);
+    const [added] = await reg.addCandidates([{ source: "web", title, url: "http://x", snippet: "desc" }]);
+    await reg.update(added!.id, { status: "submitted" });
+    return added!.id;
+  }
+
+  it("marks a gig won on a confident match and does nothing else", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atlas-gigfinder-wins-"));
+    const gigFile = join(dir, "gigs.json");
+    try {
+      const gigId = await seedSubmittedGig(gigFile, "Python scraper for product pages");
+      const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({}) });
+      await atlas.use(
+        fakeEmail([{ from: "client@example.com", subject: "You're hired!", date: "2026-07-30T00:00:00Z", text: "Congratulations, you've been hired for the python scraper project.", links: [] }]),
+      );
+      await atlas.use(createGigFinderPlugin({ gigFile }));
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:gigfinder"], role: "executor" },
+        async register(ctx) {
+          const r = (await ctx.call("gigfinder", { op: "checkWins" })) as { checked: number; won: number; flagged: number };
+          expect(r.won).toBe(1);
+          expect(r.flagged).toBe(0);
+          const gig = await ctx.call("gigfinder", { op: "list", status: "won" });
+          expect((gig as Array<{ id: string }>).map((g) => g.id)).toContain(gigId);
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("flags an ambiguous reply as responded instead of guessing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atlas-gigfinder-wins-"));
+    const gigFile = join(dir, "gigs.json");
+    try {
+      await seedSubmittedGig(gigFile, "Python scraper for product pages");
+      const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({}) });
+      await atlas.use(
+        fakeEmail([{ from: "client@example.com", subject: "Quick question", date: "2026-07-30T00:00:00Z", text: "Can you tell me more about the python scraper timeline?", links: [] }]),
+      );
+      await atlas.use(createGigFinderPlugin({ gigFile }));
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:gigfinder"], role: "executor" },
+        async register(ctx) {
+          const r = (await ctx.call("gigfinder", { op: "checkWins" })) as { checked: number; won: number; flagged: number };
+          expect(r.won).toBe(0);
+          expect(r.flagged).toBe(1);
+          const responded = (await ctx.call("gigfinder", { op: "list", status: "responded" })) as Array<{ notes?: string }>;
+          expect(responded).toHaveLength(1);
+          expect(responded[0]!.notes).toContain("python scraper timeline");
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("skips calling email.check when there are no submitted gigs to match against", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "atlas-gigfinder-wins-"));
+    const gigFile = join(dir, "gigs.json");
+    try {
+      const atlas = new Atlas({ guardian: new Guardian(), config: new ConfigVault({}) });
+      let emailChecked = false;
+      await atlas.use({
+        manifest: { name: "email", version: "1", capabilities: ["email"], permissions: [], role: "executor" },
+        register(ctx) {
+          ctx.provide("email", async () => { emailChecked = true; return { messages: [] }; });
+        },
+      });
+      await atlas.use(createGigFinderPlugin({ gigFile }));
+      await atlas.use({
+        manifest: { name: "caller", version: "1", capabilities: [], permissions: ["call:gigfinder"], role: "executor" },
+        async register(ctx) {
+          const r = (await ctx.call("gigfinder", { op: "checkWins" })) as { checked: number; won: number; flagged: number };
+          expect(r).toEqual({ checked: 0, won: 0, flagged: 0 });
+        },
+      });
+      expect(emailChecked).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
