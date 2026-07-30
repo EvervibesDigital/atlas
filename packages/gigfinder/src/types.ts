@@ -1,4 +1,4 @@
-export type GigStatus = "new" | "approved" | "rejected" | "submitted" | "responded" | "completed" | "paid";
+export type GigStatus = "new" | "approved" | "rejected" | "submitted" | "responded" | "won" | "completed" | "paid";
 
 /** Where a posting came from. "web" = sanctioned search API (Tavily/Serper) —
  * the only source that runs by default. "craigslist"/"fiverr"/"guru" are
@@ -34,6 +34,7 @@ export interface GigStats {
   approved: number;
   submitted: number;
   responded: number;
+  won: number;
   completed: number;
   paid: number;
   rejected: number;

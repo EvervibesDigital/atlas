@@ -77,7 +77,7 @@ export class GigRegistry {
 
   async stats(): Promise<GigStats> {
     await this.load();
-    const s: GigStats = { new: 0, approved: 0, submitted: 0, responded: 0, completed: 0, paid: 0, rejected: 0, totalEarned: 0 };
+    const s: GigStats = { new: 0, approved: 0, submitted: 0, responded: 0, won: 0, completed: 0, paid: 0, rejected: 0, totalEarned: 0 };
     for (const g of this.items) {
       s[g.status]++;
       if (g.status === "paid" && g.paidAmount) s.totalEarned += g.paidAmount;
