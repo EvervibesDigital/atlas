@@ -147,6 +147,7 @@ export const PAGE = `<!doctype html>
       <button data-tab="kdp">📚 KDP</button>
       <button data-tab="approvals">Approvals</button>
       <button data-tab="media-factory">🎬 Media Factory</button>
+      <button data-tab="cfo">💰 CFO</button>
       <button id="lockNow" class="sec" style="margin-left:auto">Lock</button>
     </nav>
 
@@ -629,6 +630,28 @@ export const PAGE = `<!doctype html>
         </div>
       </div>
     </section>
+
+    <section id="tab-cfo" class="card hide">
+      <h2>💰 CFO</h2>
+      <p class="note" style="margin-bottom:14px">Cash forecast and ROI math — nothing here is automatic, run it whenever you want a real number.</p>
+
+      <h3>Forecast</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div><label>Cash on hand ($)</label><input id="cfoCash" type="number" style="width:140px" /></div>
+        <div><label>Monthly revenue ($, optional)</label><input id="cfoRevenue" type="number" style="width:140px" placeholder="auto-filled if blank" /></div>
+        <div><label>Monthly expenses ($)</label><input id="cfoExpenses" type="number" style="width:140px" /></div>
+        <button onclick="cfoRunForecast()">Run Forecast</button>
+      </div>
+      <div id="cfoForecastOut"></div>
+
+      <h3 style="margin-top:20px">ROI Calculator</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div><label>Cost ($)</label><input id="cfoCost" type="number" style="width:140px" /></div>
+        <div><label>Expected return ($)</label><input id="cfoReturn" type="number" style="width:140px" /></div>
+        <button onclick="cfoCalcRoi()">Calculate ROI</button>
+      </div>
+      <div id="cfoRoiOut"></div>
+    </section>
   </div>
 </main>
 
@@ -680,7 +703,7 @@ document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () =>
   b.classList.add("active");
   // Null-safe: a missing tab div must never crash the switcher (a single
   // throw here blanks EVERY tab — see 2026-07-16 "all tabs blank" incident).
-  ["chat","map","businesses","learn","connect","grow","vault","keys","run","brief","actions","proposals","approvals","media-factory","gigs","kdp"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
+  ["chat","map","businesses","learn","connect","grow","vault","keys","run","brief","actions","proposals","approvals","media-factory","gigs","kdp","cfo"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
   if (b.dataset.tab==="brief") loadBrief();
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="proposals") loadProposals();
@@ -1333,6 +1356,38 @@ async function mfRunAutoCycle(){ try { const r=await api("/api/media-factory/aut
   else alert(JSON.stringify(r));
   if(activeCreatorId) loadContentItems();
 } catch(e){ alert(e.message); } }
+
+async function cfoRunForecast() {
+  const out = $("cfoForecastOut");
+  out.innerHTML = "Running…";
+  try {
+    const cashOnHand = Number($("cfoCash").value);
+    const monthlyExpenses = Number($("cfoExpenses").value);
+    const revenueRaw = $("cfoRevenue").value;
+    const body = { cashOnHand, monthlyExpenses };
+    if (revenueRaw !== "") body.monthlyRevenue = Number(revenueRaw);
+    const r = await api("/api/cfo/forecast", "POST", body);
+    let html = "<div class='row'><b>Net monthly:</b> $" + r.netMonthly + "</div>";
+    html += "<div class='row'><b>Runway:</b> " + (r.runwayMonths === null ? "cash-flow positive" : r.runwayMonths + " months") + "</div>";
+    html += "<div class='row'><b>Verdict:</b> " + r.verdict + "</div>";
+    html += "<div class='row'><b>6-month projection:</b> " + r.sixMonthProjection.join(", ") + "</div>";
+    out.innerHTML = html;
+  } catch (e) {
+    out.innerHTML = "<div class='err'>" + e.message + "</div>";
+  }
+}
+async function cfoCalcRoi() {
+  const out = $("cfoRoiOut");
+  out.innerHTML = "Calculating…";
+  try {
+    const cost = Number($("cfoCost").value);
+    const expectedReturn = Number($("cfoReturn").value);
+    const r = await api("/api/cfo/roi", "POST", { cost, expectedReturn });
+    out.innerHTML = "<div class='row'><b>ROI:</b> " + (r.roi * 100).toFixed(1) + "%</div>";
+  } catch (e) {
+    out.innerHTML = "<div class='err'>" + e.message + "</div>";
+  }
+}
 
 async function loadCreators() {
   try {
