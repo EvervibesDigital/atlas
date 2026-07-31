@@ -1176,6 +1176,7 @@ async function loadGigs(){ loadGigStats(); try { const r=await api("/api/gigs");
     const pill="<span class='pill "+(g.status==='new'?'off':'on')+"'>"+g.status+"</span>";
     const budget=g.budget?(" · $"+g.budget):"";
     const draft=g.draftBid?("<div style='background:var(--bg2);padding:8px;margin-top:6px;font-size:12px;border-left:2px solid var(--acc)'>"+g.draftBid+"</div>"):"";
+    const notes=g.notes?("<div style='background:var(--bg2);padding:8px;margin-top:6px;font-size:12px;border-left:2px solid var(--acc)'>Client reply: \\""+g.notes+"\\"</div>"):"";
     let actions="";
     if(g.status==='new') actions="<button onclick='approveGig(\\""+g.id+"\\")'>✅ Approve &amp; draft</button> <button class='sec' onclick='rejectGig(\\""+g.id+"\\")'>❌ Reject</button>";
     else if(g.status==='approved') actions="<button onclick='submittedGig(\\""+g.id+"\\")'>📨 Mark submitted (after you paste &amp; send it)</button>";
@@ -1183,7 +1184,7 @@ async function loadGigs(){ loadGigStats(); try { const r=await api("/api/gigs");
     else if(g.status==='responded') actions="<button onclick='approveGig(\\""+g.id+"\\")'>🏆 Confirm win</button> <button class='sec' onclick='rejectGig(\\""+g.id+"\\")'>Not a win</button>";
     else if(g.status==='won') actions="<button class='sec' onclick='gigStatus(\\""+g.id+"\\",\\"completed\\")'>Mark completed</button>";
     else if(g.status==='completed') actions="<button class='sec' onclick='gigPaid(\\""+g.id+"\\")'>💰 Mark paid</button>";
-    return "<div class='row' style='align-items:flex-start;flex-direction:column;border:1px solid var(--acc);padding:8px;border-radius:4px;margin-bottom:8px'><div style='display:flex;justify-content:space-between;width:100%'><span><b>"+g.title+"</b>"+budget+" · "+g.source+" "+pill+"</span></div><a href='"+g.url+"' target='_blank' style='font-size:11px'>"+g.url+"</a><div class='note' style='font-size:12px'>"+g.snippet+"</div>"+draft+"<div style='margin-top:8px'>"+actions+"</div></div>";
+    return "<div class='row' style='align-items:flex-start;flex-direction:column;border:1px solid var(--acc);padding:8px;border-radius:4px;margin-bottom:8px'><div style='display:flex;justify-content:space-between;width:100%'><span><b>"+g.title+"</b>"+budget+" · "+g.source+" "+pill+"</span></div><a href='"+g.url+"' target='_blank' style='font-size:11px'>"+g.url+"</a><div class='note' style='font-size:12px'>"+g.snippet+"</div>"+draft+notes+"<div style='margin-top:8px'>"+actions+"</div></div>";
   }).join(""):"<div class='note'>No jobs yet. Click 'Search now' to look for AI-doable freelance work.</div>";
 } catch(e){ $("gigsList").textContent="⚠ "+e.message; } }
 async function searchGigs(){ $("gigsList").textContent="Searching…";
