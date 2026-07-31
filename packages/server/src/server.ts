@@ -1317,6 +1317,41 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       }
     }
 
+    // CFO + Advisors on-demand endpoints — cfo.forecast/roi and
+    // knowledge.playbook/archaeologist.dig are fully built ops with no
+    // route until now; same try/catch shape as every route above.
+    if (method === "POST" && path === "/api/cfo/forecast") {
+      try {
+        const body = await readBody(req);
+        if (body?.cashOnHand === undefined || body?.monthlyExpenses === undefined) {
+          return send(res, 400, { error: "cashOnHand and monthlyExpenses are required" });
+        }
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("cfo", {
+          op: "forecast",
+          inputs: {
+            cashOnHand: Number(body.cashOnHand),
+            monthlyExpenses: Number(body.monthlyExpenses),
+            monthlyRevenue: body.monthlyRevenue !== undefined ? Number(body.monthlyRevenue) : undefined,
+          },
+        }));
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "POST" && path === "/api/cfo/roi") {
+      try {
+        const body = await readBody(req);
+        if (body?.cost === undefined || body?.expectedReturn === undefined) {
+          return send(res, 400, { error: "cost and expectedReturn are required" });
+        }
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("cfo", { op: "roi", cost: Number(body.cost), expectedReturn: Number(body.expectedReturn) }));
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+
     // Self-improvement endpoints (ATLAS modifies itself)
     if (method === "POST" && path === "/api/self-improve") {
       const improveReq = (await readBody(req)) as unknown;

@@ -323,4 +323,38 @@ describe("control panel", () => {
     });
     expect(zeroAttempted).not.toContain("🩹");
   });
+
+  it("POST /api/cfo/forecast runs the forecast with Mat-supplied inputs", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/cfo/forecast", { cashOnHand: 10000, monthlyRevenue: 4000, monthlyExpenses: 5000 }, token);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { netMonthly: number; runwayMonths: number | null; verdict: string };
+    expect(body.netMonthly).toBe(-1000);
+    expect(body.runwayMonths).toBe(10);
+    expect(body.verdict).toBe("healthy");
+  });
+
+  it("POST /api/cfo/forecast rejects a missing required field", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/cfo/forecast", { cashOnHand: 10000 }, token);
+    expect(r.status).toBe(400);
+  });
+
+  it("POST /api/cfo/roi calculates ROI", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/cfo/roi", { cost: 100, expectedReturn: 150 }, token);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { roi: number };
+    expect(body.roi).toBe(0.5);
+  });
+
+  it("POST /api/cfo/roi rejects a missing required field", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/cfo/roi", { cost: 100 }, token);
+    expect(r.status).toBe(400);
+  });
 });
