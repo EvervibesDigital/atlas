@@ -62,4 +62,23 @@ describe("publishing plugin — enqueueRender / renderQueuedJob", () => {
     expect(result.videoPath).toBe("rendered/output.mp4");
     expect(renderer.calls).toEqual([spec]);
   });
+
+  it("getVideoJob returns the matching job by id", async () => {
+    const atlas = new Atlas({ guardian: permissiveGuardian() });
+    await atlas.use(createPublishingPlugin({ renderer: fakeRenderer("x.mp4"), videoJobsFile }));
+
+    const spec = { voice: "v1", scenes: [{ text: "hi", imageUrl: "http://x/1.jpg" }] };
+    const { jobId } = (await atlas.invoke("publishing", { op: "enqueueRender", spec })) as { jobId: string };
+
+    const result = (await atlas.invoke("publishing", { op: "getVideoJob", jobId })) as { job: VideoRenderJob | null };
+    expect(result.job).toMatchObject({ id: jobId, spec, status: "queued" });
+  });
+
+  it("getVideoJob returns null for an unknown job id", async () => {
+    const atlas = new Atlas({ guardian: permissiveGuardian() });
+    await atlas.use(createPublishingPlugin({ renderer: fakeRenderer("x.mp4"), videoJobsFile }));
+
+    const result = (await atlas.invoke("publishing", { op: "getVideoJob", jobId: "nonexistent" })) as { job: VideoRenderJob | null };
+    expect(result.job).toBeNull();
+  });
 });

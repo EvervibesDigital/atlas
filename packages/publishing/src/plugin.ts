@@ -119,6 +119,13 @@ export function createPublishingPlugin(opts: { publisher?: Publisher; renderer?:
           return { videoPath };
         }
 
+        if (cmd.op === "getVideoJob") {
+          const raw = await readFile(videoJobsPath, "utf8").catch(() => "[]");
+          const jobs = JSON.parse(raw) as VideoRenderJob[];
+          const job = jobs.find((j) => j.id === cmd.jobId);
+          return { job: job ?? null };
+        }
+
         if (cmd.op === "validate") {
           const check = validateForInstagram(cmd.input);
           return { status: check.ok ? "dry-run" : "rejected", detail: check.problems.join("; ") || "valid" } satisfies PublishResult;
