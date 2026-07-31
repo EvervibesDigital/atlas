@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHmac } from "node:crypto";
@@ -389,5 +389,94 @@ describe("control panel", () => {
     const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
     const r = await post("/api/archaeologist/dig", {}, token);
     expect(r.status).toBe(200);
+  });
+
+  it("POST /api/media-factory/produce-video rejects a missing contentId", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/media-factory/produce-video", {}, token);
+    expect(r.status).toBe(400);
+  });
+
+  it("POST /api/media-factory/produce-video surfaces the op's error instead of hanging or crashing the server", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    // media-factory's content-item lookup needs a real DATABASE_URL (not set
+    // in this offline test env), so the exact error text varies — the route
+    // contract being verified is "op errors become a clean 500", not any
+    // specific message.
+    const r = await post("/api/media-factory/produce-video", { contentId: "no-such-item" }, token);
+    expect(r.status).toBe(500);
+    const body = (await r.json()) as { error: string };
+    expect(typeof body.error).toBe("string");
+    expect(body.error.length).toBeGreaterThan(0);
+  });
+
+  it("GET /api/publishing/video-job/:id returns a queued job's status", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const { enqueueJob } = await import("@atlas/publishing");
+    const jobs = enqueueJob([], { voice: "v", scenes: [] });
+    await writeFile(join(dir, "video-jobs.json"), JSON.stringify(jobs), "utf8");
+    const jobId = jobs[0]!.id;
+
+    const r = await get("/api/publishing/video-job/" + jobId, token);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { job: { status: string } | null };
+    expect(body.job?.status).toBe("queued");
+  });
+
+  it("GET /api/publishing/video-job/:id returns a null job for an unknown id", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await get("/api/publishing/video-job/nonexistent", token);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { job: unknown };
+    expect(body.job).toBeNull();
+  });
+
+  it("GET /api/publishing/video/:id serves the finished file for a done job", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const { enqueueJob, markDone } = await import("@atlas/publishing");
+    let jobs = enqueueJob([], { voice: "v", scenes: [] });
+    const jobId = jobs[0]!.id;
+    // The real renderer always writes resultPath relative to process.cwd()
+    // (MontageRenderer's tempDir is the literal string "./data/temp") — the
+    // serving route's path-safety check validates against process.cwd(), so
+    // the fixture must match that same convention, not an arbitrary absolute
+    // temp path.
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir("data/temp", { recursive: true });
+    const relVideoPath = `data/temp/test-fixture-${jobId}.mp4`;
+    await writeFile(relVideoPath, "fake mp4 bytes", "utf8");
+    try {
+      jobs = markDone(jobs, jobId, relVideoPath);
+      await writeFile(join(dir, "video-jobs.json"), JSON.stringify(jobs), "utf8");
+
+      const r = await get("/api/publishing/video/" + jobId, token);
+      expect(r.status).toBe(200);
+      expect(await r.text()).toBe("fake mp4 bytes");
+    } finally {
+      await rm(relVideoPath, { force: true });
+    }
+  });
+
+  it("GET /api/publishing/video/:id 404s for a job that isn't done yet", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const { enqueueJob } = await import("@atlas/publishing");
+    const jobs = enqueueJob([], { voice: "v", scenes: [] });
+    await writeFile(join(dir, "video-jobs.json"), JSON.stringify(jobs), "utf8");
+
+    const r = await get("/api/publishing/video/" + jobs[0]!.id, token);
+    expect(r.status).toBe(404);
+  });
+
+  it("GET /api/publishing/video/:id 404s for an unknown job id", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await get("/api/publishing/video/nonexistent", token);
+    expect(r.status).toBe(404);
   });
 });

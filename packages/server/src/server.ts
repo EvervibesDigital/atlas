@@ -1371,6 +1371,49 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       }
     }
 
+    // Media Factory "Produce Video" trigger + job status/serving — the op
+    // (mediaFactory.produceVideo) already worked and already persists
+    // assets.video_job_id onto the content item; this just gives it a route
+    // and a way to check the render job it kicks off back later.
+    if (method === "POST" && path === "/api/media-factory/produce-video") {
+      try {
+        const body = await readBody(req);
+        if (!body?.contentId) return send(res, 400, { error: "contentId is required" });
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("mediaFactory", { op: "produceVideo", contentId: String(body.contentId) }));
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "GET" && path.startsWith("/api/publishing/video-job/")) {
+      try {
+        const jobId = decodeURIComponent(path.slice("/api/publishing/video-job/".length));
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("publishing", { op: "getVideoJob", jobId }));
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "GET" && path.startsWith("/api/publishing/video/")) {
+      try {
+        const jobId = decodeURIComponent(path.slice("/api/publishing/video/".length));
+        const a = await ensureAtlas();
+        const { job } = (await a.invoke("publishing", { op: "getVideoJob", jobId })) as { job: { status: string; resultPath?: string } | null };
+        if (!job || job.status !== "done" || !job.resultPath) return send(res, 404, { error: "video not ready" });
+        const full = resolvePathSafe(process.cwd(), job.resultPath);
+        if (!full) return send(res, 404, { error: "video not ready" });
+        try {
+          const buf = await readFile(full);
+          res.writeHead(200, { "Content-Type": "video/mp4", "Cache-Control": "public, max-age=86400" });
+          return void res.end(buf);
+        } catch {
+          return send(res, 404, { error: "video not ready" });
+        }
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+
     // Self-improvement endpoints (ATLAS modifies itself)
     if (method === "POST" && path === "/api/self-improve") {
       const improveReq = (await readBody(req)) as unknown;
