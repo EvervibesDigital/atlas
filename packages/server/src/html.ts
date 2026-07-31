@@ -1726,12 +1726,55 @@ async function loadContentItems() {
           \${item.status === 'review' ? \`<button class="mini" onclick="requestHumanPublishApproval('\${item.id}', '\${item.title.replace(/'/g,"")}')">🔒 Send for Approval</button>\` : ''}
           \${item.status === 'approved' ? \`<button class="mini" onclick="publishContent('\${item.id}')">🚀 Publish Live</button>\` : ''}
           \${item.status !== 'published' ? \`<button class="mini sec" onclick="publishContent('\${item.id}')">Quick Publish (bypass)</button>\` : ''}
+          \${(item.script && !item.assets?.video_job_id) ? \`<button class="mini" onclick="mfProduceVideo('\${item.id}')">🎬 Produce Video</button>\` : ''}
         </div>
+        \${item.assets?.video_job_id ? \`<div id="mfVideo-\${item.id}" style="margin-top:10px">⏳ Rendering video…</div>\` : ''}
       </div>
     \`).join("");
+    for (const item of list) {
+      if (item.assets?.video_job_id) pollVideoJob(item.id, item.assets.video_job_id);
+    }
   } catch (e) {
     $("mfProductionList").innerHTML = \`<div class="err">\${e.message}</div>\`;
   }
+}
+
+const videoPollTimers = {};
+async function mfProduceVideo(id) {
+  try {
+    await api("/api/media-factory/produce-video", "POST", { contentId: id });
+    await loadContentItems();
+  } catch (e) {
+    alert("Produce Video failed: " + e.message);
+  }
+}
+function pollVideoJob(itemId, jobId) {
+  if (videoPollTimers[itemId]) clearInterval(videoPollTimers[itemId]);
+  const check = async () => {
+    const el = $("mfVideo-" + itemId);
+    if (!el) { clearInterval(videoPollTimers[itemId]); delete videoPollTimers[itemId]; return; }
+    try {
+      const r = await api("/api/publishing/video-job/" + jobId);
+      const job = r.job;
+      if (!job || job.status === "queued" || job.status === "rendering") {
+        el.innerHTML = "⏳ Rendering video… (" + (job ? job.status : "queued") + ")";
+        return;
+      }
+      clearInterval(videoPollTimers[itemId]);
+      delete videoPollTimers[itemId];
+      if (job.status === "done") {
+        el.innerHTML = "<video src='/api/publishing/video/" + jobId + "' controls style='max-width:320px;display:block'></video>";
+      } else {
+        el.innerHTML = "<div class='err'>Video failed: " + (job.error || "unknown error") + "</div><button class='mini' onclick=\\"mfProduceVideo('" + itemId + "')\\">Retry</button>";
+      }
+    } catch (e) {
+      clearInterval(videoPollTimers[itemId]);
+      delete videoPollTimers[itemId];
+      el.innerHTML = "<div class='err'>" + e.message + "</div>";
+    }
+  };
+  check();
+  videoPollTimers[itemId] = setInterval(check, 5000);
 }
 
 async function runProductionAgent(id, title, hook, brief, platform) {
