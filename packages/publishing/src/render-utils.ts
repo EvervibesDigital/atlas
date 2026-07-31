@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+
 /**
  * Pure, testable helpers shared by renderers. Kept free of ffmpeg/exec calls so
  * they can be unit-tested without a real video pipeline.
@@ -65,6 +67,19 @@ export function parseFfmpegDuration(stderr: string): number | null {
   const seconds = parseInt(match[3]!, 10);
   const centiseconds = parseInt(match[4]!, 10);
   return hours * 3600 + minutes * 60 + seconds + centiseconds / 100;
+}
+
+/**
+ * Builds ffmpeg concat-demuxer list-file content from segment file paths.
+ * ffmpeg resolves relative paths INSIDE a concat list relative to the list
+ * file's own directory, not the process's working directory — so when the
+ * segment files and the list file are siblings in the same run directory
+ * (always true for these renderers), entries must be bare filenames. Writing
+ * the full run-directory-prefixed path doubles the directory prefix and
+ * makes ffmpeg fail with "No such file or directory" on every render.
+ */
+export function buildConcatFileContent(segmentPaths: string[]): string {
+  return segmentPaths.map((f) => `file '${basename(f).replace(/\\/g, "/")}'`).join("\n");
 }
 
 export interface RenderReview {

@@ -3,6 +3,7 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import ffmpegPath from "ffmpeg-static";
+import { buildConcatFileContent } from "./render-utils";
 
 const execAsync = promisify(exec);
 
@@ -164,7 +165,7 @@ export class VideoRenderer implements Renderer {
       // 5. Concatenate all segments into the final video
       console.log("[VideoRenderer] Concatenating all segments...");
       const concatListPath = path.join(runDir, "concat.txt");
-      const concatContent = segmentFiles.map(f => `file '${f.replace(/\\/g, "/")}'`).join("\n");
+      const concatContent = buildConcatFileContent(segmentFiles);
       await fs.writeFile(concatListPath, concatContent);
 
       const finalPath = path.join(this.tempDir, `final_reel_${runId}.mp4`);

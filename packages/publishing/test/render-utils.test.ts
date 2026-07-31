@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wrapText, parseFfmpegDuration, reviewRender, buildSrt } from "../src/render-utils";
+import { wrapText, parseFfmpegDuration, reviewRender, buildSrt, buildConcatFileContent } from "../src/render-utils";
 
 describe("wrapText", () => {
   it("wraps long text into multiple lines under maxLen", () => {
@@ -35,6 +35,23 @@ describe("buildSrt", () => {
     const bodyLines = srt.split("\n").slice(2).filter(Boolean);
     expect(bodyLines.length).toBeGreaterThan(1);
     for (const l of bodyLines) expect(l.length).toBeLessThanOrEqual(20 + 10);
+  });
+});
+
+describe("buildConcatFileContent", () => {
+  it("writes bare filenames, not the run-directory-prefixed path", () => {
+    // ffmpeg's concat demuxer resolves relative entries against the list
+    // file's OWN directory. Writing the full runDir-prefixed path here (the
+    // actual bug that shipped) makes ffmpeg double the directory prefix and
+    // fail with "No such file or directory" on every single render.
+    const content = buildConcatFileContent(["data/temp/montage-abc123/segment_0.mp4", "data/temp/montage-abc123/segment_1.mp4"]);
+    expect(content).toBe("file 'segment_0.mp4'\nfile 'segment_1.mp4'");
+    expect(content).not.toContain("data/temp");
+  });
+
+  it("converts backslashes to forward slashes for ffmpeg's concat syntax", () => {
+    const content = buildConcatFileContent(["data\\temp\\montage-abc123\\segment_0.mp4"]);
+    expect(content).toBe("file 'segment_0.mp4'");
   });
 });
 
