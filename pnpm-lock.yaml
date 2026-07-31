@@ -681,6 +681,9 @@ importers:
       '@atlas/kdp':
         specifier: workspace:*
         version: link:../kdp
+      '@atlas/leadscan':
+        specifier: workspace:*
+        version: link:../leadscan
     devDependencies:
       '@atlas/guardian':
         specifier: workspace:*

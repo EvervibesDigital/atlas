@@ -2,6 +2,7 @@ import type { AtlasContext, Plugin } from "@atlas/core";
 import type { DailyReport, OrchestratorCommand, ReelLike, CycleHealthTracker } from "./core";
 import { deriveTopic, reelToPublishInput, optional } from "./core";
 import { shouldPauseGeneration, type KdpBook } from "@atlas/kdp";
+import { pickNicheCity } from "@atlas/leadscan";
 
 /**
  * Orchestrator plugin (service "orchestrator") — the autonomous agent loop.
@@ -149,7 +150,8 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
         // delays or blocks curiosity/gig-finder/media-factory/etc., and can
         // no longer stall the whole cycle (each is timeout-bounded inside
         // `optional()`).
-        const [curiosity, repoScout, businessScout, freeTools, github, tidy, newsletters, gigs, gigsCheckWins, kdpScan, kdpGenerate, mediaFactory, socialInbox, healResult] = await Promise.all([
+        const nicheCity = pickNicheCity(Math.floor(Date.now() / (60 * 60 * 1000)));
+        const [curiosity, repoScout, businessScout, freeTools, github, tidy, newsletters, gigs, gigsCheckWins, leadscanFound, kdpScan, kdpGenerate, mediaFactory, socialInbox, healResult] = await Promise.all([
           optional<unknown>(ctx.call, "curiosity", { op: "ideas" }, health),
           optional<unknown>(ctx.call, "search", { op: "scout", query: "autonomous AI agent framework OR MCP server OR open-source LLM tools", max: 6 }, health),
           // Same scout mechanism, aimed at the actual businesses instead of
@@ -173,6 +175,15 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
           // anything less certain queues in the Brief instead of guessing.
           // No-ops gracefully if EMAIL_USER/EMAIL_PASS aren't configured yet.
           optional<unknown>(ctx.call, "gigfinder", { op: "checkWins" }, health),
+          // Lead Scan — one niche+city search per hour from a fixed 300-combo
+          // rotation ("any niche, any city, anyone we can reach"), a pure
+          // function of the current time so nothing needs to be persisted.
+          // Deliberately just ONE search per cycle: findLeads calls Gemini,
+          // and Gemini is already at its daily quota ceiling — this keeps
+          // leadscan's addition to that shared budget small and predictable
+          // regardless of how big the underlying rotation list is. No-ops
+          // gracefully if GEMINI_API_KEY isn't configured yet.
+          optional<unknown>(ctx.call, "leadscan", { op: "findLeads", niche: nicheCity.niche, city: nicheCity.city }, health),
           // KDP — "constantly creating": scan for new book opportunities, then
           // build metadata+PDF for the top few unbuilt ones every cycle. Real
           // pipeline lives in evervibes; this just keeps it fed. Skipped
@@ -214,6 +225,7 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
           newsletters: newsletters ?? null,
           gigs: gigs ?? null,
           gigsCheckWins: gigsCheckWins ?? null,
+          leadscanFound: leadscanFound ?? null,
           kdpScan: kdpScan ?? null,
           kdpGenerate: kdpGenerate ?? null,
           mediaFactory: mediaFactory ?? null,
