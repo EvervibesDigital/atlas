@@ -148,6 +148,7 @@ export const PAGE = `<!doctype html>
       <button data-tab="approvals">Approvals</button>
       <button data-tab="media-factory">🎬 Media Factory</button>
       <button data-tab="cfo">💰 CFO</button>
+      <button data-tab="advisors">🏺 Advisors</button>
       <button id="lockNow" class="sec" style="margin-left:auto">Lock</button>
     </nav>
 
@@ -652,6 +653,26 @@ export const PAGE = `<!doctype html>
       </div>
       <div id="cfoRoiOut"></div>
     </section>
+
+    <section id="tab-advisors" class="card hide">
+      <h2>🏺 Advisors</h2>
+      <p class="note" style="margin-bottom:14px">Ask ATLAS's advisor tools for a read on something — both pull from what ATLAS already knows, nothing is automatic.</p>
+
+      <h3>Knowledge Playbook</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div><label>Topic</label><input id="advTopic" style="width:220px" placeholder="e.g. cold outreach, KDP pricing" /></div>
+        <div><label>Limit (optional)</label><input id="advLimit" type="number" style="width:100px" placeholder="20" /></div>
+        <button onclick="advGetPlaybook()">Get Playbook</button>
+      </div>
+      <div id="advPlaybookOut"></div>
+
+      <h3 style="margin-top:20px">Archaeologist</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div><label>Topic (optional)</label><input id="digTopic" style="width:220px" placeholder="leave blank for anything" /></div>
+        <button onclick="advDig()">Dig Up Old Notes</button>
+      </div>
+      <div id="advDigOut"></div>
+    </section>
   </div>
 </main>
 
@@ -703,7 +724,7 @@ document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () =>
   b.classList.add("active");
   // Null-safe: a missing tab div must never crash the switcher (a single
   // throw here blanks EVERY tab — see 2026-07-16 "all tabs blank" incident).
-  ["chat","map","businesses","learn","connect","grow","vault","keys","run","brief","actions","proposals","approvals","media-factory","gigs","kdp","cfo"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
+  ["chat","map","businesses","learn","connect","grow","vault","keys","run","brief","actions","proposals","approvals","media-factory","gigs","kdp","cfo","advisors"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
   if (b.dataset.tab==="brief") loadBrief();
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="proposals") loadProposals();
@@ -1384,6 +1405,39 @@ async function cfoCalcRoi() {
     const expectedReturn = Number($("cfoReturn").value);
     const r = await api("/api/cfo/roi", "POST", { cost, expectedReturn });
     out.innerHTML = "<div class='row'><b>ROI:</b> " + (r.roi * 100).toFixed(1) + "%</div>";
+  } catch (e) {
+    out.innerHTML = "<div class='err'>" + e.message + "</div>";
+  }
+}
+async function advGetPlaybook() {
+  const out = $("advPlaybookOut");
+  const topic = $("advTopic").value;
+  if (!topic) { out.innerHTML = "<div class='err'>Enter a topic first.</div>"; return; }
+  out.innerHTML = "Loading…";
+  try {
+    const limitRaw = $("advLimit").value;
+    const body = { topic };
+    if (limitRaw !== "") body.limit = Number(limitRaw);
+    const r = await api("/api/knowledge/playbook", "POST", body);
+    if (!r.sections.length) { out.innerHTML = "<div class='note'>No lessons filed under this topic yet.</div>"; return; }
+    let html = "<h4>" + r.title + "</h4>";
+    for (const s of r.sections) {
+      html += "<div style='margin-top:8px'><b>" + s.heading + "</b><ul>";
+      for (const p of s.points) html += "<li>" + p + "</li>";
+      html += "</ul></div>";
+    }
+    out.innerHTML = html;
+  } catch (e) {
+    out.innerHTML = "<div class='err'>" + e.message + "</div>";
+  }
+}
+async function advDig() {
+  const out = $("advDigOut");
+  out.innerHTML = "Digging…";
+  try {
+    const topic = $("digTopic").value;
+    const r = await api("/api/archaeologist/dig", "POST", topic ? { topic } : {});
+    out.innerHTML = "<div style='white-space:pre-wrap'>" + r.findings + "</div>";
   } catch (e) {
     out.innerHTML = "<div class='err'>" + e.message + "</div>";
   }
