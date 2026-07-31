@@ -51,6 +51,8 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
         "call:gigfinder",
         "call:kdp",
         "call:mediaFactory",
+        "call:social",
+        "call:leadscan",
         "call:codebase",
         "call:brief",
         "call:vitals",

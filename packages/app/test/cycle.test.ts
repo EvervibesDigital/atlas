@@ -68,6 +68,15 @@ describe("autonomous daily cycle", () => {
     expect(Array.isArray(cycleHealth.failures)).toBe(true);
     // succeeded/failed should account for every optional() call actually made.
     expect(cycleHealth.succeeded + cycleHealth.failed).toBeGreaterThan(0);
+    // A cycle step calling a service the orchestrator's own manifest hasn't
+    // granted itself permission for (a real bug found and fixed in this
+    // session — twice) must never ship silently: it fails every cycle,
+    // forever, with no signal beyond a cycleHealth entry nobody reads. Any
+    // "not in permissions" failure here means a newly-wired service is
+    // missing its call:<service> grant in orchestrator/src/plugin.ts.
+    for (const failure of cycleHealth.failures) {
+      expect(failure.error).not.toMatch(/not in permissions/);
+    }
   });
 
   it(
