@@ -357,4 +357,37 @@ describe("control panel", () => {
     const r = await post("/api/cfo/roi", { cost: 100 }, token);
     expect(r.status).toBe(400);
   });
+
+  it("POST /api/knowledge/playbook returns a playbook for a topic", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/knowledge/playbook", { topic: "cold outreach" }, token);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { title: string; sections: unknown[] };
+    expect(body.title).toBe("Playbook: cold outreach");
+    expect(Array.isArray(body.sections)).toBe(true);
+  });
+
+  it("POST /api/knowledge/playbook rejects a missing topic", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/knowledge/playbook", {}, token);
+    expect(r.status).toBe(400);
+  });
+
+  it("POST /api/archaeologist/dig returns findings", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/archaeologist/dig", { topic: "old ideas" }, token);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { findings: string };
+    expect(typeof body.findings).toBe("string");
+  });
+
+  it("POST /api/archaeologist/dig works with no topic given", async () => {
+    await start();
+    const { token } = (await (await post("/api/setup", { masterPassword: "master-passphrase" })).json()) as { token: string };
+    const r = await post("/api/archaeologist/dig", {}, token);
+    expect(r.status).toBe(200);
+  });
 });

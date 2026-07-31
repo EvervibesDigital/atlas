@@ -1351,6 +1351,25 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         return send(res, 500, { error: (err as Error).message });
       }
     }
+    if (method === "POST" && path === "/api/knowledge/playbook") {
+      try {
+        const body = await readBody(req);
+        if (!body?.topic) return send(res, 400, { error: "topic is required" });
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("knowledge", { op: "playbook", topic: String(body.topic), limit: body.limit !== undefined ? Number(body.limit) : undefined }));
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
+    if (method === "POST" && path === "/api/archaeologist/dig") {
+      try {
+        const body = await readBody(req);
+        const a = await ensureAtlas();
+        return send(res, 200, await a.invoke("archaeologist", { op: "dig", topic: body?.topic ? String(body.topic) : undefined }));
+      } catch (err) {
+        return send(res, 500, { error: (err as Error).message });
+      }
+    }
 
     // Self-improvement endpoints (ATLAS modifies itself)
     if (method === "POST" && path === "/api/self-improve") {
