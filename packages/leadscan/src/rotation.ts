@@ -58,7 +58,7 @@ export const NICHE_CITY_COMBOS: NicheCityCombo[] = NICHES.flatMap((niche) => CIT
 
 /** Picks one combo per hour as a pure function of the current time — no
  * persisted counter needed, so nothing to get out of sync. Same rotation
- * pattern as @atlas/media-factory's deriveTopic(), just at hourly instead of
+ * pattern as @atlas/orchestrator's deriveTopic(), just at hourly instead of
  * daily granularity since leadscan runs every cycle, not once a day. */
 export function pickNicheCity(hourSeed: number, combos: NicheCityCombo[] = NICHE_CITY_COMBOS): NicheCityCombo {
   return combos[((hourSeed % combos.length) + combos.length) % combos.length]!;
