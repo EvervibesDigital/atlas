@@ -34,4 +34,14 @@ export type LeadScanCommand =
   | { op: "findLeads"; niche: string; city: string }
   | { op: "list"; status?: LeadStatus }
   | { op: "approve"; id: string }
-  | { op: "reject"; id: string };
+  | { op: "reject"; id: string }
+  /** Renders the cold-outreach email for one lead so the wording can be read
+   * and approved before anything is sent. Sends nothing. */
+  | {
+      op: "draftOutreach";
+      id: string;
+      senderName: string;
+      companyName: string;
+      companyAddress: string;
+      startingPrice?: string;
+    };

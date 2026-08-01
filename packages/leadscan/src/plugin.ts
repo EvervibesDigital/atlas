@@ -1,5 +1,6 @@
 import type { Plugin } from "@atlas/core";
 import { scanWebsite } from "./scanner";
+import { renderComplianceOutreach } from "./outreach-copy";
 import { findLeads } from "./leadfinder";
 import { LeadRegistry } from "./registry";
 import type { LeadScanCommand } from "./types";
@@ -11,8 +12,15 @@ import type { LeadScanCommand } from "./types";
  * Deliberately does NOT stand up the separate React/Firebase app or wire the
  * ~18 redundant Twin agents — both needed either new hosting or fragile
  * agent-log parsing for no benefit over porting ~150 lines of working logic
- * directly. Outreach reuses the ALREADY-BUILT @atlas/outreach bridge (the
- * n8n "New Lead Intake" webhook) instead of a third send pipeline.
+ * directly.
+ *
+ * ⚠️ OUTREACH CAVEAT (established 2026-08-01 by inspecting the live n8n
+ * workflow): `approve` posts to the n8n "new-lead" webhook, which is served by
+ * `ARCHIVED-W3 - New Lead Intake` — an INBOUND intake flow ending in "Send
+ * Lead Confirmation", i.e. a thanks-for-contacting-us reply. That is the wrong
+ * message for a business who has never heard of Mat. Use `draftOutreach` for
+ * real cold outreach: it renders copy citing the actual audit findings, to be
+ * read and approved before sending.
  *
  * NOTE: this is unrelated to @atlas/compliance (the content-policy
  * "Compliance Watchdog" that checks captions for FTC-disclosure issues
@@ -67,6 +75,22 @@ export function createLeadScanPlugin(opts: { leadFile?: string; registry?: LeadR
             /* memory optional */
           }
           return { found: added.length, leads: await registry.list("new") };
+        }
+
+        if (cmd.op === "draftOutreach") {
+          // Renders the exact cold-email wording for ONE lead so it can be
+          // read before anything is sent. Sends nothing. Refuses rather than
+          // degrades when the lead has no email or no scan findings — the
+          // entire pitch rests on naming real, checkable problems.
+          const lead = await registry.get(cmd.id);
+          if (!lead) throw new Error(`leadscan: no lead "${cmd.id}"`);
+          return renderComplianceOutreach({
+            lead,
+            senderName: cmd.senderName,
+            companyName: cmd.companyName,
+            companyAddress: cmd.companyAddress,
+            startingPrice: cmd.startingPrice,
+          });
         }
 
         if (cmd.op === "list") {
