@@ -46,7 +46,22 @@ export type SurplusCommand =
   | { op: "run"; role: SurplusRole; message?: string }
   | { op: "runEvents"; role: SurplusRole; runId: string }
   | { op: "pause"; role: SurplusRole }
-  | { op: "pendingLeads"; limit?: number };
+  | { op: "pendingLeads"; limit?: number }
+  /** Renders the exact outreach wording for ONE lead so it can be read and
+   * approved before anything is sent. Sends nothing. Throws rather than
+   * degrading when the lead lacks data the recipient needs to verify the
+   * claim — see outreach-templates.ts. */
+  | {
+      op: "draftOutreach";
+      lead: SurplusLead;
+      channel?: "letter" | "email";
+      feePercent: number;
+      senderName: string;
+      companyName: string;
+      companyAddress: string;
+      contactPhone?: string;
+      contactEmail?: string;
+    };
 
 export function createSurplusPlugin(opts: { fetcher?: FetchLike; twinBase?: string } = {}): Plugin {
   return {
@@ -82,6 +97,30 @@ export function createSurplusPlugin(opts: { fetcher?: FetchLike; twinBase?: stri
 
       ctx.provide("surplus", async (payload) => {
         const cmd = payload as SurplusCommand;
+
+        if (cmd.op === "draftOutreach") {
+          // Renders the letter/email for ONE lead so the exact wording can be
+          // read before anything is sent. Sends nothing itself. Throws rather
+          // than degrading if the lead is missing data the recipient would
+          // need to verify the claim (see outreach-templates.ts).
+          const { renderSurplusLetter, renderSurplusEmail } = await import("./outreach-templates");
+          const render = cmd.channel === "email" ? renderSurplusEmail : renderSurplusLetter;
+          return render({
+            ownerName: cmd.lead.owner_name,
+            propertyAddress: cmd.lead.property_address,
+            caseNumber: cmd.lead.case_number,
+            county: cmd.lead.county,
+            state: cmd.lead.state,
+            estimatedSurplus: cmd.lead.estimated_surplus,
+            auctionDate: cmd.lead.auction_date,
+            feePercent: cmd.feePercent,
+            senderName: cmd.senderName,
+            companyName: cmd.companyName,
+            companyAddress: cmd.companyAddress,
+            contactPhone: cmd.contactPhone,
+            contactEmail: cmd.contactEmail,
+          });
+        }
 
         if (cmd.op === "pendingLeads") {
           const sheets = await sheetsClient();
