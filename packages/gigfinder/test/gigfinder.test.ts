@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isAiDoable, extractBudget, dedupeKey, scoreCandidate } from "../src/matching";
+import { isAiDoable, isSpecificPosting, isRealGigCandidate, extractBudget, dedupeKey, scoreCandidate } from "../src/matching";
 import { GigRegistry } from "../src/registry";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,7 +8,59 @@ import { Atlas, ConfigVault } from "@atlas/core";
 import { Guardian } from "@atlas/guardian";
 import { createGigFinderPlugin } from "../src/plugin";
 
+/**
+ * These URLs and titles are the REAL strings pulled from production
+ * gigs.json on 2026-08-01, where 128 of 128 "approved" gigs turned out to
+ * be landing/category/search pages rather than job postings. They're kept
+ * verbatim rather than invented so this suite pins the actual failure.
+ */
+describe("isSpecificPosting", () => {
+  it("accepts a real Reddit posting permalink", () => {
+    expect(isSpecificPosting("https://www.reddit.com/r/n8n/comments/1kxz8k1/looking_for_automation_and_ai_freelancers_and")).toBe(true);
+  });
+
+  it("rejects the marketing/category/search pages that flooded the queue", () => {
+    expect(isSpecificPosting("https://digiscorp.com/hire-api-developers")).toBe(false);
+    expect(isSpecificPosting("https://www.guru.com/m/hire/freelancers/api-developers")).toBe(false);
+    expect(isSpecificPosting("https://www.freelancer.com/hire/scripting")).toBe(false);
+    expect(isSpecificPosting("https://www.youtube.com/watch?v=cZccCaa_BgQ")).toBe(false);
+    expect(isSpecificPosting("https://www.ziprecruiter.com/Jobs/Freelance-Automation")).toBe(false);
+  });
+
+  it("does NOT let the /hire/ category signal reject r/forhire permalinks", () => {
+    // r/forhire is the single best source in the query set — "forhire" has no
+    // slash before "hire", so it must not trip the category filter.
+    expect(isSpecificPosting("https://www.reddit.com/r/forhire/comments/1abc234/hiring_python_automation_dev")).toBe(true);
+  });
+
+  it("accepts a numeric posting id and rejects a malformed URL without throwing", () => {
+    expect(isSpecificPosting("https://newyork.craigslist.org/d/software/7891234567.html")).toBe(true);
+    expect(isSpecificPosting("not a url")).toBe(false);
+  });
+});
+
+describe("isRealGigCandidate", () => {
+  it("requires BOTH readable hiring intent and a specific-posting URL", () => {
+    const realTitle = "Need a Python scraper built";
+    const realSnippet = "scrape 200 product pages";
+    expect(isRealGigCandidate(realTitle, realSnippet, "https://www.reddit.com/r/forhire/comments/1abc234/x")).toBe(true);
+    // Same convincing text, but the URL is a category page — still rejected.
+    expect(isRealGigCandidate(realTitle, realSnippet, "https://www.freelancer.com/hire/scripting")).toBe(false);
+  });
+});
+
 describe("isAiDoable", () => {
+  it("does not let 'hire a' substring-match 'hire api' (real production false positive)", () => {
+    // "hire api developers online".includes("hire a") === true — the naive
+    // substring check is what let Guru's landing page through as a "gig".
+    expect(
+      isAiDoable(
+        "Hire API Developers Online",
+        "API development is the process of creating and maintaining application programming interfaces (APIs) that allow different software systems to communic",
+      ),
+    ).toBe(false);
+  });
+
   it("matches relevant keywords", () => {
     expect(isAiDoable("Need a Python scraper built", "scrape 200 product pages")).toBe(true);
     expect(isAiDoable("Dog walker needed", "must walk dogs in person")).toBe(false);

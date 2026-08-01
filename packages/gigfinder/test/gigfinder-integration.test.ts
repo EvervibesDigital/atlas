@@ -36,8 +36,14 @@ function fakeTavily(): FetchLike {
     status: 200,
     json: async () => ({
       results: [
-        { title: "Need Python script to automate CSV cleanup, $75", url: "https://example.com/job1", content: "Looking for someone to write a python script that dedupes and reformats CSV exports weekly." },
-        { title: "Freelance graphic designer for logo — no code", url: "https://example.com/job2", content: "Need a hand-drawn logo, no AI/automation involved, must be a human illustrator." },
+        // Both URLs are real posting-permalink shapes on purpose: the search
+        // filter now also checks the URL (isSpecificPosting), so a fixture at
+        // example.com/job1 would be rejected on its URL and this test would
+        // stop proving what it's here to prove. With both URLs valid, job2 is
+        // still excluded purely on its TEXT ("no AI/automation, human
+        // illustrator"), which is the actual assertion.
+        { title: "Need Python script to automate CSV cleanup, $75", url: "https://www.reddit.com/r/forhire/comments/1aa1111/need_python_script_csv_cleanup", content: "Looking for someone to write a python script that dedupes and reformats CSV exports weekly." },
+        { title: "Freelance graphic designer for logo — no code", url: "https://www.reddit.com/r/forhire/comments/1bb2222/freelance_graphic_designer_logo", content: "Need a hand-drawn logo, no AI/automation involved, must be a human illustrator." },
       ],
     }),
   })) as unknown as FetchLike;

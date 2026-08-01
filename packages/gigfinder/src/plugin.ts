@@ -1,6 +1,6 @@
 import type { Plugin } from "@atlas/core";
 import { GigRegistry } from "./registry";
-import { isAiDoable, extractBudget } from "./matching";
+import { isRealGigCandidate, extractBudget } from "./matching";
 import { renderFallbackBid, bidSystemPrompt } from "./templates";
 import { scoreWinConfidence, matchGigForEmail, WIN_CONFIDENCE_THRESHOLD } from "./win-detection";
 import type { Gig, GigCandidate, GigSource, GigStatus } from "./types";
@@ -37,11 +37,18 @@ export type GigFinderCommand =
 // site-scoped to actual gig boards) rather than casual natural language,
 // which just as easily surfaces pricing articles and "how much should I
 // charge" discussion threads that happen to share the same keywords.
+// Targeted at places real postings actually live. The two generic open-web
+// phrase searches these replaced were the source of the 128 junk "gigs"
+// found in production on 2026-08-01 — SEO landing pages rank #1 for exactly
+// those phrases ("need a developer", "looking for someone"), so the open web
+// returns pages *selling* hiring services instead of people hiring.
+// r/forhire's own convention tags hiring posts [Hiring], which also filters
+// out freelancers advertising themselves.
 const WEB_SEARCH_QUERIES = [
-  "site:reddit.com/r/forhire looking for python automation",
-  "site:reddit.com/r/forhire budget scraper OR API OR bot",
-  "\"looking for someone\" freelance automation script budget",
-  "\"need a developer\" small project API integration hire",
+  "site:reddit.com/r/forhire [hiring] automation OR python OR scraper",
+  "site:reddit.com/r/forhire [hiring] api OR bot OR integration OR script",
+  "site:reddit.com/r/jobbit [hiring] automation OR developer",
+  "site:reddit.com/r/n8n OR site:reddit.com/r/zapier looking for freelancer OR contractor automation",
 ];
 
 export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRegistry } = {}): Plugin {
@@ -63,7 +70,7 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
           try {
             const results = (await ctx.call("search", { op: "web", query, max: 6 })) as Array<{ title: string; url: string; snippet: string }>;
             for (const r of results) {
-              if (!isAiDoable(r.title, r.snippet)) continue;
+              if (!isRealGigCandidate(r.title, r.snippet, r.url)) continue;
               out.push({ source: "web", title: r.title, url: r.url, snippet: r.snippet, budget: extractBudget(`${r.title} ${r.snippet}`) });
             }
           } catch {
@@ -89,7 +96,7 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
           try {
             const items = await exec.extractList(t.url, t);
             return items
-              .filter((i) => isAiDoable(i.title, i.snippet))
+              .filter((i) => isRealGigCandidate(i.title, i.snippet, i.url))
               .map((i) => ({ source, title: i.title, url: i.url, snippet: i.snippet, budget: extractBudget(`${i.title} ${i.snippet}`) }));
           } finally {
             await exec.stop();
