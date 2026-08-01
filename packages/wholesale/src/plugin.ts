@@ -116,6 +116,22 @@ export function createWholesalePlugin(opts: { fetcher?: typeof fetch } = {}): Pl
           return { dryRun, ...data };
         }
 
+        if (cmd.op === "previewIntros") {
+          // FREE and sends nothing: returns the REAL copy that would go out, so
+          // the wording itself can be approved rather than just the act of
+          // sending. Previously the copy was generated at send time, so there
+          // was never a draft to review.
+          const { url, secret } = await base();
+          const r = await f(`${url}/api/wholesale/buyers/send-intro`, {
+            method: "POST",
+            headers: { "x-n8n-secret": secret, "Content-Type": "application/json" },
+            body: JSON.stringify({ preview: true, ...(cmd.max !== undefined ? { max: cmd.max } : {}) }),
+          });
+          const data = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+          if (!r.ok) throw new Error(`wholesale previewIntros HTTP ${r.status}: ${JSON.stringify(data).slice(0, 200)}`);
+          return data;
+        }
+
         if (cmd.op === "sendIntros") {
           // REAL EMAILS TO REAL PEOPLE. Structurally gated the same way the
           // enrichment cost gate is: an absent-minded cycle wiring cannot
@@ -132,7 +148,13 @@ export function createWholesalePlugin(opts: { fetcher?: typeof fetch } = {}): Pl
           const r = await f(`${url}/api/wholesale/buyers/send-intro`, {
             method: "POST",
             headers: { "x-n8n-secret": secret, "Content-Type": "application/json" },
-            body: JSON.stringify(cmd.max !== undefined ? { max: cmd.max } : {}),
+            body: JSON.stringify({
+              ...(cmd.max !== undefined ? { max: cmd.max } : {}),
+              // When approved drafts are supplied, evervibes sends them
+              // verbatim instead of regenerating — so what was approved is
+              // exactly what goes out.
+              ...(cmd.drafts ? { drafts: cmd.drafts } : {}),
+            }),
           });
           const data = (await r.json().catch(() => ({}))) as Record<string, unknown>;
           if (!r.ok) throw new Error(`wholesale sendIntros HTTP ${r.status}: ${JSON.stringify(data).slice(0, 200)}`);

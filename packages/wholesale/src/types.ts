@@ -29,5 +29,14 @@ export type WholesaleCommand =
   | { op: "listBuyers"; mailableOnly?: boolean; limit?: number }
   /** Spends trace credits unless dryRun (which DEFAULTS to true). */
   | { op: "traceTopBuyers"; count?: number; dryRun?: boolean; confirmSpend?: boolean }
-  /** Sends REAL emails. Requires confirmSend: true. */
-  | { op: "sendIntros"; max?: number; confirmSend?: boolean };
+  /** FREE. Returns the real copy that WOULD be sent, so the wording itself
+   * can be approved. Sends nothing, records nothing. */
+  | { op: "previewIntros"; max?: number }
+  /** Sends REAL emails. Requires confirmSend: true. Pass `drafts` (from
+   * previewIntros, after approval) to send that exact copy verbatim. */
+  | {
+      op: "sendIntros";
+      max?: number;
+      confirmSend?: boolean;
+      drafts?: Array<{ id: string; subject: string; body: string }>;
+    };

@@ -76,6 +76,41 @@ describe("wholesale spend/send gates", () => {
     await expect(atlas.invoke("wholesale", { op: "traceTopBuyers", dryRun: false })).rejects.toThrow(/confirmSpend/);
   });
 
+  it("previewIntros is free, sends nothing, and returns real copy to approve", async () => {
+    let sentBody: Record<string, unknown> = {};
+    const fake = (async (_u: string, init?: RequestInit) => {
+      sentBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({ ok: true, preview: true, sent: 0, drafts: [{ id: "b1", subject: "s", body: "hello" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault({ KDP_CRON_SECRET: "s3cret" }) });
+    await atlas.use(createWholesalePlugin({ fetcher: fake }));
+    // No confirmSend needed — preview must never be gated, or there'd be no
+    // free way to review copy before approving it.
+    const r = (await atlas.invoke("wholesale", { op: "previewIntros", max: 5 })) as { sent: number; drafts: unknown[] };
+    expect(sentBody.preview).toBe(true);
+    expect(sentBody.max).toBe(5);
+    expect(r.sent).toBe(0);
+    expect(r.drafts).toHaveLength(1);
+  });
+
+  it("sendIntros forwards approved drafts so the approved copy is what ships", async () => {
+    let sentBody: Record<string, unknown> = {};
+    const fake = (async (_u: string, init?: RequestInit) => {
+      sentBody = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(JSON.stringify({ ok: true, sent: 1 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault({ KDP_CRON_SECRET: "s3cret" }) });
+    await atlas.use(createWholesalePlugin({ fetcher: fake }));
+    const drafts = [{ id: "b1", subject: "approved subject", body: "approved body" }];
+    await atlas.invoke("wholesale", { op: "sendIntros", confirmSend: true, drafts });
+    expect(sentBody.drafts).toEqual(drafts);
+  });
+
   it("defaults traceTopBuyers to dryRun, so omitting the flag cannot spend", async () => {
     let sentBody: unknown;
     const fake = (async (_u: string, init?: RequestInit) => {
