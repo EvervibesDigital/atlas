@@ -115,8 +115,9 @@ export function createOrchestratorPlugin(opts: { defaultPersona?: string; healEn
         let videoRef = cmd.videoRef ?? null;
         if (!videoRef) {
           try {
-            const { jobId } = (await ctx.call("publishing", { op: "enqueueRender", spec: reel })) as { jobId: string };
-            console.log(`[orchestrator] Video render job ${jobId} queued for topic: ${topic} (renders in the background, doesn't block this cycle)`);
+            const { videoRef: _drop, ...publishInputBase } = reelToPublishInput(reel, null);
+            const { jobId } = (await ctx.call("publishing", { op: "enqueueRender", spec: reel, publishInput: publishInputBase })) as { jobId: string };
+            console.log(`[orchestrator] Video render job ${jobId} queued for topic: ${topic} (renders in the background, doesn't block this cycle) — will request publish approval once the render finishes`);
           } catch (err) {
             console.error("[orchestrator] Failed to queue video render:", err);
           }

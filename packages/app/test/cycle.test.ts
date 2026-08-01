@@ -30,6 +30,35 @@ describe("autonomous daily cycle", () => {
     expect(Array.isArray(report.pendingApprovals)).toBe(true);
   });
 
+  it("enqueues the Reel's render with a publishInput, so a finished render can request approval later", async () => {
+    const { mkdtemp, rm, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "atlas-cycle-test-"));
+    const videoJobsFile = join(dir, "video-jobs.json");
+
+    try {
+      await runDailyCycle({
+        memoryStore: new InMemoryStore(),
+        approvalsGateway: new ApprovalGateway(),
+        metricsTracker: new MetricsTracker(),
+        brainAdapters: [new StubAdapter()],
+        renderer: new NoOpRenderer(),
+        videoJobsFile,
+        healEnabled: false,
+      });
+
+      const raw = await readFile(videoJobsFile, "utf8");
+      const jobs = JSON.parse(raw) as Array<{ publishInput?: { personaHandle?: string; caption?: string } }>;
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]!.publishInput).toBeTruthy();
+      expect(jobs[0]!.publishInput!.personaHandle).toBeTruthy();
+      expect(jobs[0]!.publishInput!.caption).toBeTruthy();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("queues an approval when a rendered video is supplied (still posts nothing)", async () => {
     const report = await runDailyCycle({
       memoryStore: new InMemoryStore(),
