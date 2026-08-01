@@ -1,5 +1,9 @@
 # ATLAS Improvement Roadmap — 2026-08-01
 
+> **Status update, same day.** Parts 1, 3a, 3b and 3d are BUILT, tested, deployed
+> and verified live. See "What shipped" at the bottom. The connections catalog
+> (Part 4) and the remaining items are unchanged and still the plan.
+
 Everything below is grounded in the code as it exists today, not memory. Verified by
 inspection this session: **33 services, ~98 distinct ops, 101 API routes**, 647 tests
 across 117 files passing, live on `72.62.168.207:4317` (health 200).
@@ -323,3 +327,47 @@ capabilities panel, and the `sender` plugin converts existing built work into re
 hour spent on Veo 3 adds a seventh thing that might turn out to be wired to nothing.
 
 Build Part 1 before Parts 2 and 3.
+
+
+---
+
+## What shipped (2026-08-01, after this document was written)
+
+**Part 1 — reachability audit.** `packages/server/src/reachability.ts` +
+`reachability.test.ts` (20 tests). Extracts every `(service, op)` and every call
+site across three real dispatch shapes; a plugin calling its own op does not
+count. Allowlist ratchets both directions. First run: **64 unreachable ops**.
+
+- **18 wired immediately** — every capability of the four money businesses. There
+  were no `/api/leadscan/*`, `/api/enrichment/*` or `/api/wholesale/*` routes in
+  the server at all. Money-gated ops pass `confirmCost`/`confirmSend`/
+  `confirmSpend` straight through, never defaulted.
+- **43 frozen as documented backlog**, 3 justified as intentional.
+- **9 whole services are unreachable end to end**: analytics, automation,
+  engineering, experiments, legacy, opportunity, research, setup, simulation.
+  They appear in the UI capability map, and nothing can trigger any of them.
+
+**Dead-key guard.** Every `KEY_SPECS` entry now needs a real reader or a written
+`unusedReason`. Confirmed seven dead detectors, each annotated.
+
+**`GET /api/capabilities` + Health tab.** Per-service `ready` / `needs-key` /
+`partial` / `unreachable`. Current live counts: 5 ready, 11 needs-key, 11 partial,
+9 unreachable.
+
+**3d — Ken Burns motion.** Verified against the real ffmpeg binary both locally
+and on the VPS (`zoompan` confirmed present in that build, unlike `drawtext`).
+All three motions render 1080x1920 @30fps from a landscape source with
+first/last frames provably different.
+
+**3a — Nano Banana Pro** with fallback on 403/404 only. A 429 or 500 throws
+rather than silently downgrading every image for a quota window. The model that
+ran is recorded on the content item.
+
+**3b — persona face consistency.** Anchored on the creator's oldest image, so
+generations can't drift down a chain.
+
+Totals: **680 tests / 118 files green, typecheck clean, all deployed (health 200).**
+
+Still open, in priority order: `COMPANY_POSTAL_ADDRESS`, Twin billing, the N8N
+key, bidding the 10 gigs, then 3e (music bed), the `sender` plugin, and Part 2a
+(engineering execution arm).
