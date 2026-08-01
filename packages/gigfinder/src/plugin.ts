@@ -2,6 +2,7 @@ import type { Plugin } from "@atlas/core";
 import { GigRegistry } from "./registry";
 import { isRealGigCandidate, extractBudget } from "./matching";
 import { renderFallbackBid, bidSystemPrompt, isUsableBid } from "./templates";
+import { templateWorkPackage, buildHandoffPrompt, isUsableWorkPackage, workPackageSystemPrompt, type WorkPackage } from "./work-package";
 import { scoreWinConfidence, matchGigForEmail, WIN_CONFIDENCE_THRESHOLD } from "./win-detection";
 import type { Gig, GigCandidate, GigSource, GigStatus } from "./types";
 
@@ -30,6 +31,10 @@ export type GigFinderCommand =
   | { op: "reject"; id: string }
   | { op: "markSubmitted"; id: string }
   | { op: "updateStatus"; id: string; status: GigStatus; paidAmount?: number }
+  /** Turns a gig into a scoped work package + paste-ready Claude Code
+   * handoff prompt. Degrades to a deterministic template package when the
+   * brain is unavailable or returns something that fails the quality gate. */
+  | { op: "planWork"; id: string }
   | { op: "checkWins" }
   | { op: "stats" };
 
@@ -130,6 +135,52 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
 
       ctx.provide("gigfinder", async (payload) => {
         const cmd = payload as GigFinderCommand;
+
+        if (cmd.op === "planWork") {
+          const gig = (await registry.list()).find((g) => g.id === cmd.id);
+          if (!gig) throw new Error(`no gig "${cmd.id}"`);
+
+          // Deterministic package first — it is always coherent, works with
+          // zero AI (every provider is quota-exhausted as of 2026-08-01), and
+          // is what any brain failure falls back to.
+          let pkg: WorkPackage = templateWorkPackage(gig);
+
+          try {
+            const r = (await ctx.call("brain", {
+              system: workPackageSystemPrompt(),
+              prompt: `Job title: ${gig.title}
+Posting: ${gig.snippet}
+Budget: ${gig.budget ? "$" + gig.budget : "not stated"}
+Source: ${gig.url}`,
+              needs: { reasoning: 0.7, cost: 1 },
+              maxTokens: 900,
+              task: "gigfinder.planWork",
+            })) as { text: string };
+
+            let raw = (r.text ?? "").trim();
+            // Models often fence JSON despite being told not to. Strip the
+            // opening fence (plus any language tag) and the closing one; the
+            // trim() then removes the newline the fence left behind.
+            if (raw.startsWith("```")) raw = raw.replace(/^```[a-z]*/i, "").replace(/```$/, "").trim();
+            const parsed = JSON.parse(raw) as Partial<WorkPackage>;
+            const candidate = {
+              summary: String(parsed.summary ?? "").trim(),
+              deliverables: (parsed.deliverables ?? []).map((d) => String(d)),
+              questionsForClient: (parsed.questionsForClient ?? []).map((q) => String(q)),
+              assumptions: (parsed.assumptions ?? []).map((a) => String(a)),
+              techApproach: String(parsed.techApproach ?? "").trim(),
+              estimateDays: Number(parsed.estimateDays),
+            };
+            if (isUsableWorkPackage(candidate)) {
+              pkg = { gigId: gig.id, ...candidate, handoffPrompt: buildHandoffPrompt(gig, candidate), generatedBy: "brain" };
+            }
+          } catch {
+            /* brain unavailable, quota-blocked, or unparseable — template stands */
+          }
+
+          const updated = await registry.update(gig.id, { workPackage: pkg });
+          return updated ?? { ...gig, workPackage: pkg };
+        }
 
         if (cmd.op === "search") {
           const sources = cmd.sources ?? ["web"];

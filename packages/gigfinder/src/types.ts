@@ -19,6 +19,10 @@ export interface Gig {
   submittedAt?: string;
   paidAmount?: number;
   notes?: string;
+  /** Scoped work + Claude Code handoff prompt, set by the planWork op.
+   * Stored on the gig the same way draftBid is, so it travels with the gig
+   * through the existing list/approve/status flow. */
+  workPackage?: import("./work-package").WorkPackage;
 }
 
 export interface GigCandidate {
