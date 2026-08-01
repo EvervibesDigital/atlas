@@ -3,7 +3,7 @@ import { MediaFactoryDB, type VirtualCreator, type CreatorMemory, type ContentIt
 import { MediaFactoryAgents, buildImagePrompt, type BrainInvoker } from "./agents";
 import { creatorsWithRoom, DAILY_POST_TARGET } from "./throughput";
 import { generateBestImage, type FetchLike } from "./image-gen";
-import { saveGeneratedImage } from "./images";
+import { saveGeneratedImage, findReferenceImage } from "./images";
 
 export type MediaFactoryCommand =
   | { op: "listCreators" }
@@ -80,7 +80,15 @@ export function createMediaFactoryPlugin(opts: { imagesDir?: string; imageFetche
           // Asks for Nano Banana Pro and takes Flash only if this key can't
           // reach it. Records which model actually ran, so image quality is a
           // fact on the record rather than an assumption.
-          const image = await generateBestImage(fullPrompt, apiKey, { fetcher: opts.imageFetcher });
+          // Pass the creator's first image back as a reference so the same
+          // face carries across every post. Without this each generation is an
+          // unrelated person who merely matches the written description, which
+          // is what separates "AI images" from a consistent creator.
+          const reference = await findReferenceImage(imagesDir, creator.id!);
+          const image = await generateBestImage(fullPrompt, apiKey, {
+            fetcher: opts.imageFetcher,
+            references: reference ? [reference] : undefined,
+          });
           assets.image_path = await saveGeneratedImage(imagesDir, creator.id!, contentId, image);
           assets.image_model = image.model;
           if (image.fellBackFrom) assets.image_model_fallback = image.fallbackReason;
