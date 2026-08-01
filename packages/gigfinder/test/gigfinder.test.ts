@@ -70,6 +70,14 @@ describe("isAiDoable", () => {
     expect(isAiDoable("Automation project", "no AI or bots, humans only please")).toBe(false);
   });
 
+  it("rejects [FOR HIRE] self-advertisements — same keywords, inverted direction", () => {
+    // Caught live on 2026-08-01: a real scan surfaced this alongside genuine
+    // [Hiring] posts. It's a freelancer offering services, not a job.
+    expect(isAiDoable("[FOR HIRE] Python Developer -> Scripting, Automation, Bots", "Experienced dev available for automation and scraping work.")).toBe(false);
+    // ...while the genuine [Hiring] post in the same subreddit still passes.
+    expect(isAiDoable("[HIRING] Python + Playwright Developer for Automation", "Need someone to build a scraper, budget: $400")).toBe(true);
+  });
+
   it("rejects pricing/discussion content even when it hits the same keywords a real posting would", () => {
     // These are the exact false-positive shape Mat flagged: real automation
     // vocabulary, zero actual hiring intent — an article, not a job.

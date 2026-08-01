@@ -12,7 +12,13 @@ const AI_DOABLE_KEYWORDS = [
   "spreadsheet", "excel", "workflow", "no-code", "n8n",
 ];
 
-const EXCLUDE_KEYWORDS = ["no ai", "humans only", "no bots", "no automated", "in-person only", "on-site only"];
+// "[for hire]" is r/forhire's tag for a FREELANCER ADVERTISING THEMSELVES —
+// the exact inverse of a job posting, but it hits every same keyword. Caught
+// live on 2026-08-01 when a real scan surfaced "[FOR HIRE] Python Developer"
+// alongside genuine [Hiring] posts. The brackets matter: they scope this to
+// the tag convention, so an ordinary sentence using the words "for hire"
+// isn't wrongly excluded.
+const EXCLUDE_KEYWORDS = ["no ai", "humans only", "no bots", "no automated", "in-person only", "on-site only", "[for hire]"];
 
 // A page can mention "automation" and "API" and still not be a job posting —
 // a pricing article or a "how much should I charge" forum thread hits the
