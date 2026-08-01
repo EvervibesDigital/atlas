@@ -42,7 +42,10 @@ function fakeTavily(): FetchLike {
     ok: true,
     status: 200,
     json: async () => ({
-      results: [{ title: "Automate CSV cleanup with Python, $75", url: "https://example.com/job1", content: "Need a python script that dedupes CSV exports." }],
+      // A real posting-permalink shape: gigfinder's search filter now also
+      // checks the URL (isSpecificPosting), so a fixture at example.com/job1
+      // is discarded before it ever reaches the Brief.
+      results: [{ title: "Automate CSV cleanup with Python, $75", url: "https://www.reddit.com/r/forhire/comments/1aa1111/automate_csv_cleanup_with_python", content: "Need a python script that dedupes CSV exports." }],
     }),
   })) as unknown as FetchLike;
 }
