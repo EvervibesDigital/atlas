@@ -4,11 +4,20 @@ name: atlas-daily
 # builds the approval list but posts nothing. Add free LLM keys as repo secrets
 # (GROQ_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY) to use real models.
 on:
-  schedule:
-    - cron: "0 13 * * *" # 9:00 AM ET — morning cycle
-    - cron: "0 3 * * *" # 11:00 PM ET — night shift begins
-    - cron: "0 7 * * *" # 3:00 AM ET — overnight cycle
-  workflow_dispatch:
+  # SCHEDULE DISABLED 2026-08-01 — this ran a full ATLAS cycle 3x/day on the
+  # SAME API keys the always-on VPS hourly loop already uses (plus a local
+  # Windows "ATLAS Nightly Cycle" scheduled task, also disabled). Three
+  # independent runners sharing one free-tier quota exhausted it: Gemini
+  # returned 429 "exceeded your current quota" and wholesale intro-email copy
+  # stopped generating entirely (0 of 4 drafts), blocking real outreach.
+  #
+  # The VPS hourly loop is the single source of truth for cycles. Re-enable
+  # this ONLY if the VPS loop is retired, or on a paid plan with headroom.
+  # schedule:
+  #   - cron: "0 13 * * *" # 9:00 AM ET — morning cycle
+  #   - cron: "0 3 * * *" # 11:00 PM ET — night shift begins
+  #   - cron: "0 7 * * *" # 3:00 AM ET — overnight cycle
+  workflow_dispatch: # still runnable on demand from the Actions tab
 
 jobs:
   cycle:
