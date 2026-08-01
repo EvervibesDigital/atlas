@@ -1,6 +1,9 @@
 import type { Plugin } from "@atlas/core";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { PendingAction, WholesaleCommand } from "./types";
 import { toBuyerRows, buyerStats } from "./buyers";
+import { storeDrafts, findDraft, removeDraft, type IntroDraft } from "./intro-drafts";
 
 /**
  * Wholesale plugin (service "wholesale") — bridges ATLAS to evervibes' REAL,
@@ -16,8 +19,24 @@ import { toBuyerRows, buyerStats } from "./buyers";
  * evervibes CRON_SECRET value either way, and there's no reason to make Mat
  * paste the identical secret into the vault under a second name.
  */
-export function createWholesalePlugin(opts: { fetcher?: typeof fetch } = {}): Plugin {
+export function createWholesalePlugin(opts: { fetcher?: typeof fetch; introDraftsFile?: string } = {}): Plugin {
   const f = opts.fetcher ?? fetch;
+  const draftsPath = opts.introDraftsFile ?? "data/intro-drafts.json";
+
+  async function loadDrafts(): Promise<IntroDraft[]> {
+    const raw = await readFile(draftsPath, "utf8").catch(() => "[]");
+    try {
+      const parsed = JSON.parse(raw) as IntroDraft[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async function saveDrafts(drafts: IntroDraft[]): Promise<void> {
+    await mkdir(dirname(draftsPath), { recursive: true }).catch(() => {});
+    await writeFile(draftsPath, JSON.stringify(drafts, null, 2), "utf8");
+  }
 
   return {
     manifest: {
@@ -129,7 +148,47 @@ export function createWholesalePlugin(opts: { fetcher?: typeof fetch } = {}): Pl
           });
           const data = (await r.json().catch(() => ({}))) as Record<string, unknown>;
           if (!r.ok) throw new Error(`wholesale previewIntros HTTP ${r.status}: ${JSON.stringify(data).slice(0, 200)}`);
-          return data;
+
+          // Persist the generated copy. The email is AI-written per buyer, so
+          // regenerating at send time would send DIFFERENT text than what was
+          // approved. Storing it here is what makes approval mean the wording.
+          const incoming = (data.drafts ?? []) as Array<{ id: string; name?: string; email?: string; subject: string; body: string }>;
+          const stored = storeDrafts(await loadDrafts(), incoming);
+          await saveDrafts(stored);
+          return { ...data, stored: stored.length };
+        }
+
+        if (cmd.op === "listIntroDrafts") {
+          return { drafts: await loadDrafts() };
+        }
+
+        if (cmd.op === "discardIntroDraft") {
+          const next = removeDraft(await loadDrafts(), cmd.id);
+          await saveDrafts(next);
+          return { discarded: cmd.id, remaining: next.length };
+        }
+
+        if (cmd.op === "approveIntroDraft") {
+          // Sends the STORED copy verbatim — the exact text that was reviewed.
+          // No confirmSend flag here because approving a specific draft by id
+          // IS the explicit confirmation; the ambiguity that gate protects
+          // against ("send 10 emails I haven't read") can't arise.
+          const drafts = await loadDrafts();
+          const draft = findDraft(drafts, cmd.id);
+          if (!draft) throw new Error(`wholesale: no stored intro draft "${cmd.id}" (it may already have been sent or discarded)`);
+
+          const { url, secret } = await base();
+          const r = await f(`${url}/api/wholesale/buyers/send-intro`, {
+            method: "POST",
+            headers: { "x-n8n-secret": secret, "Content-Type": "application/json" },
+            body: JSON.stringify({ max: 1, drafts: [{ id: draft.buyerId, subject: draft.subject, body: draft.body }] }),
+          });
+          const data = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+          if (!r.ok) throw new Error(`wholesale approveIntroDraft HTTP ${r.status}: ${JSON.stringify(data).slice(0, 200)}`);
+
+          await saveDrafts(removeDraft(drafts, draft.id));
+          await ctx.emit("wholesale.introsSent", { id: draft.id, email: draft.email });
+          return { sent: draft.id, ...data };
         }
 
         if (cmd.op === "sendIntros") {

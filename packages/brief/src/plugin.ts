@@ -149,6 +149,27 @@ export function createBriefPlugin(): Plugin {
         });
       }
 
+      /** Intro emails whose ACTUAL COPY is waiting to be approved. Distinct
+       * from wholesale pending-actions: here the item body is the real email
+       * text that will be sent verbatim, so approving means approving the
+       * wording — not just authorising a send of copy nobody has read. */
+      async function fromWholesaleIntroDrafts(): Promise<BriefItem[]> {
+        const res = (await ctx.call("wholesale", { op: "listIntroDrafts" })) as {
+          drafts?: Array<{ id: string; name: string; email: string; subject: string; body: string; createdAt: string }>;
+        };
+        return (res.drafts ?? []).map((d) => ({
+          id: d.id, // already "intro:<buyerId>" — the prefix routes act()
+          source: "wholesale" as const,
+          title: `Intro email to ${d.name || d.email} — "${d.subject}"`,
+          detail: d.body,
+          risk: 1 as const,
+          // One tap per email, but batchable: this is the "bulk approvals for
+          // emails" case, with the full copy shown before approving.
+          tier: "bulk" as const,
+          createdAt: d.createdAt,
+        }));
+      }
+
       async function fromLeadscan(): Promise<BriefItem[]> {
         const leads = (await ctx.call("leadscan", { op: "list", status: "new" })) as Array<{ id: string; businessName: string; website: string; niche: string; city: string; foundAt: string; scan?: { overallScore: number; issues: Array<{ issue: string }> } }>;
         return leads.map((l) => ({
@@ -239,7 +260,11 @@ export function createBriefPlugin(): Plugin {
       }
 
       async function collectAll(): Promise<BriefItem[]> {
-        const [kdp, gigfinder, approvals, surplus, wholesale, leadscan, learning, social] = await Promise.all([
+        // NOTE: positional destructuring — a new entry MUST be added at the
+        // same index in both the variable list and the array, or every later
+        // variable silently takes the wrong source's items. Appending at the
+        // END is the safe way to extend this (nothing above shifts).
+        const [kdp, gigfinder, approvals, surplus, wholesale, leadscan, learning, social, introDrafts] = await Promise.all([
           collect(fromKdp),
           collect(fromGigFinder),
           collect(fromApprovals),
@@ -248,8 +273,9 @@ export function createBriefPlugin(): Plugin {
           collect(fromLeadscan),
           collect(fromLearning),
           collect(fromSocial),
+          collect(fromWholesaleIntroDrafts),
         ]);
-        return [...kdp, ...gigfinder, ...approvals, ...surplus, ...wholesale, ...leadscan, ...learning, ...social].sort(
+        return [...kdp, ...gigfinder, ...approvals, ...surplus, ...wholesale, ...leadscan, ...learning, ...social, ...introDrafts].sort(
           (a, b) => b.risk - a.risk || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""),
         );
       }
@@ -275,6 +301,12 @@ export function createBriefPlugin(): Plugin {
           return ctx.call("surplus", { op: "run", role: "outreach", message });
         }
         if (source === "wholesale") {
+          // An "intro:" id is a stored email draft whose exact copy was shown
+          // in the Brief — approving sends THAT text verbatim, rejecting just
+          // discards it. Everything else is a wholesale pending-action.
+          if (id.startsWith("intro:")) {
+            return ctx.call("wholesale", action === "approve" ? { op: "approveIntroDraft", id } : { op: "discardIntroDraft", id });
+          }
           return ctx.call("wholesale", action === "approve" ? { op: "approve", id } : { op: "veto", id, reason: "atlas_brief_reject" });
         }
         if (source === "leadscan") {

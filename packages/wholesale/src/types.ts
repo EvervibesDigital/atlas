@@ -29,9 +29,16 @@ export type WholesaleCommand =
   | { op: "listBuyers"; mailableOnly?: boolean; limit?: number }
   /** Spends trace credits unless dryRun (which DEFAULTS to true). */
   | { op: "traceTopBuyers"; count?: number; dryRun?: boolean; confirmSpend?: boolean }
-  /** FREE. Returns the real copy that WOULD be sent, so the wording itself
-   * can be approved. Sends nothing, records nothing. */
+  /** FREE. Returns the real copy that WOULD be sent AND persists it, so the
+   * wording itself can be approved and that exact text later sent. Sends
+   * nothing to any buyer. */
   | { op: "previewIntros"; max?: number }
+  /** Stored drafts awaiting approval (what the Brief surfaces). */
+  | { op: "listIntroDrafts" }
+  /** Sends one stored draft verbatim. Approving a specific draft by id IS the
+   * confirmation, so no separate confirmSend flag. */
+  | { op: "approveIntroDraft"; id: string }
+  | { op: "discardIntroDraft"; id: string }
   /** Sends REAL emails. Requires confirmSend: true. Pass `drafts` (from
    * previewIntros, after approval) to send that exact copy verbatim. */
   | {
