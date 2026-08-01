@@ -9,6 +9,9 @@ export interface ScanResult {
   url: string;
   overallScore: number; // 0-100, 100 = no issues found
   issues: ScanIssue[];
+  /** Contact address found on the page, when one could be identified.
+   * Extracted during the scan because the HTML is already in hand. */
+  contactEmail?: string;
 }
 
 export interface Lead {

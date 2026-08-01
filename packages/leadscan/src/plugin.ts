@@ -76,6 +76,16 @@ export function createLeadScanPlugin(opts: { leadFile?: string; registry?: LeadR
         if (cmd.op === "approve") {
           const lead = await registry.get(cmd.id);
           if (!lead) throw new Error(`leadscan: no lead "${cmd.id}"`);
+          // Refuse to claim an outreach that cannot happen. This previously
+          // sent `email: ""` to the n8n workflow and marked the lead
+          // "contacted" regardless — which is how all 128 production leads
+          // ended up flagged as contacted with zero email addresses between
+          // them. A status that lies is worse than an error.
+          if (!(lead.email ?? "").includes("@")) {
+            throw new Error(
+              `leadscan: no email address for "${lead.businessName}" — nothing to send to, so it has NOT been marked contacted. The site scan finds an address when the page publishes one; this site did not. Phone on file: ${lead.phone || "none"}.`,
+            );
+          }
           const result = await ctx.call("outreach", {
             op: "notify",
             target: "new-lead",

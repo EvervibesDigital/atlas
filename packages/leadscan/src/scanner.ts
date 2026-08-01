@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { ScanIssue, ScanResult } from "./types";
+import { extractContactEmail } from "./contact";
 
 // The real, working "vibe check" logic from Mat's EverVibes Digital
 // compliance-bot repo (server.ts's performVibeCheck) — a genuine HTML audit,
@@ -63,5 +64,10 @@ export async function scanWebsite(url: string, fetcher: typeof fetch = fetch): P
     issues.push({ category: "mobile", issue: "Missing mobile viewport meta tag" });
   }
 
-  return { url, overallScore: Math.max(0, score), issues };
+  // The page is already fetched and parsed, so pulling a contact address
+  // out of it is nearly free — and it is the difference between a lead
+  // that can be emailed and one that cannot. All 128 production leads had
+  // a phone and no email before this.
+  const contactEmail = extractContactEmail($, html, url);
+  return { url, overallScore: Math.max(0, score), issues, ...(contactEmail ? { contactEmail } : {}) };
 }

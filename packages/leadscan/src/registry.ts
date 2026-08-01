@@ -67,6 +67,11 @@ export class LeadRegistry {
     const lead = this.items.find((l) => l.id === id);
     if (!lead) return undefined;
     lead.scan = scan;
+    // Promote a contact address found during the scan onto the lead itself,
+    // since that is what approve() hands to the outreach workflow. Never
+    // overwrite an address we already had — a directory-sourced one is more
+    // trustworthy than one scraped off the page.
+    if (!lead.email && scan.contactEmail) lead.email = scan.contactEmail;
     await this.persist();
     return lead;
   }
