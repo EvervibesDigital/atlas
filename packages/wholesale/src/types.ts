@@ -20,4 +20,14 @@ export interface PendingAction {
 }
 
 /** Commands accepted by the "wholesale" service (single-handler dispatch). */
-export type WholesaleCommand = { op: "list" } | { op: "approve"; id: string } | { op: "veto"; id: string; reason?: string };
+export type WholesaleCommand =
+  | { op: "list" }
+  | { op: "approve"; id: string }
+  | { op: "veto"; id: string; reason?: string }
+  /** Contact-coverage stats across every buyer source. Free, read-only. */
+  | { op: "buyerStats" }
+  | { op: "listBuyers"; mailableOnly?: boolean; limit?: number }
+  /** Spends trace credits unless dryRun (which DEFAULTS to true). */
+  | { op: "traceTopBuyers"; count?: number; dryRun?: boolean; confirmSpend?: boolean }
+  /** Sends REAL emails. Requires confirmSend: true. */
+  | { op: "sendIntros"; max?: number; confirmSend?: boolean };
