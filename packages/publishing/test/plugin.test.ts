@@ -51,6 +51,19 @@ describe("publishing plugin — enqueueRender / renderQueuedJob", () => {
     expect(jobs[0]).toMatchObject({ id: result.jobId, spec, status: "queued" });
   });
 
+  it("enqueueRender persists an optional publishInput onto the job", async () => {
+    const atlas = new Atlas({ guardian: permissiveGuardian() });
+    await atlas.use(createPublishingPlugin({ renderer: fakeRenderer("x.mp4"), videoJobsFile }));
+
+    const spec = { voice: "v1", scenes: [{ text: "hi", imageUrl: "http://x/1.jpg" }] };
+    const publishInput = { personaHandle: "@handle", caption: "hi", hashtags: ["#a"], width: 1080, height: 1920, durationSec: 12 };
+    await atlas.invoke("publishing", { op: "enqueueRender", spec, publishInput });
+
+    const raw = await readFile(videoJobsFile, "utf8");
+    const jobs = JSON.parse(raw) as VideoRenderJob[];
+    expect(jobs[0]!.publishInput).toEqual(publishInput);
+  });
+
   it("renderQueuedJob calls the renderer with the exact spec and returns its result", async () => {
     const renderer = fakeRenderer("rendered/output.mp4");
     const atlas = new Atlas({ guardian: permissiveGuardian() });
