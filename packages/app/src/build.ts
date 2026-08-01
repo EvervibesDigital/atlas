@@ -27,6 +27,7 @@ import { createExperimentsPlugin } from "@atlas/experiments";
 import { createKnowledgePlugin } from "@atlas/knowledge";
 import { createEvaluationPlugin } from "@atlas/evaluation";
 import { createCfoPlugin } from "@atlas/cfo";
+import { createEnrichmentPlugin } from "@atlas/enrichment";
 import { createAutomationPlugin } from "@atlas/automation";
 import { createSimulationPlugin } from "@atlas/simulation";
 import { createAnalyticsPlugin } from "@atlas/analytics";
@@ -230,6 +231,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createExperimentsPlugin());
   await atlas.use(createKnowledgePlugin());
   await atlas.use(createCfoPlugin());
+  await atlas.use(createEnrichmentPlugin());
   await atlas.use(createAutomationPlugin());
   await atlas.use(createSimulationPlugin());
   await atlas.use(createAnalyticsPlugin());

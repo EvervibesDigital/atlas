@@ -37,6 +37,7 @@
     "@atlas/experiments": "workspace:*",
     "@atlas/knowledge": "workspace:*",
     "@atlas/cfo": "workspace:*",
+    "@atlas/enrichment": "workspace:*",
     "@atlas/automation": "workspace:*",
     "@atlas/simulation": "workspace:*",
     "@atlas/analytics": "workspace:*",
