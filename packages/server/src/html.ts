@@ -149,6 +149,7 @@ export const PAGE = `<!doctype html>
       <button data-tab="media-factory">🎬 Media Factory</button>
       <button data-tab="cfo">💰 CFO</button>
       <button data-tab="advisors">🏺 Advisors</button>
+      <button data-tab="health">🩺 Health</button>
       <button id="lockNow" class="sec" style="margin-left:auto">Lock</button>
     </nav>
 
@@ -193,6 +194,13 @@ export const PAGE = `<!doctype html>
       <div id="mapWrap" style="position:relative;margin-top:10px;"><svg id="mapSvg" viewBox="0 0 1000 720" style="width:100%;height:auto;display:block;"></svg></div>
       <div id="mapInfo" class="note" style="text-align:center;min-height:18px;"></div>
       <div id="mapLegend" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;font-size:12px;color:var(--mut);margin-top:6px;"></div>
+    </section>
+
+    <section id="tab-health" class="card hide">
+      <h2>Capability health</h2>
+      <div class="note">Every service, and whether it would actually work if you pressed the button. <b>Unreachable</b> means nothing can trigger it — no route, no cycle step, no other plugin. <b>Needs key</b> means it is wired but has no credential to run with.</div>
+      <div id="healthCounts" style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0;"></div>
+      <div id="healthList"></div>
     </section>
 
     <section id="tab-connect" class="card hide">
@@ -724,7 +732,7 @@ document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () =>
   b.classList.add("active");
   // Null-safe: a missing tab div must never crash the switcher (a single
   // throw here blanks EVERY tab — see 2026-07-16 "all tabs blank" incident).
-  ["chat","map","businesses","learn","connect","grow","vault","keys","run","brief","actions","proposals","approvals","media-factory","gigs","kdp","cfo","advisors"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
+  ["chat","map","businesses","learn","connect","grow","vault","keys","run","brief","actions","proposals","approvals","media-factory","gigs","kdp","cfo","advisors","health"].forEach(t => { const el=$("tab-"+t); if(el) el.classList.toggle("hide", t!==b.dataset.tab); });
   if (b.dataset.tab==="brief") loadBrief();
   if (b.dataset.tab==="approvals") loadApprovals();
   if (b.dataset.tab==="proposals") loadProposals();
@@ -739,7 +747,33 @@ document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () =>
   if (b.dataset.tab==="keys") { loadCreds(); loadProviders(); }
   if (b.dataset.tab==="run") loadAutomationStatus();
   if (b.dataset.tab==="media-factory") loadCreators();
+  if (b.dataset.tab==="health") loadHealth();
 });
+
+const HEALTH_STYLE = { ready:["#16a34a","ready"], "needs-key":["#d97706","needs key"], partial:["#d97706","partly wired"], unreachable:["#dc2626","unreachable"] };
+
+async function loadHealth(){
+  const el=$("healthList"); el.innerHTML="<div class='note'>Scanning…</div>";
+  try {
+    const r=await api("/api/capabilities");
+    const c=r.counts||{};
+    $("healthCounts").innerHTML=["ready","needs-key","partial","unreachable"].map(k=>{
+      const s=HEALTH_STYLE[k];
+      return "<div style='border:1px solid var(--bd);border-radius:8px;padding:8px 12px;min-width:96px;'><div style='font-size:22px;font-weight:700;color:"+s[0]+";'>"+(c[k]||0)+"</div><div class='note' style='margin:0;'>"+s[1]+"</div></div>";
+    }).join("");
+    el.innerHTML=(r.services||[]).map(s=>{
+      const st=HEALTH_STYLE[s.status]||["#888",s.status];
+      const keys=(s.secrets||[]).map(k=>"<span style='font-family:monospace;font-size:11px;padding:1px 5px;border-radius:4px;background:"+(k.present?"rgba(22,163,74,.15)":"rgba(220,38,38,.15)")+";'>"+(k.present?"✓ ":"✗ ")+esc(k.name)+"</span>").join(" ");
+      return "<div style='border:1px solid var(--bd);border-left:3px solid "+st[0]+";border-radius:8px;padding:10px 12px;margin-bottom:8px;'>"
+        +"<div style='display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;'>"
+        +"<b>"+esc(s.service)+"</b>"
+        +"<span style='font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:"+st[0]+";'>"+st[1]+"</span></div>"
+        +"<div class='note' style='margin:4px 0 0;'>"+esc(s.detail)+"</div>"
+        +(keys?"<div style='margin-top:6px;display:flex;gap:5px;flex-wrap:wrap;'>"+keys+"</div>":"")
+        +"</div>";
+    }).join("")||"<div class='note'>No services found.</div>";
+  } catch(e){ el.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
+}
 
 // ── Grow: skills + forge ──
 let selectedSkill=null;

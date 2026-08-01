@@ -15,6 +15,7 @@ import { PAGE, MOBILE_BRIEF_PAGE, MOBILE_BRIEF_EXPIRED } from "./html";
 import { getSelfImprovementTarget, generateSelfImprovementDraft, applySelfImprovementPatch, type SelfImprovementRequest, type SelfImprovementDraft } from "./self-improve";
 import { checkFabricatedActionClaim, FABRICATION_CORRECTION } from "./chat-safety";
 import { alertKey, findNewUrgentItems, buildUrgentAlertEmail, type AlertableItem } from "./urgent-alerts";
+import { loadSourceFiles, capabilityReport, type CapabilityStatus } from "./reachability";
 
 const KNOWN_PROVIDERS = ["GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"];
 const CRED_PREFIX = "cred:";
@@ -69,8 +70,16 @@ interface KeySpec {
   free: boolean;
   approved?: boolean;
   sensitive?: boolean;
+  /**
+   * Set ONLY when no capability reads this key yet. Asking Mat for a key ATLAS
+   * cannot use is the same "built but unreachable" failure as an op with no
+   * caller — it just wastes his time instead of his compute. The reachability
+   * test requires either a real `ctx.secret("NAME")`/`process.env.NAME` reader
+   * or an explanation here, so a dead detector cannot be added silently.
+   */
+  unusedReason?: string;
 }
-const KEY_SPECS: KeySpec[] = [
+export const KEY_SPECS: KeySpec[] = [
   { re: /sk-ant-[A-Za-z0-9_-]{20,}/g, name: "ANTHROPIC_API_KEY", label: "Anthropic", category: "llm", free: false, approved: true },
   { re: /sk-or-v1-[A-Za-z0-9]{20,}/g, name: "OPENROUTER_API_KEY", label: "OpenRouter", category: "llm", free: true },
   { re: /gsk_[A-Za-z0-9]{30,}/g, name: "GROQ_API_KEY", label: "Groq", category: "llm", free: true },
@@ -79,14 +88,14 @@ const KEY_SPECS: KeySpec[] = [
   { re: /sbp_[a-f0-9]{40}/g, name: "SUPABASE_TOKEN", label: "Supabase", category: "database", free: true },
   { re: /(?:ghp|github_pat)_[A-Za-z0-9_]{20,}/g, name: "GITHUB_TOKEN", label: "GitHub", category: "dev", free: true },
   { re: /(?:vck|vcp)_[A-Za-z0-9]{20,}/g, name: "VERCEL_TOKEN", label: "Vercel", category: "hosting", free: true },
-  { re: /rk_live_[A-Za-z0-9]{20,}/g, name: "STRIPE_RESTRICTED_KEY", label: "Stripe (live)", category: "payments", free: true, sensitive: true },
-  { re: /pk_live_[A-Za-z0-9]{20,}/g, name: "STRIPE_PUBLISHABLE_KEY", label: "Stripe (publishable)", category: "payments", free: true },
-  { re: /re_[A-Za-z0-9_]{16,}/g, name: "RESEND_API_KEY", label: "Resend", category: "email", free: true },
+  { re: /rk_live_[A-Za-z0-9]{20,}/g, name: "STRIPE_RESTRICTED_KEY", label: "Stripe (live)", category: "payments", free: true, sensitive: true, unusedReason: "Not read yet. Intended for cfo.pullReal to read MRR straight from Stripe instead of through the evervibes bridge." },
+  { re: /pk_live_[A-Za-z0-9]{20,}/g, name: "STRIPE_PUBLISHABLE_KEY", label: "Stripe (publishable)", category: "payments", free: true, unusedReason: "Not read yet. Publishable keys are client-side only; kept so a pasted key blob is fully recognised rather than half-parsed." },
+  { re: /re_[A-Za-z0-9_]{16,}/g, name: "RESEND_API_KEY", label: "Resend", category: "email", free: true, unusedReason: "Not read yet. Intended for the sender capability — proper DKIM/SPF, bounces and suppression, which raw SMTP does not give." },
   { re: /tvly-[A-Za-z0-9-]{16,}/g, name: "TAVILY_API_KEY", label: "Tavily", category: "search", free: true },
-  { re: /apify_api_[A-Za-z0-9]{20,}/g, name: "APIFY_API_KEY", label: "Apify", category: "scraping", free: true },
-  { re: /ph[xc]_[A-Za-z0-9]{20,}/g, name: "POSTHOG_API_KEY", label: "PostHog", category: "analytics", free: true },
-  { re: /pina_[A-Za-z0-9]{30,}/g, name: "PINTEREST_TOKEN", label: "Pinterest", category: "posting", free: true },
-  { re: /xox[baprs]-[A-Za-z0-9-]{10,}/g, name: "SLACK_TOKEN", label: "Slack", category: "messaging", free: true },
+  { re: /apify_api_[A-Za-z0-9]{20,}/g, name: "APIFY_API_KEY", label: "Apify", category: "scraping", free: true, unusedReason: "Not read yet. Scraping runs on plain fetch today; kept as a recognised name so a pasted blob is not silently mangled." },
+  { re: /ph[xc]_[A-Za-z0-9]{20,}/g, name: "POSTHOG_API_KEY", label: "PostHog", category: "analytics", free: true, unusedReason: "Not read yet. No product analytics are wired; ATLAS tracks its own metrics in data/metrics.json." },
+  { re: /pina_[A-Za-z0-9]{30,}/g, name: "PINTEREST_TOKEN", label: "Pinterest", category: "posting", free: true, unusedReason: "Not read yet. Publishing supports Instagram via the Meta Graph API only." },
+  { re: /xox[baprs]-[A-Za-z0-9-]{10,}/g, name: "SLACK_TOKEN", label: "Slack", category: "messaging", free: true, unusedReason: "Not read yet. Notifications go to the control panel and the Brief, not to Slack." },
   // A full Postgres connection string (Supabase, Neon, Railway, etc.) — the
   // whole URL is the value, not a short prefixed token like the others above.
   { re: /postgres(?:ql)?:\/\/[^\s"'<>]+/g, name: "DATABASE_URL", label: "Postgres database", category: "database", free: true, sensitive: true },
@@ -634,7 +643,12 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
    * waits for every scheduled rebuild, not just the most recently scheduled
    * one. Failures are logged (never silently swallowed) since a failed
    * rebuild leaves `atlas` pointing at a stale instance with no other signal. */
+  /** Cached /api/capabilities scan. Cleared whenever the vault changes, since
+   * a service's status flips from needs-key to ready the moment a key lands. */
+  let capabilityCache: CapabilityStatus[] | null = null;
+
   function backgroundRebuild(): void {
+    capabilityCache = null;
     pendingRebuild = (pendingRebuild ?? Promise.resolve()).then(
       () => new Promise<void>((resolve) => {
         setImmediate(() => { rebuildAtlas().then(resolve, (err) => { console.error("[REBUILD] background rebuild failed:", err); resolve(); }); });
@@ -1021,6 +1035,23 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const purge = url.searchParams.get("purge") === "true";
       const ok = await sessions.remove(id, purge);
       return send(res, ok ? 200 : 404, { ok });
+    }
+
+    // Per-service honest status: is it wired, and does it have what it needs to
+    // actually run? Answers "will this work if I press the button" without
+    // pressing it. Cached because it reads every source file, and the source
+    // cannot change without a redeploy that restarts this process anyway.
+    if (method === "GET" && path === "/api/capabilities") {
+      if (!capabilityCache) {
+        try {
+          capabilityCache = capabilityReport(loadSourceFiles(resolve(process.cwd(), "packages")), vault.list());
+        } catch (err) {
+          return send(res, 500, { error: `capability scan failed: ${(err as Error).message}` });
+        }
+      }
+      const counts = { ready: 0, "needs-key": 0, partial: 0, unreachable: 0 };
+      for (const c of capabilityCache) counts[c.status]++;
+      return send(res, 200, { services: capabilityCache, counts });
     }
 
     if (method === "GET" && path === "/api/secrets") {
@@ -1963,6 +1994,152 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const role = new URL(req.url ?? "", "http://x").searchParams.get("role") ?? "scraper";
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("surplus", { op: "blueprint", role }));
+    }
+    if (method === "GET" && path === "/api/surplus/run-events") {
+      const q = new URL(req.url ?? "", "http://x").searchParams;
+      const role = q.get("role");
+      const runId = q.get("runId");
+      if (!role || !runId) return send(res, 400, { error: "role and runId required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("surplus", { op: "runEvents", role, runId }));
+    }
+    if (method === "POST" && path === "/api/surplus/pause") {
+      const { role } = await readBody(req);
+      if (!role) return send(res, 400, { error: "role required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("surplus", { op: "pause", role: String(role) }));
+    }
+    // Renders one surplus letter/email for review. Sends nothing — the point is
+    // to read the exact wording before a real homeowner ever sees it.
+    if (method === "POST" && path === "/api/surplus/draft-outreach") {
+      const b = await readBody(req);
+      if (!b?.lead) return send(res, 400, { error: "lead required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("surplus", {
+        op: "draftOutreach",
+        lead: b.lead,
+        channel: b.channel === "email" ? "email" : "letter",
+        feePercent: b.feePercent,
+        senderName: b.senderName,
+        companyName: b.companyName,
+        companyAddress: b.companyAddress,
+        contactPhone: b.contactPhone,
+        contactEmail: b.contactEmail,
+      }));
+    }
+
+    // ── Enrichment (skip-tracing via Twin — costs real money) ──
+    if (method === "POST" && path === "/api/enrichment/preview") {
+      const { targets } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("enrichment", { op: "preview", targets: targets ?? [] }));
+    }
+    // `confirmCost` is passed straight through, never defaulted. The plugin
+    // refuses without a literal true, so no caller — including a future
+    // autonomous cycle — can spend money by omission.
+    if (method === "POST" && path === "/api/enrichment/enrich") {
+      const { targets, confirmCost } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("enrichment", { op: "enrich", targets: targets ?? [], confirmCost }));
+    }
+
+    // ── Wholesale (buyer list, intro drafts, sending) ──
+    if (method === "GET" && path === "/api/wholesale/buyer-stats") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("wholesale", { op: "buyerStats" }));
+    }
+    if (method === "GET" && path === "/api/wholesale/buyers") {
+      const q = new URL(req.url ?? "", "http://x").searchParams;
+      const limitRaw = q.get("limit");
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("wholesale", {
+        op: "listBuyers",
+        mailableOnly: q.get("mailable") === "1",
+        limit: limitRaw ? Number(limitRaw) : undefined,
+      }));
+    }
+    if (method === "POST" && path === "/api/wholesale/trace-buyers") {
+      const { count, dryRun, confirmSpend } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("wholesale", {
+        op: "traceTopBuyers",
+        count: count === undefined ? undefined : Number(count),
+        dryRun,
+        confirmSpend,
+      }));
+    }
+    if (method === "POST" && path === "/api/wholesale/preview-intros") {
+      const { max } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("wholesale", { op: "previewIntros", max: max === undefined ? undefined : Number(max) }));
+    }
+    if (method === "POST" && path === "/api/wholesale/send-intros") {
+      const { max, drafts, confirmSend } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("wholesale", {
+        op: "sendIntros",
+        max: max === undefined ? undefined : Number(max),
+        drafts,
+        confirmSend,
+      }));
+    }
+    const wholesaleVeto = path.match(/^\/api\/wholesale\/pending\/([^/]+)\/veto$/);
+    if (method === "POST" && wholesaleVeto) {
+      const { reason } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("wholesale", { op: "veto", id: decodeURIComponent(wholesaleVeto[1]!), reason }));
+    }
+    const wholesaleDiscard = path.match(/^\/api\/wholesale\/intro-drafts\/([^/]+)$/);
+    if (method === "DELETE" && wholesaleDiscard) {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("wholesale", { op: "discardIntroDraft", id: decodeURIComponent(wholesaleDiscard[1]!) }));
+    }
+
+    // ── Leadscan (website-compliance business) ──
+    if (method === "POST" && path === "/api/leadscan/scan") {
+      const { url: target } = await readBody(req);
+      if (!target) return send(res, 400, { error: "url required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("leadscan", { op: "scan", url: String(target) }));
+    }
+    if (method === "POST" && path === "/api/leadscan/find") {
+      const { niche, city } = await readBody(req);
+      if (!niche || !city) return send(res, 400, { error: "niche and city required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("leadscan", { op: "findLeads", niche: String(niche), city: String(city) }));
+    }
+    if (method === "GET" && path === "/api/leadscan/leads") {
+      const status = new URL(req.url ?? "", "http://x").searchParams.get("status") ?? undefined;
+      const a = await ensureAtlas();
+      return send(res, 200, { leads: await a.invoke("leadscan", { op: "list", status }) });
+    }
+    if (method === "POST" && path === "/api/leadscan/draft-outreach") {
+      const b = await readBody(req);
+      if (!b?.id) return send(res, 400, { error: "id required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("leadscan", {
+        op: "draftOutreach",
+        id: String(b.id),
+        senderName: b.senderName,
+        companyName: b.companyName,
+        companyAddress: b.companyAddress,
+        startingPrice: b.startingPrice,
+      }));
+    }
+    const leadDecision = path.match(/^\/api\/leadscan\/leads\/([^/]+)\/(approve|reject)$/);
+    if (method === "POST" && leadDecision) {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("leadscan", {
+        op: leadDecision[2] as "approve" | "reject",
+        id: decodeURIComponent(leadDecision[1]!),
+      }));
+    }
+
+    // Scopes a won gig into a work package + paste-ready handoff prompt.
+    const gigPlan = path.match(/^\/api\/gigs\/([^/]+)\/plan-work$/);
+    if (method === "POST" && gigPlan) {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("gigfinder", { op: "planWork", id: decodeURIComponent(gigPlan[1]!) }));
     }
 
     if (method === "POST" && path === "/api/codebase") {
