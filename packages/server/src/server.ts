@@ -501,7 +501,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     try {
       const raw = await readFile(videoJobsFile, "utf8").catch(() => "[]");
       const jobs = JSON.parse(raw) as import("@atlas/publishing").VideoRenderJob[];
-      const { nextQueuedJob, markDone, markFailed } = await import("@atlas/publishing");
+      const { nextQueuedJob, markDone, markFailed, requestPublishForFinishedJob } = await import("@atlas/publishing");
       const job = nextQueuedJob(jobs);
       if (!job) return;
 
@@ -514,8 +514,17 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
           a.invoke("publishing", { op: "renderQueuedJob", spec: job.spec }),
           new Promise((_, reject) => setTimeout(() => reject(new Error("render exceeded 5 minute safety bound")), 5 * 60_000)),
         ])) as { videoPath: string };
-        await writeFile(videoJobsFile, JSON.stringify(markDone(rendering, job.id, result.videoPath)), "utf8");
+        const done = markDone(rendering, job.id, result.videoPath);
+        await writeFile(videoJobsFile, JSON.stringify(done), "utf8");
         console.log(`[VIDEO QUEUE] Job ${job.id} rendered: ${result.videoPath}`);
+
+        const finishedJob = done.find((j) => j.id === job.id)!;
+        try {
+          const publishResult = await requestPublishForFinishedJob(finishedJob, (input) => a.invoke("publishing", { op: "publish", input }));
+          if (publishResult) console.log(`[VIDEO QUEUE] Job ${job.id} requested publish approval:`, JSON.stringify(publishResult));
+        } catch (err) {
+          console.error(`[VIDEO QUEUE] Job ${job.id} finished but auto-publish-request failed:`, (err as Error).message);
+        }
       } catch (err) {
         await writeFile(videoJobsFile, JSON.stringify(markFailed(rendering, job.id, (err as Error).message)), "utf8");
         console.error(`[VIDEO QUEUE] Job ${job.id} failed:`, (err as Error).message);
