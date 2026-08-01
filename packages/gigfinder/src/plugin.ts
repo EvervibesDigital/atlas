@@ -1,7 +1,7 @@
 import type { Plugin } from "@atlas/core";
 import { GigRegistry } from "./registry";
 import { isRealGigCandidate, extractBudget } from "./matching";
-import { renderFallbackBid, bidSystemPrompt } from "./templates";
+import { renderFallbackBid, bidSystemPrompt, isUsableBid } from "./templates";
 import { scoreWinConfidence, matchGigForEmail, WIN_CONFIDENCE_THRESHOLD } from "./win-detection";
 import type { Gig, GigCandidate, GigSource, GigStatus } from "./types";
 
@@ -116,7 +116,13 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
             maxTokens: 300,
             task: "gigfinder.draftBid",
           })) as { text: string };
-          return r.text.trim() || renderFallbackBid(gig.source, gig.title, gig.budget);
+          // Validate before storing. A real production bid was once saved as
+          // the fragment "Delivery Estimate):* Depending on your clients'" —
+          // garbage shown to a prospective client under Mat's name. The
+          // deterministic template is always coherent, so it wins over any
+          // model output that doesn't look like a real pitch.
+          const text = (r.text ?? "").trim();
+          return isUsableBid(text) ? text : renderFallbackBid(gig.source, gig.title, gig.budget);
         } catch {
           return renderFallbackBid(gig.source, gig.title, gig.budget);
         }
