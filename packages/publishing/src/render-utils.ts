@@ -82,6 +82,81 @@ export function buildConcatFileContent(segmentPaths: string[]): string {
   return segmentPaths.map((f) => `file '${basename(f).replace(/\\/g, "/")}'`).join("\n");
 }
 
+export interface KenBurnsOptions {
+  /** Scene index — picks the motion so consecutive scenes don't all move alike. */
+  index: number;
+  durationSec: number;
+  width: number;
+  height: number;
+  fps?: number;
+  /** Peak zoom. 1.12 ≈ a 12% push over the scene: visible, not seasick. */
+  maxZoom?: number;
+}
+
+/**
+ * Ken Burns motion for a still image.
+ *
+ * A montage of hard-cut stills reads as a slideshow, and on Reels a slideshow
+ * gets scrolled past. A slow push or drift is the single largest quality gain
+ * available here, and it costs nothing — no API, no key, no per-clip fee, just
+ * ffmpeg filters that are already in the binary.
+ *
+ * Two details matter and are easy to get wrong:
+ *
+ * 1. **Supersample first.** `zoompan` computes its crop in integer source
+ *    pixels, so applied straight to a 1080-wide image the motion visibly
+ *    stair-steps. Scaling up before the zoom (and letting zoompan's `s=` bring
+ *    it back down) makes each step sub-pixel at the output size, which is what
+ *    turns judder into a smooth glide.
+ *
+ * 2. **Drive the zoom off `on`, not off `zoom`.** The common form
+ *    `z='min(zoom+0.0015,1.12)'` accumulates the previous frame's value, so the
+ *    end point depends on frame count and drifts between scenes of different
+ *    lengths. A linear function of the output frame number lands on exactly
+ *    `maxZoom` at the last frame of every scene, whatever its duration.
+ */
+export function kenBurnsFilter(opts: KenBurnsOptions): string {
+  const fps = opts.fps ?? 30;
+  const maxZoom = opts.maxZoom ?? 1.12;
+  // At least one frame, so a very short scene can't produce a divide-by-zero
+  // in the zoom expression below.
+  const frames = Math.max(1, Math.round(opts.durationSec * fps));
+  const zoomSpan = (maxZoom - 1).toFixed(4);
+
+  // Supersample by 2x. Higher is smoother but memory scales with the square,
+  // and 2x is already past the point where stepping is visible at 1080p.
+  const superW = opts.width * 2;
+  const superH = opts.height * 2;
+  // `increase` + crop fills the vertical frame from any source aspect rather
+  // than letterboxing a landscape image into a Reel.
+  const fill = `scale=${superW}:${superH}:force_original_aspect_ratio=increase,crop=${superW}:${superH}`;
+
+  const centerX = `iw/2-(iw/zoom/2)`;
+  const centerY = `ih/2-(ih/zoom/2)`;
+  const zoomIn = `1+${zoomSpan}*on/${frames}`;
+  const zoomOut = `${maxZoom}-${zoomSpan}*on/${frames}`;
+
+  // Three motions on rotation. Cycling by index keeps a multi-scene reel from
+  // pulsing in and out on a two-beat loop, which reads as a glitch.
+  let z: string;
+  let x = centerX;
+  let y = centerY;
+  switch (opts.index % 3) {
+    case 0:
+      z = zoomIn;
+      break;
+    case 1:
+      z = zoomOut;
+      break;
+    default:
+      // Slow drift down the frame while pushing in — the classic documentary move.
+      z = zoomIn;
+      y = `(ih-ih/zoom)*on/${frames}`;
+  }
+
+  return `${fill},zoompan=z='${z}':x='${x}':y='${y}':d=${frames}:s=${opts.width}x${opts.height}:fps=${fps}`;
+}
+
 export interface RenderReview {
   ok: boolean;
   issues: string[];

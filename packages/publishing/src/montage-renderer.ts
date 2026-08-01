@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 import ffmpegPath from "ffmpeg-static";
 import type { Renderer } from "./video-renderer";
-import { buildSrt, buildConcatFileContent, ffmpegFilterPath, parseFfmpegDuration, reviewRender } from "./render-utils";
+import { buildSrt, buildConcatFileContent, ffmpegFilterPath, parseFfmpegDuration, reviewRender, kenBurnsFilter } from "./render-utils";
 
 const execAsync = promisify(exec);
 
@@ -14,6 +14,12 @@ export interface MontageRendererOptions {
   piperBin?: string;
   /** Path to a Piper .onnx voice model. */
   piperModel?: string;
+  /** Slow zoom/pan on each still instead of a hard cut. On unless set false. */
+  kenBurns?: boolean;
+  /** Output frame size. Defaults to 1080x1920 — the vertical Reels format
+   * every consumer of this renderer targets. */
+  width?: number;
+  height?: number;
 }
 
 /**
@@ -31,11 +37,19 @@ export interface MontageRendererOptions {
 export class MontageRenderer implements Renderer {
   private tempDir: string;
   private piperBin?: string;
+  private kenBurns: boolean;
+  private width: number;
+  private height: number;
   private piperModel?: string;
 
   constructor(opts: MontageRendererOptions) {
     this.tempDir = opts.tempDir;
     this.piperBin = opts.piperBin;
+    // On by default: a hard-cut slideshow is the single most obvious "made by
+    // a bot" tell on Reels, and the motion costs nothing but ffmpeg time.
+    this.kenBurns = opts.kenBurns !== false;
+    this.width = opts.width ?? 1080;
+    this.height = opts.height ?? 1920;
     this.piperModel = opts.piperModel;
   }
 
@@ -91,7 +105,13 @@ export class MontageRenderer implements Renderer {
         const captionPath = path.join(runDir, `caption_${i}.srt`);
         await fs.writeFile(captionPath, buildSrt(scene.text, duration, 35), "utf8");
         const subtitlesFilter = `subtitles=filename='${ffmpegFilterPath(captionPath)}':force_style='FontSize=20,PrimaryColour=&H00FFFFFF,BackColour=&H66000000,BorderStyle=3,Outline=0,Shadow=0,Alignment=2,MarginV=175'`;
-        const renderCmd = `"${ffmpegPath}" -y -loop 1 -i "${imgPath}" -i "${audioPath}" -vf "${subtitlesFilter}" -c:v libx264 -t ${duration} -c:a aac -pix_fmt yuv420p "${segmentPath}"`;
+        // Motion first, captions second: zoompan resizes the frame, so burning
+        // subtitles before it would zoom and crop the text along with the image.
+        const motionFilter = this.kenBurns
+          ? kenBurnsFilter({ index: i, durationSec: duration, width: this.width, height: this.height })
+          : null;
+        const videoFilter = motionFilter ? `${motionFilter},${subtitlesFilter}` : subtitlesFilter;
+        const renderCmd = `"${ffmpegPath}" -y -loop 1 -i "${imgPath}" -i "${audioPath}" -vf "${videoFilter}" -c:v libx264 -t ${duration} -c:a aac -pix_fmt yuv420p "${segmentPath}"`;
         await execAsync(renderCmd);
 
         segmentFiles.push(segmentPath);

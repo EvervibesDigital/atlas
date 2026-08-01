@@ -66,3 +66,44 @@ export async function generateImage(
   }
   return { mimeType: imagePart.inlineData.mimeType ?? "image/png", base64: imagePart.inlineData.data };
 }
+
+export interface GeneratedImageWithModel extends GeneratedImage {
+  /** Which model actually produced this — never inferred from the request. */
+  model: string;
+  /** Set when the preferred model was unavailable and the fallback ran. */
+  fellBackFrom?: string;
+  fallbackReason?: string;
+}
+
+/**
+ * Generate at the best quality this API key can reach.
+ *
+ * Nano Banana Pro (gemini-3-pro-image) is the better model, but access varies
+ * per key and there is no endpoint that reports entitlement — the only honest
+ * way to find out is to ask and see. So: try Pro, and on a refusal that means
+ * "not you" (403) or "no such model for you" (404), quietly drop to Flash.
+ *
+ * Deliberately narrow. A 429 is a quota problem and a 500 is Google having a
+ * bad minute; retrying either on Flash would burn a second call and, worse,
+ * silently downgrade every image for the rest of a quota window. Those still
+ * throw. The returned `model` says which one ran, so a caller never has to
+ * assume it got the good one.
+ */
+export async function generateBestImage(
+  prompt: string,
+  apiKey: string,
+  opts: { references?: ReferenceImage[]; fetcher?: FetchLike; preferred?: string; fallback?: string } = {},
+): Promise<GeneratedImageWithModel> {
+  const preferred = opts.preferred ?? NANO_BANANA_PRO;
+  const fallback = opts.fallback ?? NANO_BANANA;
+  try {
+    const img = await generateImage(prompt, apiKey, { model: preferred, references: opts.references, fetcher: opts.fetcher });
+    return { ...img, model: preferred };
+  } catch (err) {
+    const message = (err as Error).message;
+    const unavailable = /HTTP (?:403|404)/.test(message);
+    if (!unavailable || preferred === fallback) throw err;
+    const img = await generateImage(prompt, apiKey, { model: fallback, references: opts.references, fetcher: opts.fetcher });
+    return { ...img, model: fallback, fellBackFrom: preferred, fallbackReason: message.slice(0, 200) };
+  }
+}

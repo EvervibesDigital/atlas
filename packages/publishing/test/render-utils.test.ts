@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wrapText, parseFfmpegDuration, reviewRender, buildSrt, buildConcatFileContent } from "../src/render-utils";
+import { wrapText, parseFfmpegDuration, reviewRender, buildSrt, buildConcatFileContent, kenBurnsFilter } from "../src/render-utils";
 
 describe("wrapText", () => {
   it("wraps long text into multiple lines under maxLen", () => {
@@ -70,5 +70,52 @@ describe("reviewRender", () => {
     const r = reviewRender({ sizeBytes: 500_000, durationSec: 1, expectedScenes: 3, expectedMinDurationSec: 4.5 });
     expect(r.ok).toBe(false);
     expect(r.issues.join(" ")).toMatch(/shorter than/);
+  });
+});
+
+describe("kenBurnsFilter", () => {
+  it("supersamples before zooming, then outputs at the target size", () => {
+    // Without the upscale, zoompan's integer-pixel crop makes the motion
+    // visibly stair-step — the whole reason to add motion is undone.
+    const f = kenBurnsFilter({ index: 0, durationSec: 4, width: 1080, height: 1920 });
+    expect(f.indexOf("scale=2160:3840")).toBe(0);
+    expect(f).toContain("crop=2160:3840");
+    expect(f).toContain("s=1080x1920");
+    expect(f.indexOf("scale=2160:3840")).toBeLessThan(f.indexOf("zoompan"));
+  });
+
+  it("fills the vertical frame from any source aspect instead of letterboxing", () => {
+    expect(kenBurnsFilter({ index: 0, durationSec: 4, width: 1080, height: 1920 }))
+      .toContain("force_original_aspect_ratio=increase");
+  });
+
+  it("lands on exactly maxZoom at the last frame, whatever the duration", () => {
+    // Drives zoom off the output frame number rather than accumulating the
+    // previous frame's zoom, so scenes of different lengths end up matched.
+    for (const durationSec of [1.5, 4, 9.25]) {
+      const f = kenBurnsFilter({ index: 0, durationSec, width: 1080, height: 1920, maxZoom: 1.12 });
+      const m = f.match(/z='1\+([0-9.]+)\*on\/(\d+)'/);
+      expect(m, `no linear zoom expression for ${durationSec}s`).toBeTruthy();
+      const span = Number(m![1]);
+      const frames = Number(m![2]);
+      expect(frames).toBe(Math.round(durationSec * 30));
+      // z = 1 + span * on/frames, so the final frame (on === frames) is 1 + span.
+      const zoomAtLastFrame = 1 + span * (frames / frames);
+      expect(zoomAtLastFrame).toBeCloseTo(1.12, 5);
+    }
+  });
+
+  it("never divides by zero on a scene shorter than one frame", () => {
+    const f = kenBurnsFilter({ index: 0, durationSec: 0, width: 1080, height: 1920 });
+    expect(f).toContain("/1'");
+    expect(f).not.toContain("/0");
+  });
+
+  it("rotates through three motions so a reel does not pulse on a two-beat loop", () => {
+    const motions = [0, 1, 2, 3].map((index) => kenBurnsFilter({ index, durationSec: 4, width: 1080, height: 1920 }));
+    expect(new Set(motions).size).toBe(3);
+    expect(motions[0]).toBe(motions[3]);
+    expect(motions[1]).toContain("1.12-");
+    expect(motions[2]).toContain("(ih-ih/zoom)*on/");
   });
 });

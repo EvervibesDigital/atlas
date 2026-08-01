@@ -2,7 +2,7 @@ import type { Plugin, AtlasContext } from "@atlas/core";
 import { MediaFactoryDB, type VirtualCreator, type CreatorMemory, type ContentItem, type MonetizationPartnership, type AnalyticsSnapshot } from "./db";
 import { MediaFactoryAgents, buildImagePrompt, type BrainInvoker } from "./agents";
 import { creatorsWithRoom, DAILY_POST_TARGET } from "./throughput";
-import { generateImage, type FetchLike } from "./image-gen";
+import { generateBestImage, type FetchLike } from "./image-gen";
 import { saveGeneratedImage } from "./images";
 
 export type MediaFactoryCommand =
@@ -77,8 +77,13 @@ export function createMediaFactoryPlugin(opts: { imagesDir?: string; imageFetche
           const apiKey = await ctx.secret("GEMINI_API_KEY");
           if (!apiKey) return assets; // not configured — text draft still saves fine
           const fullPrompt = buildImagePrompt(creator, imagePrompt);
-          const image = await generateImage(fullPrompt, apiKey, { fetcher: opts.imageFetcher });
+          // Asks for Nano Banana Pro and takes Flash only if this key can't
+          // reach it. Records which model actually ran, so image quality is a
+          // fact on the record rather than an assumption.
+          const image = await generateBestImage(fullPrompt, apiKey, { fetcher: opts.imageFetcher });
           assets.image_path = await saveGeneratedImage(imagesDir, creator.id!, contentId, image);
+          assets.image_model = image.model;
+          if (image.fellBackFrom) assets.image_model_fallback = image.fallbackReason;
         } catch (err) {
           console.error(`[mediaFactory] Image generation failed for content ${contentId} — draft still saved without it:`, (err as Error).message);
         }

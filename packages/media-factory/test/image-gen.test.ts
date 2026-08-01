@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateImage, NANO_BANANA, NANO_BANANA_PRO, type FetchLike } from "../src/image-gen";
+import { generateImage, generateBestImage, NANO_BANANA, NANO_BANANA_PRO, type FetchLike } from "../src/image-gen";
 
 function fakeSuccess(mimeType = "image/png", data = "ZmFrZS1pbWFnZS1ieXRlcw=="): FetchLike {
   return (async (url: string) => {
@@ -61,5 +61,64 @@ describe("generateImage", () => {
   it("throws when the response has no image data", async () => {
     const f: FetchLike = (async () => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: "sorry, no image" }] } }] }) })) as unknown as FetchLike;
     await expect(generateImage("p", "key", { fetcher: f })).rejects.toThrow(/no image data/);
+  });
+});
+
+describe("generateBestImage", () => {
+  /** Records every model requested, and answers per-model. */
+  function tracking(reply: (model: string) => { status: number; body?: unknown }): { fetcher: FetchLike; seen: string[] } {
+    const seen: string[] = [];
+    const fetcher = (async (url: string) => {
+      const model = String(url).includes(NANO_BANANA_PRO) ? NANO_BANANA_PRO : NANO_BANANA;
+      seen.push(model);
+      const r = reply(model);
+      return {
+        ok: r.status === 200,
+        status: r.status,
+        text: async () => "denied",
+        json: async () => r.body ?? { candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "aW1n" } }] } }] },
+      } as Response;
+    }) as unknown as FetchLike;
+    return { fetcher, seen };
+  }
+
+  it("uses Pro when the key can reach it, and says so", async () => {
+    const { fetcher, seen } = tracking(() => ({ status: 200 }));
+    const img = await generateBestImage("prompt", "key", { fetcher });
+    expect(seen).toEqual([NANO_BANANA_PRO]);
+    expect(img.model).toBe(NANO_BANANA_PRO);
+    expect(img.fellBackFrom).toBeUndefined();
+  });
+
+  it("falls back to Flash when the key has no Pro access", async () => {
+    // 403/404 is the only signal Google gives for "not entitled" — there is no
+    // endpoint that reports it up front.
+    for (const status of [403, 404]) {
+      const { fetcher, seen } = tracking((m) => (m === NANO_BANANA_PRO ? { status } : { status: 200 }));
+      const img = await generateBestImage("prompt", "key", { fetcher });
+      expect(seen).toEqual([NANO_BANANA_PRO, NANO_BANANA]);
+      expect(img.model).toBe(NANO_BANANA);
+      expect(img.fellBackFrom).toBe(NANO_BANANA_PRO);
+      expect(img.base64).toBe("aW1n");
+    }
+  });
+
+  it("does NOT silently downgrade on a quota or server error", async () => {
+    // Retrying a 429 on Flash burns a second call and quietly makes every
+    // image worse for the rest of the quota window, with nothing in the
+    // output saying it happened.
+    for (const status of [429, 500]) {
+      const { fetcher, seen } = tracking(() => ({ status }));
+      await expect(generateBestImage("prompt", "key", { fetcher })).rejects.toThrow(String(status));
+      expect(seen).toEqual([NANO_BANANA_PRO]);
+    }
+  });
+
+  it("does not retry when preferred and fallback are the same model", async () => {
+    const { fetcher, seen } = tracking(() => ({ status: 403 }));
+    await expect(
+      generateBestImage("p", "k", { fetcher, preferred: NANO_BANANA, fallback: NANO_BANANA }),
+    ).rejects.toThrow(/403/);
+    expect(seen).toEqual([NANO_BANANA]);
   });
 });
