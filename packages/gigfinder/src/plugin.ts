@@ -133,19 +133,18 @@ export function createGigFinderPlugin(opts: { gigFile?: string; registry?: GigRe
         }
       }
 
-      ctx.provide("gigfinder", async (payload) => {
-        const cmd = payload as GigFinderCommand;
+      /** Scopes a gig into a work package. Extracted so BOTH the planWork op
+       * and the win transitions can use it — a won gig gets its package
+       * generated automatically, so by the time Mat looks at it the handoff
+       * prompt is already sitting there. Same posture as draftBid, which is
+       * pre-drafted at search time rather than on demand. */
+      async function planWorkFor(gig: Gig): Promise<WorkPackage> {
+        // Deterministic package first — it is always coherent, works with
+        // zero AI (every provider is quota-exhausted as of 2026-08-01), and
+        // is what any brain failure falls back to.
+        let pkg: WorkPackage = templateWorkPackage(gig);
 
-        if (cmd.op === "planWork") {
-          const gig = (await registry.list()).find((g) => g.id === cmd.id);
-          if (!gig) throw new Error(`no gig "${cmd.id}"`);
-
-          // Deterministic package first — it is always coherent, works with
-          // zero AI (every provider is quota-exhausted as of 2026-08-01), and
-          // is what any brain failure falls back to.
-          let pkg: WorkPackage = templateWorkPackage(gig);
-
-          try {
+        try {
             const r = (await ctx.call("brain", {
               system: workPackageSystemPrompt(),
               prompt: `Job title: ${gig.title}
@@ -174,10 +173,20 @@ Source: ${gig.url}`,
             if (isUsableWorkPackage(candidate)) {
               pkg = { gigId: gig.id, ...candidate, handoffPrompt: buildHandoffPrompt(gig, candidate), generatedBy: "brain" };
             }
-          } catch {
-            /* brain unavailable, quota-blocked, or unparseable — template stands */
-          }
+        } catch {
+          /* brain unavailable, quota-blocked, or unparseable — template stands */
+        }
 
+        return pkg;
+      }
+
+      ctx.provide("gigfinder", async (payload) => {
+        const cmd = payload as GigFinderCommand;
+
+        if (cmd.op === "planWork") {
+          const gig = (await registry.list()).find((g) => g.id === cmd.id);
+          if (!gig) throw new Error(`no gig "${cmd.id}"`);
+          const pkg = await planWorkFor(gig);
           const updated = await registry.update(gig.id, { workPackage: pkg });
           return updated ?? { ...gig, workPackage: pkg };
         }
@@ -232,7 +241,16 @@ Source: ${gig.url}`,
                 decided.add(gig.id);
                 const confidence = scoreWinConfidence(emailText);
                 if (confidence >= WIN_CONFIDENCE_THRESHOLD) {
-                  await registry.update(gig.id, { status: "won" });
+                  // Scope the work immediately on winning, so the handoff
+                  // prompt is already waiting by the time Mat looks. Never
+                  // let a planning failure undo a detected win.
+                  let workPackage;
+                  try {
+                    workPackage = await planWorkFor(gig);
+                  } catch {
+                    /* planning is best-effort; the win itself still stands */
+                  }
+                  await registry.update(gig.id, { status: "won", ...(workPackage ? { workPackage } : {}) });
                   await ctx.emit("gigfinder.won", { id: gig.id });
                   won++;
                 } else {
@@ -256,7 +274,13 @@ Source: ${gig.url}`,
             // A responded gig already got a client reply flagged as a
             // possible win — approving here means "yes, this is a win," not
             // "start drafting a bid," so it skips straight to "won".
-            const updated = await registry.update(cmd.id, { status: "won" });
+            let workPackage;
+            try {
+              workPackage = await planWorkFor(gig);
+            } catch {
+              /* planning is best-effort; confirming the win still stands */
+            }
+            const updated = await registry.update(cmd.id, { status: "won", ...(workPackage ? { workPackage } : {}) });
             await ctx.emit("gigfinder.won", { id: cmd.id });
             return updated;
           }

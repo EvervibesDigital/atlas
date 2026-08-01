@@ -1221,6 +1221,24 @@ async function loadGigs(){ loadGigStats(); try { const r=await api("/api/gigs");
     const budget=g.budget?(" · $"+g.budget):"";
     const draft=g.draftBid?("<div style='background:var(--bg2);padding:8px;margin-top:6px;font-size:12px;border-left:2px solid var(--acc)'>"+g.draftBid+"</div>"):"";
     const notes=g.notes?("<div style='background:var(--bg2);padding:8px;margin-top:6px;font-size:12px;border-left:2px solid var(--acc)'>Client reply: \\""+g.notes+"\\"</div>"):"";
+    // The work package: questions to ask the client, plus the paste-ready
+    // Claude Code prompt. Rendered into a textarea rather than an onclick
+    // attribute because the prompt is multi-line free text — embedding it in
+    // an attribute is exactly how this file's escaping has broken before.
+    const esc=(s)=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    let wp="";
+    if(g.workPackage){
+      const p=g.workPackage;
+      const qs=(p.questionsForClient||[]).map((q)=>"<li>"+esc(q)+"</li>").join("");
+      wp="<details style='margin-top:8px;width:100%'>"
+        +"<summary style='cursor:pointer;font-size:12px'>📦 Work package — ~"+p.estimateDays+" day(s), scope "+p.generatedBy+"</summary>"
+        +"<div style='font-size:12px;margin-top:6px'>"+esc(p.summary)+"</div>"
+        +(qs?"<div style='font-size:12px;margin-top:6px'><b>Ask the client first:</b><ul style='margin:4px 0 0 16px'>"+qs+"</ul></div>":"")
+        +"<div style='font-size:11px;margin-top:8px;color:var(--dim)'>Paste this into Claude Code to build it:</div>"
+        +"<textarea id='wp-"+g.id+"' readonly style='width:100%;height:170px;font-family:monospace;font-size:11px;margin-top:4px'>"+esc(p.handoffPrompt)+"</textarea>"
+        +"<button class='mini' onclick='copyWorkPrompt(\\""+g.id+"\\")'>📋 Copy prompt</button>"
+        +"</details>";
+    }
     let actions="";
     if(g.status==='new') actions="<button onclick='approveGig(\\""+g.id+"\\")'>✅ Approve &amp; draft</button> <button class='sec' onclick='rejectGig(\\""+g.id+"\\")'>❌ Reject</button>";
     else if(g.status==='approved') actions="<button onclick='submittedGig(\\""+g.id+"\\")'>📨 Mark submitted (after you paste &amp; send it)</button>";
@@ -1228,7 +1246,7 @@ async function loadGigs(){ loadGigStats(); try { const r=await api("/api/gigs");
     else if(g.status==='responded') actions="<button onclick='approveGig(\\""+g.id+"\\")'>🏆 Confirm win</button> <button class='sec' onclick='rejectGig(\\""+g.id+"\\")'>Not a win</button>";
     else if(g.status==='won') actions="<button class='sec' onclick='gigStatus(\\""+g.id+"\\",\\"completed\\")'>Mark completed</button>";
     else if(g.status==='completed') actions="<button class='sec' onclick='gigPaid(\\""+g.id+"\\")'>💰 Mark paid</button>";
-    return "<div class='row' style='align-items:flex-start;flex-direction:column;border:1px solid var(--acc);padding:8px;border-radius:4px;margin-bottom:8px'><div style='display:flex;justify-content:space-between;width:100%'><span><b>"+g.title+"</b>"+budget+" · "+g.source+" "+pill+"</span></div><a href='"+g.url+"' target='_blank' style='font-size:11px'>"+g.url+"</a><div class='note' style='font-size:12px'>"+g.snippet+"</div>"+draft+notes+"<div style='margin-top:8px'>"+actions+"</div></div>";
+    return "<div class='row' style='align-items:flex-start;flex-direction:column;border:1px solid var(--acc);padding:8px;border-radius:4px;margin-bottom:8px'><div style='display:flex;justify-content:space-between;width:100%'><span><b>"+g.title+"</b>"+budget+" · "+g.source+" "+pill+"</span></div><a href='"+g.url+"' target='_blank' style='font-size:11px'>"+g.url+"</a><div class='note' style='font-size:12px'>"+g.snippet+"</div>"+draft+notes+wp+"<div style='margin-top:8px'>"+actions+"</div></div>";
   }).join(""):"<div class='note'>No jobs yet. Click 'Search now' to look for AI-doable freelance work.</div>";
 } catch(e){ $("gigsList").textContent="⚠ "+e.message; } }
 async function searchGigs(){ $("gigsList").textContent="Searching…";
@@ -1239,6 +1257,11 @@ async function approveGig(id){ try { await api("/api/gigs/"+id+"/approve","POST"
 async function rejectGig(id){ try { await api("/api/gigs/"+id+"/reject","POST"); loadGigs(); } catch(e){ alert(e.message); } }
 async function submittedGig(id){ try { await api("/api/gigs/"+id+"/submitted","POST"); loadGigs(); } catch(e){ alert(e.message); } }
 async function gigStatus(id,status){ try { await api("/api/gigs/"+id+"/status","POST",{status}); loadGigs(); } catch(e){ alert(e.message); } }
+async function copyWorkPrompt(id){
+  const t=$("wp-"+id); if(!t) return;
+  try { await navigator.clipboard.writeText(t.value); alert("Copied — paste it into Claude Code."); }
+  catch(e){ t.select(); alert("Select-all done — press Ctrl+C to copy."); }
+}
 async function gigPaid(id){ const amt=prompt("How much did this pay ($)?"); if(!amt) return;
   try { await api("/api/gigs/"+id+"/status","POST",{status:"paid",paidAmount:Number(amt)}); loadGigs(); } catch(e){ alert(e.message); } }
 
