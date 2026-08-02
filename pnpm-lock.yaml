@@ -800,6 +800,9 @@ importers:
       '@atlas/core':
         specifier: workspace:*
         version: link:../core
+      nodemailer:
+        specifier: ^9.0.3
+        version: 9.0.3
     devDependencies:
       '@atlas/guardian':
         specifier: workspace:*

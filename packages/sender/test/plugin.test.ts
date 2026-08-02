@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Atlas, ConfigVault, type GuardianLike } from "@atlas/core";
 import { createSenderPlugin } from "../src/plugin";
 import type { FetchLike } from "../src/resend";
+import type { TransportFactory, SmtpConfig } from "../src/smtp";
 
 function permissiveGuardian(): GuardianLike {
   return { grant: () => {}, check: () => ({ decision: "allow", reason: "test" }) };
@@ -185,5 +186,95 @@ describe("sender — preview and status", () => {
     const s = (await atlas.invoke("sender", { op: "status" })) as { readyToSend: boolean; provider: string };
     expect(s.readyToSend).toBe(true);
     expect(s.provider).toBe("resend");
+  });
+});
+
+/** An SMTP transport that records instead of connecting. */
+function fakeSmtp(): { makeTransport: TransportFactory; sent: Array<Record<string, unknown>>; configs: SmtpConfig[] } {
+  const sent: Array<Record<string, unknown>> = [];
+  const configs: SmtpConfig[] = [];
+  const makeTransport: TransportFactory = async (config) => {
+    configs.push(config);
+    return { async sendMail(o) { sent.push(o); return { messageId: `<smtp-${sent.length}>` }; } };
+  };
+  return { makeTransport, sent, configs };
+}
+
+const HOSTINGER = {
+  SENDER_SMTP_USER: "team@evervibesdigital.com",
+  SENDER_SMTP_PASS: "mailbox-password",
+  SENDER_SMTP_HOST: "smtp.hostinger.com",
+  SENDER_FROM: "EverVibes <team@evervibesdigital.com>",
+  COMPANY_POSTAL_ADDRESS: ADDRESS,
+};
+
+function smtpAtlas(dir: string, makeTransport: TransportFactory, secrets: Record<string, string>) {
+  const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault({ ...secrets }) });
+  return atlas.use(createSenderPlugin({ suppressionFile: join(dir, "suppressions.json"), fetcher: forbiddenFetch, makeTransport })).then(() => atlas);
+}
+
+describe("sender — SMTP transport (a mailbox you already own)", () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "atlas-sender-")); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  it("sends through SMTP without touching Resend", async () => {
+    const { makeTransport, sent, configs } = fakeSmtp();
+    const atlas = await smtpAtlas(dir, makeTransport, HOSTINGER);
+    const r = (await atlas.invoke("sender", { op: "send", emails: [goodEmail()], confirmSend: true })) as { sentCount: number };
+    expect(r.sentCount).toBe(1);
+    expect(sent[0]).toMatchObject({ from: HOSTINGER.SENDER_FROM, to: "owner@smilesupdentistry.com" });
+    // 465 is implicit TLS — deriving `secure` from the port avoids a silent
+    // connection timeout that reports nothing useful.
+    expect(configs[0]).toMatchObject({ host: "smtp.hostinger.com", port: 465, user: HOSTINGER.SENDER_SMTP_USER });
+  });
+
+  it("prefers SMTP over a Resend key that cannot send yet", async () => {
+    // Resend sends nothing until its domain is DNS-verified. Silently choosing
+    // it over a working mailbox is the "configured but broken" trap.
+    const { makeTransport, sent } = fakeSmtp();
+    const atlas = await smtpAtlas(dir, makeTransport, { ...HOSTINGER, RESEND_API_KEY: "re_unverified" });
+    const s = (await atlas.invoke("sender", { op: "status" })) as { provider: string };
+    expect(s.provider).toBe("smtp");
+    await atlas.invoke("sender", { op: "send", emails: [goodEmail()], confirmSend: true });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("honours SENDER_PROVIDER=resend when both are configured", async () => {
+    const { fetcher, calls } = acceptingFetch();
+    const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault({ ...HOSTINGER, RESEND_API_KEY: "re_k", SENDER_PROVIDER: "resend" }) });
+    await atlas.use(createSenderPlugin({ suppressionFile: join(dir, "s.json"), fetcher, makeTransport: fakeSmtp().makeTransport }));
+    await atlas.invoke("sender", { op: "send", emails: [goodEmail()], confirmSend: true });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does NOT apply Resend's verified-domain rule to an SMTP mailbox", async () => {
+    // A mailbox sends as itself. Rejecting a gmail From on SMTP would refuse a
+    // perfectly valid setup.
+    const { makeTransport, sent } = fakeSmtp();
+    const atlas = await smtpAtlas(dir, makeTransport, {
+      ...HOSTINGER, SENDER_SMTP_USER: "mat@gmail.com", SENDER_SMTP_HOST: "smtp.gmail.com", SENDER_FROM: "Mat <mat@gmail.com>",
+    });
+    await atlas.invoke("sender", { op: "send", emails: [goodEmail()], confirmSend: true });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("still refuses without confirmSend on the SMTP path", async () => {
+    const { makeTransport, sent } = fakeSmtp();
+    const atlas = await smtpAtlas(dir, makeTransport, HOSTINGER);
+    await expect(atlas.invoke("sender", { op: "send", emails: [goodEmail()] })).rejects.toThrow(/confirmSend:true/);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("names the missing host for a custom domain rather than guessing wrong", async () => {
+    // evervibesdigital.com's MX could be anyone — a wrong guess fails with a
+    // timeout that explains nothing.
+    const { makeTransport } = fakeSmtp();
+    const atlas = await smtpAtlas(dir, makeTransport, {
+      SENDER_SMTP_USER: "team@evervibesdigital.com", SENDER_SMTP_PASS: "p", SENDER_FROM: "x <team@evervibesdigital.com>", COMPANY_POSTAL_ADDRESS: ADDRESS,
+    });
+    const s = (await atlas.invoke("sender", { op: "status" })) as { readyToSend: boolean; blockers: string[] };
+    expect(s.readyToSend).toBe(false);
+    expect(s.blockers.join(" ")).toMatch(/smtp\.hostinger\.com/);
   });
 });

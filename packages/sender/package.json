@@ -4,7 +4,14 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@atlas/core": "workspace:*" },
-  "devDependencies": { "@atlas/guardian": "workspace:*" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@atlas/core": "workspace:*",
+    "nodemailer": "^9.0.3"
+  },
+  "devDependencies": {
+    "@atlas/guardian": "workspace:*"
+  }
 }

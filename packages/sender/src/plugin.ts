@@ -2,6 +2,7 @@ import type { Plugin } from "@atlas/core";
 import { checkOutgoing, type OutgoingEmail, type Violation } from "./compliance";
 import { loadSuppressions, saveSuppressions, addSuppression, partitionBySuppression, isSuppressed } from "./suppression";
 import { sendViaResend, unsendableFromReason, type FetchLike } from "./resend";
+import { sendViaSmtp, guessSmtpHost, nodemailerTransport, type SmtpConfig, type TransportFactory } from "./smtp";
 
 /**
  * Sender — the one place ATLAS is allowed to put email on the wire.
@@ -26,6 +27,7 @@ import { sendViaResend, unsendableFromReason, type FetchLike } from "./resend";
 export interface SenderOptions {
   suppressionFile?: string;
   fetcher?: FetchLike;
+  makeTransport?: TransportFactory;
 }
 
 export type SenderCommand =
@@ -46,10 +48,49 @@ export interface PreviewRow {
 export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
   const suppressionFile = opts.suppressionFile ?? "./data/suppressions.json";
   const fetcher = opts.fetcher ?? fetch;
+  const makeTransport = opts.makeTransport ?? nodemailerTransport;
 
   return {
     manifest: { name: "sender", version: "0.1.0", capabilities: ["sender"], permissions: ["secret:*"], role: "executor" },
     register(ctx) {
+      /**
+       * Which transport will actually carry the mail.
+       *
+       * SMTP is preferred when configured, because a working mailbox sends
+       * today whereas Resend sends nothing until its domain is DNS-verified —
+       * and silently preferring the key that cannot send yet is precisely the
+       * "configured but doesn't work" failure this codebase keeps hitting.
+       * `SENDER_PROVIDER` overrides when both are available.
+       */
+      async function resolveTransport(): Promise<
+        | { kind: "smtp"; config: SmtpConfig; blockers: string[] }
+        | { kind: "resend"; apiKey: string; blockers: string[] }
+        | { kind: "none"; blockers: string[] }
+      > {
+        const preference = (await ctx.secret("SENDER_PROVIDER"))?.trim().toLowerCase();
+        const resendKey = await ctx.secret("RESEND_API_KEY");
+        const user = (await ctx.secret("SENDER_SMTP_USER")) ?? (await ctx.secret("EMAIL_USER"));
+        const pass = (await ctx.secret("SENDER_SMTP_PASS")) ?? (await ctx.secret("EMAIL_PASS"));
+        const host = (await ctx.secret("SENDER_SMTP_HOST")) ?? (await ctx.secret("EMAIL_SMTP_HOST")) ?? (user ? guessSmtpHost(user) : null);
+        const port = Number((await ctx.secret("SENDER_SMTP_PORT")) ?? 465);
+
+        const smtpReady = Boolean(user && pass && host);
+        const wantsSmtp = preference === "smtp" || (preference !== "resend" && smtpReady);
+
+        if (wantsSmtp && smtpReady) return { kind: "smtp", config: { host: host!, port, user: user!, pass: pass! }, blockers: [] };
+        if (resendKey && preference !== "smtp") return { kind: "resend", apiKey: resendKey, blockers: [] };
+
+        const blockers: string[] = [];
+        if (preference === "smtp" || (!resendKey && (user || pass || host))) {
+          if (!user) blockers.push("SENDER_SMTP_USER is not set (the mailbox to send from)");
+          if (!pass) blockers.push("SENDER_SMTP_PASS is not set (that mailbox's password)");
+          if (!host) blockers.push("SENDER_SMTP_HOST is not set — a custom domain's mail server cannot be guessed (Hostinger: smtp.hostinger.com)");
+        } else {
+          blockers.push("no sending transport configured — set SENDER_SMTP_USER/PASS/HOST for a mailbox you own, or RESEND_API_KEY");
+        }
+        return { kind: "none", blockers };
+      }
+
       async function complianceContext(): Promise<{ postalAddress?: string; unsubscribeNote?: string }> {
         return {
           postalAddress: (await ctx.secret("COMPANY_POSTAL_ADDRESS")) ?? undefined,
@@ -79,20 +120,21 @@ export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
         const cmd = payload as SenderCommand;
 
         if (cmd.op === "status") {
-          const resendKey = await ctx.secret("RESEND_API_KEY");
+          const transport = await resolveTransport();
           const from = await ctx.secret("SENDER_FROM");
           const cc = await complianceContext();
           const suppressions = await loadSuppressions(suppressionFile);
-          const blockers: string[] = [];
-          if (!resendKey) blockers.push("RESEND_API_KEY is not set");
+          const blockers: string[] = [...transport.blockers];
           if (!from) blockers.push("SENDER_FROM is not set (the address mail is sent from)");
-          else {
+          // The verified-domain rule is Resend's, not SMTP's — a mailbox sends
+          // as itself, so applying it to SMTP would reject a valid setup.
+          else if (transport.kind === "resend") {
             const why = unsendableFromReason(from);
             if (why) blockers.push(why);
           }
           if (!cc.postalAddress) blockers.push("COMPANY_POSTAL_ADDRESS is not set — legally required in the body of every commercial email");
           return {
-            provider: resendKey ? "resend" : null,
+            provider: transport.kind === "none" ? null : transport.kind,
             from: from ?? null,
             postalAddressConfigured: Boolean(cc.postalAddress),
             suppressedCount: suppressions.length,
@@ -129,12 +171,14 @@ export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
             );
           }
 
-          const resendKey = await ctx.secret("RESEND_API_KEY");
-          if (!resendKey) throw new Error("sender: RESEND_API_KEY is not set — add it in the Keys tab.");
+          const transport = await resolveTransport();
+          if (transport.kind === "none") throw new Error(`sender: ${transport.blockers.join("; ")}`);
           const from = await ctx.secret("SENDER_FROM");
-          if (!from) throw new Error('sender: SENDER_FROM is not set — the address mail is sent from, e.g. "Mat <mat@evervibesdigital.com>".');
-          const fromProblem = unsendableFromReason(from);
-          if (fromProblem) throw new Error(`sender: ${fromProblem}`);
+          if (!from) throw new Error('sender: SENDER_FROM is not set — the address mail is sent from, e.g. "EverVibes <team@evervibesdigital.com>".');
+          if (transport.kind === "resend") {
+            const fromProblem = unsendableFromReason(from);
+            if (fromProblem) throw new Error(`sender: ${fromProblem}`);
+          }
 
           const rows = await review(cmd.emails ?? []);
           const blocked = rows.filter((r) => !r.sendable);
@@ -154,11 +198,11 @@ export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
           const failed: Array<{ to: string; error: string }> = [];
           for (const email of allowed) {
             try {
-              const res = await sendViaResend(
-                { from, to: email.to, subject: email.subject, text: email.body, replyTo: cmd.replyTo },
-                resendKey,
-                fetcher,
-              );
+              const message = { from, to: email.to, subject: email.subject, text: email.body, replyTo: cmd.replyTo };
+              const res =
+                transport.kind === "smtp"
+                  ? await sendViaSmtp(message, transport.config, makeTransport)
+                  : await sendViaResend(message, transport.apiKey, fetcher);
               sent.push({ to: email.to, id: res.id });
             } catch (err) {
               // One bad address must not strand the rest of an approved batch,
@@ -173,7 +217,7 @@ export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
                 op: "remember",
                 input: {
                   kind: "task",
-                  content: `Sent ${sent.length} email(s) via Resend to: ${sent.map((s) => s.to).join(", ")}`.slice(0, 1500),
+                  content: `Sent ${sent.length} email(s) via ${transport.kind} to: ${sent.map((s) => s.to).join(", ")}`.slice(0, 1500),
                 },
               });
             } catch {
