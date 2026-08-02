@@ -366,8 +366,24 @@ ran is recorded on the content item.
 **3b — persona face consistency.** Anchored on the creator's oldest image, so
 generations can't drift down a chain.
 
-Totals: **680 tests / 118 files green, typecheck clean, all deployed (health 200).**
+**3e — music bed with sidechain ducking.** Applied to the finished
+concatenation, never per scene. Found by measuring rather than reading: `amix`
+normalizes by input count by default, so adding a bed made the *narration* 6 dB
+quieter (-27.1 dB vs -21.1 dB over the same window) while ffmpeg exited 0 and
+produced a valid file. `normalize=0` + `alimiter` restores it to -20.6 dB with
+max -16.6 dB. **No default track — supply one you hold a commercial licence
+for**, via `MontageRendererOptions.musicTrack`.
+
+**Part 2a — engineering intake.** `engineering.planWork` turns a one-line
+request into a paste-ready brief naming the relevant files out of 335, with risk
+classification and approval posture. Zero AI by design. Ranking uses tokenized
+whole-word matching after the real repo exposed "bed" matching `embedder.ts`;
+camelCase is split so `renderComplianceOutreach` is found by "outreach".
+`engineering` is no longer an unreachable service — 3 ops, routes, and a
+Grow-tab panel. Backlog 43 → 41.
+
+Totals: **708 tests / 119 files green, typecheck clean, all deployed (health 200).**
 
 Still open, in priority order: `COMPANY_POSTAL_ADDRESS`, Twin billing, the N8N
-key, bidding the 10 gigs, then 3e (music bed), the `sender` plugin, and Part 2a
-(engineering execution arm).
+key, bidding the 10 gigs, then the `sender` plugin (needs a Resend key) and
+working down the 41-op backlog.
