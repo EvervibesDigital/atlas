@@ -18,23 +18,20 @@
   "intentional": {
     "publishing.render": "Synchronous render, superseded by the enqueueRender/renderQueuedJob queue path which the worker tick drives. Kept because MontageRenderer's tests exercise it directly and a blocking render is still useful for one-off debugging.",
     "backup.restore": "Deliberately operator-only. Restoring a snapshot overwrites live state, so it must not be reachable from a route or an autonomous cycle \u00e2\u20ac\u201d an accidental call is unrecoverable.",
-    "setup.runAutonomous": "First-boot provisioning, run once by hand via `pnpm setup`. Wiring it to a route would let a stray request re-provision a live instance."
+    "setup.runAutonomous": "First-boot provisioning, run once by hand via `pnpm setup`. Wiring it to a route would let a stray request re-provision a live instance.",
+    "email.send": "Deliberately NOT wired. @atlas/sender is the single path email leaves ATLAS by, and its suppression list and CAN-SPAM checks only mean anything if there is no second route around them. Exposing email.send would be exactly that route. The email plugin is kept for its READ side (email.check, used by gigfinder.checkWins to spot client replies)."
   },
   "backlog": {
     "_captured": "2026-08-01",
     "_note": "Found by the audit's first run. Untriaged \u00e2\u20ac\u201d presence here is a record of debt, not a judgement that it is correct.",
     "ops": [
       "actions.result",
-      "analytics.compute",
-      "analytics.kpis",
       "automation.ingest",
       "automation.rank",
       "automation.top",
       "brief.autopilot",
-      "business.units",
       "codebase.generate",
       "codebase.heal",
-      "email.send",
       "experiments.evaluate",
       "experiments.list",
       "experiments.record",
@@ -51,8 +48,6 @@
       "opportunity.ingest",
       "opportunity.rank",
       "opportunity.top",
-      "personas.list",
-      "publishing.validate",
       "research.ingest",
       "research.rank",
       "research.report",
@@ -61,9 +56,7 @@
       "setup.manualSteps",
       "setup.status",
       "simulation.compare",
-      "simulation.run",
-      "social.pollInbox",
-      "toolvault.best"
+      "simulation.run"
     ]
   }
 }

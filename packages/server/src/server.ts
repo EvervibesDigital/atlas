@@ -2185,6 +2185,47 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, await a.invoke("gigfinder", { op: "planWork", id: decodeURIComponent(gigPlan[1]!) }));
     }
 
+    // ── Backlog burn-down: ops that existed with no way to trigger them ──
+    // Each of these was defined, tested, and unreachable. They appear on the
+    // UI capability map, so leaving them unwired means the map advertises
+    // capability ATLAS does not actually have.
+    if (method === "GET" && path === "/api/analytics/kpis") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("analytics", { op: "kpis" }));
+    }
+    if (method === "POST" && path === "/api/analytics/compute") {
+      const { rows } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("analytics", { op: "compute", rows: rows ?? [] }));
+    }
+    if (method === "GET" && path === "/api/personas") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("personas", { op: "list" }));
+    }
+    if (method === "GET" && path === "/api/tools/best") {
+      const category = new URL(req.url ?? "", "http://x").searchParams.get("category") ?? undefined;
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("toolvault", { op: "best", category }));
+    }
+    if (method === "GET" && path === "/api/business/units") {
+      const business = new URL(req.url ?? "", "http://x").searchParams.get("business") ?? undefined;
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("business", { op: "units", business }));
+    }
+    // Dry-run validation of a Reel before it is ever queued — checks the input
+    // without rendering or posting anything.
+    if (method === "POST" && path === "/api/publishing/validate") {
+      const { input } = await readBody(req);
+      if (!input) return send(res, 400, { error: "input required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("publishing", { op: "validate", input }));
+    }
+    // Reads DMs/comments. Read-only — replying is a separate, gated op.
+    if (method === "POST" && path === "/api/social/poll-inbox") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("social", { op: "pollInbox" }));
+    }
+
     // ── Sender: the single path email leaves ATLAS by ──
     if (method === "GET" && path === "/api/sender/status") {
       const a = await ensureAtlas();
