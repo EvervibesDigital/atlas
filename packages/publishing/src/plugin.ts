@@ -9,6 +9,7 @@ import { DryRunPublisher, type Publisher } from "./publisher";
 import { VideoRenderer, NoOpRenderer, type Renderer } from "./video-renderer";
 import { MontageRenderer } from "./montage-renderer";
 import { enqueueJob, type VideoRenderJob } from "./video-queue";
+import { captionProblem, duplicateOf, previewCaption } from "./caption";
 
 /**
  * Locate a Piper install. Precedence: PIPER_BIN/PIPER_MODEL env vars, then the
@@ -138,10 +139,40 @@ export function createPublishingPlugin(opts: { publisher?: Publisher; renderer?:
           if (!check.ok) return { status: "rejected", detail: check.problems.join("; ") } satisfies PublishResult;
           if (!cmd.input.videoRef) return { status: "pending-render", detail: "no rendered MP4 yet" } satisfies PublishResult;
 
+          const captionIssue = captionProblem(cmd.input.caption);
+          if (captionIssue) return { status: "rejected", detail: captionIssue } satisfies PublishResult;
+
+          // Refuse a hook already waiting in the queue. On 2026-08-02 this
+          // check would have stopped 35 of 50 pending Reels: the generator had
+          // looped on 15 distinct hooks for two days, one of them 19 times.
+          // Nothing caught it because each approval looks fine on its own.
+          try {
+            const pending = (await ctx.call("approvals", { op: "list", status: "pending" })) as
+              | Array<{ action?: string; detail?: string }>
+              | { approvals?: Array<{ action?: string; detail?: string }> };
+            const rows = Array.isArray(pending) ? pending : (pending.approvals ?? []);
+            const reelCaptions = rows
+              .filter((r) => (r.action ?? "").startsWith("Post Reel"))
+              .map((r) => r.detail ?? "");
+            const dupe = duplicateOf(cmd.input.caption, reelCaptions);
+            if (dupe) {
+              return {
+                status: "rejected",
+                detail: `duplicate hook — "${dupe}" is already waiting for approval. Vary the hook before queueing another.`,
+              } satisfies PublishResult;
+            }
+          } catch {
+            // If the queue can't be read, queue the Reel anyway: a duplicate is
+            // a quality problem, but silently dropping content because a list
+            // call failed is a worse one.
+          }
+
           const approval = (await ctx.call("approvals", {
             op: "request",
             action: `Post Reel to Instagram (${cmd.input.personaHandle})`,
-            detail: cmd.input.caption.slice(0, 120),
+            // previewCaption, not slice(): a hard cut lands mid-hashtag and
+            // makes a healthy caption look like a failed generation.
+            detail: previewCaption(cmd.input.caption, 120),
             risk: 2,
           })) as Approval;
 
