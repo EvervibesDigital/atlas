@@ -56,7 +56,12 @@ for i in $(seq 1 12); do
   if [ "$code" = "200" ]; then
     # A single 200 can land before a module error surfaces, so confirm the log
     # is clean too — that is exactly what the 2026-08-02 outage looked like.
-    errs=$(ssh -i "$KEY" "$HOST" "docker logs --since 45s atlas 2>&1 | grep -ic ERR_MODULE_NOT_FOUND" || echo 0)
+    # `grep -c` exits 1 when the count is zero. Left to an outer `|| echo 0`
+    # that appends a SECOND line, making errs "0\n0" — which never equals "0",
+    # so a perfectly healthy deploy reported failure every time. The `|| true`
+    # belongs inside the remote command, where it swallows grep's exit without
+    # adding output.
+    errs=$(ssh -i "$KEY" "$HOST" "docker logs --since 45s atlas 2>&1 | grep -ic ERR_MODULE_NOT_FOUND || true")
     if [ "$errs" = "0" ]; then echo "==> healthy (200, no module errors)"; exit 0; fi
     echo "    health 200 but $errs module error(s) — still settling"
   fi
