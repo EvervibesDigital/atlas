@@ -17,6 +17,7 @@ export function createCfoPlugin(opts: { fetcher?: FetchLike } = {}): Plugin {
     manifest: { name: "cfo", version: "0.1.0", capabilities: ["cfo"], permissions: ["call:memory", "secret:*"], role: "executor" },
     register(ctx) {
       async function pullReal(): Promise<RevenueSummary> {
+        // @atlas-optional-secret EVERVIBES_APP_URL — defaults to the live production URL.
         const url = (await ctx.secret("EVERVIBES_APP_URL")) || "https://evervibesdigital.com";
         const secret = await ctx.secret("KDP_CRON_SECRET"); // shared bridge secret, same value as evervibes' CRON_SECRET
         if (!secret) throw new Error("cfo: no KDP_CRON_SECRET set — add it in API Keys (same value as evervibes' CRON_SECRET env var)");

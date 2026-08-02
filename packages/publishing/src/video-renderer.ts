@@ -62,6 +62,8 @@ export class VideoRenderer implements Renderer {
         // 1. Download the generated image
         const imgPath = path.join(runDir, `scene_${i}.jpg`);
         let imageDownloaded = false;
+        // @atlas-optional-secret FAL_API_KEY — upgrades image generation; falls back to the supplied image URL.
+        // @atlas-optional-secret FAL_KEY — alternative spelling of the same key.
         const falKey = process.env.FAL_API_KEY || process.env.FAL_KEY;
 
         if (falKey && scene.imagePrompt) {
@@ -111,6 +113,8 @@ export class VideoRenderer implements Renderer {
         const voice = spec.voice || "en-US-AriaNeural";
 
         let audioGenerated = false;
+        // @atlas-optional-secret ELEVENLABS_API_KEY — upgrades narration; Piper is the free default.
+        // @atlas-optional-secret ELEVEN_LABS_API_KEY — alternative spelling of the same key.
         const apiKey = process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY;
         const elevenVoiceId = spec.voiceId || "21m00Tcm4TlvDq8ikWAM"; // Rachel fallback
 

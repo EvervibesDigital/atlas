@@ -54,6 +54,8 @@ async function getCreds(ctx: AtlasContext): Promise<{ user: string; pass: string
   const pass = await ctx.secret("EMAIL_PASS");
   if (!user || !pass) throw new Error("Email not configured — add EMAIL_USER + EMAIL_PASS (Gmail: an App Password) in the Keys/Connect tab.");
   const gmail = /@gmail\.com$/i.test(user);
+  // @atlas-optional-secret EMAIL_IMAP_HOST — defaults to imap.gmail.com for a Gmail address.
+  // @atlas-optional-secret EMAIL_SMTP_HOST — defaults to smtp.gmail.com for a Gmail address.
   const imapHost = (await ctx.secret("EMAIL_IMAP_HOST")) ?? (gmail ? "imap.gmail.com" : "");
   const smtpHost = (await ctx.secret("EMAIL_SMTP_HOST")) ?? (gmail ? "smtp.gmail.com" : "");
   return { user, pass, imapHost, smtpHost };
@@ -159,6 +161,7 @@ export function createEmailPlugin(opts: { reader?: MailReader; sender?: MailSend
           return { status: "pending-approval", approvalId: approval.id };
         }
         if (cmd.op === "ownerNotify") {
+          // @atlas-optional-secret OWNER_EMAIL — falls back to EMAIL_USER.
           const owner = (await ctx.secret("OWNER_EMAIL")) || (await ctx.secret("EMAIL_USER"));
           if (!owner) throw new Error("email: no owner address — set EMAIL_USER (or OWNER_EMAIL)");
           const sender = opts.sender ?? (await realSender(ctx));

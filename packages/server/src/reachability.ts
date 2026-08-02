@@ -164,6 +164,30 @@ export function extractCallSites(files: SourceFile[]): CallSite[] {
 export const opKey = (service: string, op: string): string => `${service}.${op}`;
 
 /**
+ * Secrets a package reads but can run without.
+ *
+ * Declared in the source with a `@atlas-optional-secret NAME` comment next to
+ * the read. Explicit rather than inferred: the obvious heuristic — "coalesced
+ * with `??` means optional" — gets it wrong in both directions here.
+ * `SENDER_SMTP_PORT ?? 465` is genuinely optional, but
+ * `COMPANY_POSTAL_ADDRESS ?? undefined` is coalesced too and is absolutely
+ * required before anything sends.
+ *
+ * This matters because a status panel that reports a healthy service as
+ * "needs key" trains Mat to ignore it, which costs more than having no panel.
+ */
+export function extractOptionalSecrets(files: SourceFile[]): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const f of files) {
+    for (const m of f.src.matchAll(/@atlas-optional-secret\s+([A-Z][A-Z0-9_]*)/g)) {
+      if (!out.has(f.pkg)) out.set(f.pkg, new Set());
+      out.get(f.pkg)!.add(m[1]!);
+    }
+  }
+  return out;
+}
+
+/**
  * Every secret name some capability actually reads.
  *
  * Both access paths count. Most plugins go through `ctx.secret("NAME")` so the
@@ -206,8 +230,9 @@ export interface CapabilityStatus {
   ops: string[];
   /** Ops nothing outside the package calls — dead weight, listed by name. */
   unreachableOps: string[];
-  /** Secrets the owning package reads, and whether the vault holds one. */
-  secrets: Array<{ name: string; present: boolean }>;
+  /** Secrets the owning package reads, and whether the vault holds one.
+   * `optional` ones have a working default and never block readiness. */
+  secrets: Array<{ name: string; present: boolean; optional: boolean }>;
   status: "ready" | "needs-key" | "unreachable" | "partial";
   detail: string;
 }
@@ -226,6 +251,7 @@ export interface CapabilityStatus {
 export function capabilityReport(files: SourceFile[], vaultNames: string[]): CapabilityStatus[] {
   const audit = auditReachability(files);
   const readers = extractSecretReaders(files);
+  const optional = extractOptionalSecrets(files);
   const held = new Set(vaultNames);
 
   // Secrets are attributed per package, since a plugin's ops share whatever
@@ -248,8 +274,13 @@ export function capabilityReport(files: SourceFile[], vaultNames: string[]): Cap
   const out: CapabilityStatus[] = [];
   for (const [service, { pkg, ops }] of byService) {
     const dead = ops.filter((op) => unreachable.has(opKey(service, op))).sort();
-    const secrets = [...(pkgSecrets.get(pkg) ?? [])].sort().map((name) => ({ name, present: held.has(name) }));
-    const missing = secrets.filter((s) => !s.present).map((s) => s.name);
+    const optionalHere = optional.get(pkg) ?? new Set<string>();
+    const secrets = [...(pkgSecrets.get(pkg) ?? [])]
+      .sort()
+      .map((name) => ({ name, present: held.has(name), optional: optionalHere.has(name) }));
+    // Only a missing REQUIRED secret blocks readiness. A missing optional one
+    // is shown but never downgrades the status.
+    const missing = secrets.filter((s) => !s.present && !s.optional).map((s) => s.name);
 
     let status: CapabilityStatus["status"];
     let detail: string;

@@ -67,6 +67,12 @@ export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
         | { kind: "resend"; apiKey: string; blockers: string[] }
         | { kind: "none"; blockers: string[] }
       > {
+        // @atlas-optional-secret SENDER_PROVIDER — defaults to SMTP when configured, else Resend.
+        // @atlas-optional-secret SENDER_SMTP_PORT — defaults to 465 (implicit TLS).
+        // @atlas-optional-secret EMAIL_SMTP_HOST — only a fallback for SENDER_SMTP_HOST.
+        // @atlas-optional-secret EMAIL_USER — only a fallback for SENDER_SMTP_USER.
+        // @atlas-optional-secret EMAIL_PASS — only a fallback for SENDER_SMTP_PASS.
+        // @atlas-optional-secret RESEND_API_KEY — an alternative transport, not required when SMTP works.
         const preference = (await ctx.secret("SENDER_PROVIDER"))?.trim().toLowerCase();
         const resendKey = await ctx.secret("RESEND_API_KEY");
         const user = (await ctx.secret("SENDER_SMTP_USER")) ?? (await ctx.secret("EMAIL_USER"));
@@ -94,6 +100,7 @@ export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
       async function complianceContext(): Promise<{ postalAddress?: string; unsubscribeNote?: string }> {
         return {
           postalAddress: (await ctx.secret("COMPANY_POSTAL_ADDRESS")) ?? undefined,
+          // @atlas-optional-secret UNSUBSCRIBE_NOTE — the existing copy already carries a plain-English opt-out line.
           unsubscribeNote: (await ctx.secret("UNSUBSCRIBE_NOTE")) ?? undefined,
         };
       }

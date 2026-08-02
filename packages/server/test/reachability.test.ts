@@ -5,6 +5,8 @@ import {
   extractProvidedOps,
   extractCallSites,
   extractSecretReaders,
+  extractOptionalSecrets,
+  capabilityReport,
   auditReachability,
   loadSourceFiles,
   opKey,
@@ -177,6 +179,46 @@ describe("ATLAS repo reachability", () => {
   it("has no call site on an op-taking service where the op can't be read", () => {
     const bad = result.unresolvedSites.map((s) => `${s.pkg} -> ${s.service} :: ${s.snippet}`);
     expect(bad, "\nDynamic dispatch the audit cannot follow — it would hide unreachable ops.\n").toEqual([]);
+  });
+});
+
+describe("optional vs required secrets", () => {
+  it("reads the @atlas-optional-secret marker", () => {
+    const found = extractOptionalSecrets([
+      f("sender", `// @atlas-optional-secret SENDER_SMTP_PORT — defaults to 465.
+const p = await ctx.secret("SENDER_SMTP_PORT");`),
+    ]);
+    expect([...(found.get("sender") ?? [])]).toEqual(["SENDER_SMTP_PORT"]);
+  });
+
+  it("does NOT infer optionality from ?? — the heuristic is wrong both ways", () => {
+    // SENDER_SMTP_PORT ?? 465 is genuinely optional, but
+    // COMPANY_POSTAL_ADDRESS ?? undefined is coalesced too and is absolutely
+    // required before anything sends. Only the explicit marker counts.
+    const found = extractOptionalSecrets([
+      f("sender", `const a = (await ctx.secret("COMPANY_POSTAL_ADDRESS")) ?? undefined;`),
+    ]);
+    expect(found.get("sender")).toBeUndefined();
+  });
+
+  it("a missing OPTIONAL secret does not make a service report needs-key", () => {
+    // A panel that reports a healthy service as broken trains Mat to ignore
+    // it, which costs more than having no panel at all.
+    const files = [
+      f("demo", `ctx.provide("demo", () => { if (cmd.op === "go") return 1; });
+                 // @atlas-optional-secret DEMO_TUNING
+                 const t = await ctx.secret("DEMO_TUNING");
+                 const k = await ctx.secret("DEMO_REQUIRED");`),
+      f("server", `await a.invoke("demo", { op: "go" });`),
+    ];
+    const withRequired = capabilityReport(files, ["DEMO_REQUIRED"]).find((s) => s.service === "demo")!;
+    expect(withRequired.status).toBe("ready");
+    expect(withRequired.secrets.find((s) => s.name === "DEMO_TUNING")).toMatchObject({ present: false, optional: true });
+
+    const withoutRequired = capabilityReport(files, ["DEMO_TUNING"]).find((s) => s.service === "demo")!;
+    expect(withoutRequired.status).toBe("needs-key");
+    expect(withoutRequired.detail).toContain("DEMO_REQUIRED");
+    expect(withoutRequired.detail).not.toContain("DEMO_TUNING");
   });
 });
 

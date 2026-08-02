@@ -18,6 +18,8 @@ import { enqueueJob, type VideoRenderJob } from "./video-queue";
  * zero further config.
  */
 function findPiper(): { bin: string; model: string } | null {
+  // @atlas-optional-secret PIPER_BIN — auto-detected under tools/piper/ when unset.
+  // @atlas-optional-secret PIPER_MODEL — auto-detected alongside the binary.
   const envBin = process.env.PIPER_BIN;
   const envModel = process.env.PIPER_MODEL;
   if (envBin && envModel && existsSync(envBin) && existsSync(envModel)) return { bin: envBin, model: envModel };

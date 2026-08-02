@@ -49,6 +49,7 @@ export function createWholesalePlugin(opts: { fetcher?: typeof fetch; introDraft
 
     register(ctx) {
       async function base(): Promise<{ url: string; secret: string }> {
+        // @atlas-optional-secret EVERVIBES_APP_URL — defaults to the live production URL.
         const url = (await ctx.secret("EVERVIBES_APP_URL")) || "https://evervibesdigital.com";
         const secret = await ctx.secret("KDP_CRON_SECRET");
         if (!secret) throw new Error("wholesale: no KDP_CRON_SECRET set — add it in API Keys (same value as evervibes' CRON_SECRET env var)");
