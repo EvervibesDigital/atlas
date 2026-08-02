@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Atlas, type GuardianLike } from "@atlas/core";
-import { templateWorkPackage, buildHandoffPrompt, isUsableWorkPackage, type WorkPackage } from "../src/work-package";
+import { templateWorkPackage, buildHandoffPrompt, isUsableWorkPackage, type WorkPackage, isUsableBid, bidProblem } from "../src/work-package";
 import { createGigFinderPlugin } from "../src/plugin";
 import { GigRegistry } from "../src/registry";
 import type { Gig } from "../src/types";
@@ -182,5 +182,53 @@ describe("planWork op", () => {
     await withRegistry(async (atlas) => {
       await expect(atlas.invoke("gigfinder", { op: "planWork", id: "nope" })).rejects.toThrow(/no gig/);
     });
+  });
+});
+
+describe("isUsableBid", () => {
+  // Every string below is a VERBATIM draftBid from the 28 approved gigs in
+  // production on 2026-08-02. Synthetic samples would have made any threshold
+  // look correct; these are what actually broke.
+  const REAL_BROKEN = [
+    "Call to Action/Wrap up):* Let me know",
+    "I can develop and optimize the AI/ML models",
+    "Approach.* I build using Python, robust APIs,",
+    "I can quickly integrate the OpenAI API into your existing",
+    "I will build a custom Python bot to monitor your selected Polym",
+    "I can build a custom Android automation script designed to interact",
+    "I will build your Telegram bot and username store website using Python",
+  ];
+  const REAL_GOOD =
+    "I'll build a Python script that uses the Notion API to import a CSV file into your Notion database. " +
+    "The script will be designed to handle various CSV formats and will include error handling for robustness. " +
+    "I'll deliver a fully functional script within 3-5 business days.";
+
+  it("rejects every bid that was actually broken in production", () => {
+    for (const bid of REAL_BROKEN) {
+      expect(isUsableBid(bid), `should reject: ${bid}`).toBe(false);
+    }
+  });
+
+  it("accepts a real, complete bid", () => {
+    expect(isUsableBid(REAL_GOOD)).toBe(true);
+  });
+
+  it("catches a truncation that is long enough to pass on length alone", () => {
+    // Length is the weakest of the three signals — a generation can die after
+    // 200 perfectly good characters.
+    const truncated = REAL_GOOD.slice(0, 200);
+    expect(truncated.length).toBeGreaterThan(150);
+    expect(isUsableBid(truncated)).toBe(false);
+  });
+
+  it("rejects leaked scaffolding even in an otherwise long bid", () => {
+    expect(isUsableBid(REAL_GOOD.replace("I'll build", "*Approach:* I'll build"))).toBe(false);
+  });
+
+  it("explains the specific problem rather than just failing", () => {
+    expect(bidProblem("Call to Action/Wrap up):* Let me know")).toMatch(/cut off/);
+    expect(bidProblem(REAL_GOOD.slice(0, 200))).toMatch(/mid-sentence/);
+    expect(bidProblem(undefined)).toMatch(/no bid/);
+    expect(bidProblem(REAL_GOOD)).toBeNull();
   });
 });

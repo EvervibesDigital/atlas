@@ -491,6 +491,7 @@ export const PAGE = `<!doctype html>
       <h2>💵 Gig Finder</h2>
       <div class="note">Finds AI-doable freelance work and drafts a pitch. ATLAS never submits a bid for you — copy the draft into the real platform yourself, then click "Mark submitted" here to track it.</div>
       <div id="gigStats" class="note" style="margin-top:8px">Loading…</div>
+      <div id="submitQueue" style="margin-top:12px"></div>
       <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button onclick="searchGigs()">🔍 Search now (web)</button>
         <label style="font-size:12px"><input type="checkbox" id="gigCraigslist"/> also try Craigslist</label>
@@ -1380,7 +1381,7 @@ async function adoptProposal(i){ const p=proposalsCache[i]; if(!p) return;
 async function loadGigStats(){ try { const s=await api("/api/gigs/stats");
   $("gigStats").innerHTML="<b>"+s.new+"</b> new · <b>"+s.approved+"</b> approved · <b>"+s.submitted+"</b> submitted · <b>"+s.responded+"</b> responded · <b>"+s.won+"</b> won · <b>"+s.completed+"</b> completed · <b>"+s.paid+"</b> paid · <b>$"+s.totalEarned+"</b> earned";
 } catch(e){ $("gigStats").textContent="⚠ "+e.message; } }
-async function loadGigs(){ loadGigStats(); try { const r=await api("/api/gigs"); const jobs=r.jobs||[];
+async function loadGigs(){ loadGigStats(); loadSubmitQueue(); try { const r=await api("/api/gigs"); const jobs=r.jobs||[];
   $("gigsList").innerHTML=jobs.length?jobs.map(g=>{
     const pill="<span class='pill "+(g.status==='new'?'off':'on')+"'>"+g.status+"</span>";
     const budget=g.budget?(" · $"+g.budget):"";
@@ -1422,6 +1423,79 @@ async function approveGig(id){ try { await api("/api/gigs/"+id+"/approve","POST"
 async function rejectGig(id){ try { await api("/api/gigs/"+id+"/reject","POST"); loadGigs(); } catch(e){ alert(e.message); } }
 async function submittedGig(id){ try { await api("/api/gigs/"+id+"/submitted","POST"); loadGigs(); } catch(e){ alert(e.message); } }
 async function gigStatus(id,status){ try { await api("/api/gigs/"+id+"/status","POST",{status}); loadGigs(); } catch(e){ alert(e.message); } }
+// ── Submit queue: prepare-and-open, one bid at a time ──────────────────────
+// ATLAS never submits. Upwork's public API has no proposal mutation and Fiverr
+// has no seller API at all, so browser automation is the only "auto-submit"
+// that exists — and that is Mat's own Reddit account carrying the ToS risk.
+// This does the two things that are safe and slow: puts the bid on the
+// clipboard and opens the posting. He reads and clicks.
+let submitQueue = [];
+let submitIdx = 0;
+
+async function loadSubmitQueue(){
+  try {
+    const r = await api("/api/gigs?status=approved");
+    submitQueue = (r.jobs||[]).filter(g=>!g.submittedAt);
+    submitIdx = 0;
+    renderSubmitQueue();
+  } catch(e){ $("submitQueue").innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
+}
+
+function renderSubmitQueue(){
+  const el=$("submitQueue");
+  if(!submitQueue.length){ el.innerHTML="<div class='note'>No approved bids waiting. Approve some below and they'll queue here.</div>"; return; }
+  if(submitIdx>=submitQueue.length){
+    el.innerHTML="<div style='border:1px solid var(--bd);border-left:3px solid #16a34a;border-radius:8px;padding:12px'><b>Queue cleared.</b> <button class='mini' onclick='loadSubmitQueue()'>Reload</button></div>";
+    return;
+  }
+  const g=submitQueue[submitIdx];
+  const budget=g.budget?(" · $"+g.budget):"";
+  // Mirrors isUsableBid in @atlas/gigfinder. Seven of the 28 real approved
+  // bids were truncated mid-generation — one was literally the leaked string
+  // "Call to Action/Wrap up):* Let me know". Pasting that costs the gig.
+  const bid=(g.draftBid||"").trim();
+  let problem=null;
+  if(!bid) problem="no bid was drafted";
+  else if(bid.length<150) problem="only "+bid.length+" characters — the generation was cut off";
+  else if(!/[.!?]$/.test(bid)) problem="ends mid-sentence — the generation was cut off";
+  else if(bid.indexOf("*")>=0) problem="contains leftover template scaffolding";
+  const warn=problem
+    ? "<div style='background:rgba(220,38,38,.12);border-radius:6px;padding:8px;margin-top:8px;font-size:13px'>"
+      +"<b>⚠️ Don't send this as-is</b> — "+esc(problem)+". Rewrite it below, or skip and regenerate once an AI provider has quota.</div>"
+    : "";
+  el.innerHTML="<div style='border:1px solid var(--bd);border-left:3px solid "+(problem?"#dc2626":"var(--acc)")+";border-radius:8px;padding:12px'>"
+    +"<div style='display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline'>"
+    +"<b>"+esc(g.title)+"</b><span class='note' style='margin:0'>"+(submitIdx+1)+" of "+submitQueue.length+budget+"</span></div>"
+    +"<div class='note' style='margin:4px 0 0'><a href='"+esc(g.url)+"' target='_blank' rel='noopener noreferrer'>"+esc(g.url)+"</a></div>"
+    +warn
+    +"<textarea id='queueBid' style='width:100%;height:150px;margin-top:8px;font-size:12px'>"+esc(g.draftBid||"")+"</textarea>"
+    +"<div class='note' style='margin:2px 0 6px'>Edit it here before copying — it goes out under your name, not ATLAS's.</div>"
+    +"<div style='display:flex;gap:8px;flex-wrap:wrap'>"
+    +"<button onclick='prepareAndOpen()'>1 · Copy bid &amp; open posting</button>"
+    +"<button onclick='queueMarkSubmitted()'>2 · Mark submitted</button>"
+    +"<button class='sec' onclick='queueSkip()'>Skip</button>"
+    +"</div></div>";
+}
+
+async function prepareAndOpen(){
+  const g=submitQueue[submitIdx]; if(!g) return;
+  const t=$("queueBid");
+  // Copy BEFORE opening the tab: window.open moves focus, and a clipboard
+  // write from a background document is blocked in most browsers.
+  try { await navigator.clipboard.writeText(t.value); }
+  catch(e){ t.select(); alert("Couldn't reach the clipboard — press Ctrl+C now, then click OK."); }
+  window.open(g.url, "_blank", "noopener");
+}
+
+async function queueMarkSubmitted(){
+  const g=submitQueue[submitIdx]; if(!g) return;
+  try { await api("/api/gigs/"+encodeURIComponent(g.id)+"/submitted","POST"); }
+  catch(e){ alert(e.message); return; }
+  submitIdx++; renderSubmitQueue(); loadGigStats();
+}
+
+function queueSkip(){ submitIdx++; renderSubmitQueue(); }
+
 async function copyWorkPrompt(id){
   const t=$("wp-"+id); if(!t) return;
   try { await navigator.clipboard.writeText(t.value); alert("Copied — paste it into Claude Code."); }
