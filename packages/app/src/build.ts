@@ -35,6 +35,7 @@ import { createCompliancePlugin } from "@atlas/compliance";
 import { createNegotiationPlugin } from "@atlas/negotiation";
 import { createDetectivePlugin } from "@atlas/detective";
 import { createEngineeringPlugin } from "@atlas/engineering";
+import { createSenderPlugin } from "@atlas/sender";
 import { createWebPlugin } from "@atlas/web";
 import { createActionsPlugin } from "@atlas/actions";
 import { createPlaywrightDriver, type BrowserDriver } from "@atlas/browser";
@@ -239,6 +240,7 @@ export async function buildAtlas(opts: AtlasOptions = {}): Promise<Atlas> {
   await atlas.use(createNegotiationPlugin());
   await atlas.use(createDetectivePlugin());
   await atlas.use(createEngineeringPlugin());
+  await atlas.use(createSenderPlugin());
   await atlas.use(createSocialPlugin({
     redirectUri: `${process.env.ATLAS_PUBLIC_URL ?? "https://atlas.evervibesdigital.com"}/api/social/oauth/callback`,
     accountsFile: opts.socialAccountsFile,

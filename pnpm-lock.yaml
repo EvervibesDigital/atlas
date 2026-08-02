@@ -194,6 +194,9 @@ importers:
       '@atlas/search':
         specifier: workspace:*
         version: link:../search
+      '@atlas/sender':
+        specifier: workspace:*
+        version: link:../sender
       '@atlas/setup':
         specifier: workspace:*
         version: link:../setup
@@ -791,6 +794,16 @@ importers:
       '@atlas/memory':
         specifier: workspace:*
         version: link:../memory
+
+  packages/sender:
+    dependencies:
+      '@atlas/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@atlas/guardian':
+        specifier: workspace:*
+        version: link:../guardian
 
   packages/server:
     dependencies:

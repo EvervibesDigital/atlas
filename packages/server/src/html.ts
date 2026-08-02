@@ -201,6 +201,15 @@ export const PAGE = `<!doctype html>
       <div class="note">Every service, and whether it would actually work if you pressed the button. <b>Unreachable</b> means nothing can trigger it — no route, no cycle step, no other plugin. <b>Needs key</b> means it is wired but has no credential to run with.</div>
       <div id="healthCounts" style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0;"></div>
       <div id="healthList"></div>
+
+      <h2 style="margin-top:18px">📧 Email sending</h2>
+      <div class="note">The single path email leaves ATLAS by. Nothing sends without a postal address in the body, an opt-out line, and an explicit confirm — all three are refusals, not warnings.</div>
+      <div id="senderStatus" style="margin-top:8px;"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+        <input id="supEmail" placeholder="address to add to the do-not-contact list" style="flex:1;min-width:240px;" />
+        <button onclick='suppressEmail()'>Suppress</button>
+      </div>
+      <div id="supList" class="note" style="margin-top:6px;"></div>
     </section>
 
     <section id="tab-connect" class="card hide">
@@ -804,6 +813,31 @@ async function loadHealth(){
         +"</div>";
     }).join("")||"<div class='note'>No services found.</div>";
   } catch(e){ el.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
+  loadSender();
+}
+
+async function loadSender(){
+  const el=$("senderStatus");
+  try {
+    const s=await api("/api/sender/status");
+    const colour=s.readyToSend?"#16a34a":"#d97706";
+    const blockers=(s.blockers||[]).map(b=>"<li>"+esc(b)+"</li>").join("");
+    el.innerHTML="<div style='border:1px solid var(--bd);border-left:3px solid "+colour+";border-radius:8px;padding:10px 12px;'>"
+      +"<b style='color:"+colour+";'>"+(s.readyToSend?"Ready to send":"Not ready")+"</b>"
+      +"<div class='note' style='margin:4px 0 0;'>provider: "+esc(s.provider||"none")+" · from: "+esc(s.from||"unset")+" · "+s.suppressedCount+" suppressed</div>"
+      +(blockers?"<ul style='margin:6px 0 0 18px;font-size:13px;'>"+blockers+"</ul>":"")
+      +"</div>";
+    const sup=await api("/api/sender/suppressed");
+    $("supList").textContent=(sup.entries||[]).length
+      ? "Do-not-contact: "+sup.entries.map(e=>e.email).join(", ")
+      : "Nobody has opted out yet.";
+  } catch(e){ el.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
+}
+
+async function suppressEmail(){
+  const v=$("supEmail").value.trim(); if(!v) return;
+  try { await api("/api/sender/suppress","POST",{email:v}); $("supEmail").value=""; loadSender(); }
+  catch(e){ alert(e.message); }
 }
 
 // ── Grow: skills + forge ──

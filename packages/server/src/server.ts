@@ -90,7 +90,7 @@ export const KEY_SPECS: KeySpec[] = [
   { re: /(?:vck|vcp)_[A-Za-z0-9]{20,}/g, name: "VERCEL_TOKEN", label: "Vercel", category: "hosting", free: true },
   { re: /rk_live_[A-Za-z0-9]{20,}/g, name: "STRIPE_RESTRICTED_KEY", label: "Stripe (live)", category: "payments", free: true, sensitive: true, unusedReason: "Not read yet. Intended for cfo.pullReal to read MRR straight from Stripe instead of through the evervibes bridge." },
   { re: /pk_live_[A-Za-z0-9]{20,}/g, name: "STRIPE_PUBLISHABLE_KEY", label: "Stripe (publishable)", category: "payments", free: true, unusedReason: "Not read yet. Publishable keys are client-side only; kept so a pasted key blob is fully recognised rather than half-parsed." },
-  { re: /re_[A-Za-z0-9_]{16,}/g, name: "RESEND_API_KEY", label: "Resend", category: "email", free: true, unusedReason: "Not read yet. Intended for the sender capability — proper DKIM/SPF, bounces and suppression, which raw SMTP does not give." },
+  { re: /re_[A-Za-z0-9_]{16,}/g, name: "RESEND_API_KEY", label: "Resend", category: "email", free: true },
   { re: /tvly-[A-Za-z0-9-]{16,}/g, name: "TAVILY_API_KEY", label: "Tavily", category: "search", free: true },
   { re: /apify_api_[A-Za-z0-9]{20,}/g, name: "APIFY_API_KEY", label: "Apify", category: "scraping", free: true, unusedReason: "Not read yet. Scraping runs on plain fetch today; kept as a recognised name so a pasted blob is not silently mangled." },
   { re: /ph[xc]_[A-Za-z0-9]{20,}/g, name: "POSTHOG_API_KEY", label: "PostHog", category: "analytics", free: true, unusedReason: "Not read yet. No product analytics are wired; ATLAS tracks its own metrics in data/metrics.json." },
@@ -2140,6 +2140,35 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     if (method === "POST" && gigPlan) {
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("gigfinder", { op: "planWork", id: decodeURIComponent(gigPlan[1]!) }));
+    }
+
+    // ── Sender: the single path email leaves ATLAS by ──
+    if (method === "GET" && path === "/api/sender/status") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("sender", { op: "status" }));
+    }
+    if (method === "POST" && path === "/api/sender/preview") {
+      const { emails } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("sender", { op: "preview", emails: emails ?? [] }));
+    }
+    // `confirmSend` is passed through untouched, never defaulted — the plugin
+    // refuses without a literal true, and that refusal is the whole safety
+    // model. Defaulting it here would quietly remove it.
+    if (method === "POST" && path === "/api/sender/send") {
+      const { emails, confirmSend, replyTo } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("sender", { op: "send", emails: emails ?? [], confirmSend, replyTo }));
+    }
+    if (method === "GET" && path === "/api/sender/suppressed") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("sender", { op: "listSuppressed" }));
+    }
+    if (method === "POST" && path === "/api/sender/suppress") {
+      const { email, reason } = await readBody(req);
+      if (!email) return send(res, 400, { error: "email required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("sender", { op: "suppress", email: String(email), reason }));
     }
 
     // ── Engineering intake: a one-line request → a paste-ready brief naming
