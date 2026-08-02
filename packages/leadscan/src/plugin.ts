@@ -119,6 +119,70 @@ export function createLeadScanPlugin(opts: { leadFile?: string; registry?: LeadR
           return { ...updated, outreach: result };
         }
 
+        /**
+         * Render cold-outreach emails for a batch of leads, ready to hand
+         * straight to `sender`.
+         *
+         * Identity comes from secrets rather than the request so the postal
+         * address in the body is the same one configured everywhere else —
+         * a per-call address is a per-call opportunity to send a
+         * non-compliant email.
+         *
+         * Leads that cannot be written to are REPORTED, not silently dropped:
+         * "3 of 7 drafted" plus the reason is actionable, whereas 3 emails
+         * appearing from a list of 7 just looks broken.
+         */
+        if (cmd.op === "draftBatch") {
+          const senderName = (await ctx.secret("SENDER_NAME")) ?? "Mat";
+          const companyName = (await ctx.secret("COMPANY_NAME")) ?? "EverVibes";
+          const companyAddress = await ctx.secret("COMPANY_POSTAL_ADDRESS");
+          if (!companyAddress) {
+            throw new Error("leadscan: COMPANY_POSTAL_ADDRESS is not set — commercial email legally requires a physical address in the body.");
+          }
+          const startingPrice = cmd.startingPrice ?? (await ctx.secret("COMPLIANCE_STARTING_PRICE")) ?? undefined;
+
+          const all = await registry.list("new");
+          const chosen = cmd.ids?.length ? all.filter((l) => cmd.ids!.includes(l.id)) : all;
+
+          const emails: Array<{ leadId: string; to: string; subject: string; body: string }> = [];
+          const skipped: Array<{ leadId: string; businessName: string; reason: string }> = [];
+          for (const lead of chosen) {
+            try {
+              // renderComplianceOutreach refuses on a lead with no findings —
+              // a perfect site has nothing to sell, and pitching it anyway is
+              // the generic agency spam this whole approach exists to beat.
+              const rendered = renderComplianceOutreach({ lead, senderName, companyName, companyAddress, startingPrice });
+              emails.push({ leadId: lead.id, ...rendered });
+            } catch (err) {
+              skipped.push({ leadId: lead.id, businessName: lead.businessName, reason: (err as Error).message });
+            }
+          }
+          return { emails, skipped, drafted: emails.length, considered: chosen.length };
+        }
+
+        /**
+         * Mark a lead contacted after `sender` genuinely delivered to it.
+         *
+         * Deliberately NOT `approve`: that op fires the n8n "new-lead"
+         * workflow, which ends in a thanks-for-contacting-us confirmation.
+         * Sending that to a business who has never heard of Mat, on top of the
+         * cold email just delivered, is two wrong emails instead of one right
+         * one.
+         */
+        if (cmd.op === "markSent") {
+          const updated = await registry.update(cmd.id, { status: "contacted" });
+          if (!updated) throw new Error(`leadscan: no lead "${cmd.id}"`);
+          try {
+            await ctx.call("memory", {
+              op: "remember",
+              input: { kind: "task", content: `Compliance outreach sent to ${updated.businessName} (${updated.email})`.slice(0, 500) },
+            });
+          } catch {
+            /* memory optional */
+          }
+          return updated;
+        }
+
         if (cmd.op === "reject") {
           const updated = await registry.update(cmd.id, { status: "rejected" });
           if (!updated) throw new Error(`leadscan: no lead "${cmd.id}"`);

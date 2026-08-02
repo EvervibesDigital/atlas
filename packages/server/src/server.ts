@@ -2126,6 +2126,21 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
         startingPrice: b.startingPrice,
       }));
     }
+    // Drafts cold outreach for a batch of leads in the exact shape /api/sender
+    // takes, so the panel can go draft -> preview -> send with no reshaping.
+    if (method === "POST" && path === "/api/leadscan/draft-batch") {
+      const { ids, startingPrice } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("leadscan", { op: "draftBatch", ids, startingPrice }));
+    }
+    // Marks contacted after a REAL send. Not /approve — that one fires the n8n
+    // new-lead confirmation, which would be a second, wrong email.
+    if (method === "POST" && path === "/api/leadscan/mark-sent") {
+      const { id } = await readBody(req);
+      if (!id) return send(res, 400, { error: "id required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("leadscan", { op: "markSent", id: String(id) }));
+    }
     const leadDecision = path.match(/^\/api\/leadscan\/leads\/([^/]+)\/(approve|reject)$/);
     if (method === "POST" && leadDecision) {
       const a = await ensureAtlas();

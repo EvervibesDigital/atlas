@@ -210,6 +210,14 @@ export const PAGE = `<!doctype html>
         <button onclick='suppressEmail()'>Suppress</button>
       </div>
       <div id="supList" class="note" style="margin-top:6px;"></div>
+
+      <h2 style="margin-top:18px">🔎 Compliance outreach</h2>
+      <div class="note">Drafts a cold email for each new lead, citing the real problems found on their site. Nothing sends until you read it and press the confirm button. Leads with a clean site are skipped — there is nothing to sell them.</div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center;">
+        <button onclick='draftCompliance()'>1 · Draft emails</button>
+        <input id="compPrice" placeholder="starting price, e.g. $400" style="flex:1;min-width:160px;" />
+      </div>
+      <div id="compOut" style="margin-top:10px;"></div>
     </section>
 
     <section id="tab-connect" class="card hide">
@@ -836,6 +844,60 @@ async function loadSender(){
       ? "Do-not-contact: "+sup.entries.map(e=>e.email).join(", ")
       : "Nobody has opted out yet.";
   } catch(e){ el.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
+}
+
+let complianceDrafts = [];
+
+async function draftCompliance(){
+  const out=$("compOut"); out.innerHTML="<div class='note'>Drafting…</div>";
+  complianceDrafts=[];
+  try {
+    const price=$("compPrice").value.trim()||undefined;
+    const d=await api("/api/leadscan/draft-batch","POST",{startingPrice:price});
+    // Run the drafts through the sender's OWN checks before showing them, so
+    // what you see is exactly what would be allowed out — not a preview that
+    // looks fine and then gets refused at send time.
+    const p=await api("/api/sender/preview","POST",{emails:d.emails.map(e=>({to:e.to,subject:e.subject,body:e.body}))});
+    complianceDrafts=d.emails;
+    const skipped=(d.skipped||[]).map(s=>"<li>"+esc(s.businessName)+" — "+esc(s.reason.slice(0,140))+"</li>").join("");
+    const cards=d.emails.map((e,i)=>{
+      const row=p.rows[i]||{sendable:false,problems:[]};
+      const bad=row.problems.map(x=>esc(x.detail)).join("; ");
+      return "<div style='border:1px solid var(--bd);border-left:3px solid "+(row.sendable?"#16a34a":"#dc2626")+";border-radius:8px;padding:10px;margin-bottom:8px;'>"
+        +"<div><b>"+esc(e.to)+"</b> — "+esc(e.subject)+"</div>"
+        +(bad?"<div class='note' style='color:#dc2626;margin:4px 0 0;'>"+bad+"</div>":"")
+        +"<textarea rows='9' readonly style='width:100%;margin-top:6px;font-size:12px;'>"+esc(e.body)+"</textarea></div>";
+    }).join("");
+    out.innerHTML=(cards||"<div class='note'>No leads could be drafted.</div>")
+      +(skipped?"<div class='note' style='margin-top:6px;'><b>Skipped:</b><ul style='margin:4px 0 0 18px;'>"+skipped+"</ul></div>":"")
+      +"<div style='margin-top:10px;'><b>"+p.sendable+" of "+p.total+" ready to send.</b></div>"
+      +(p.sendable>0?"<button style='margin-top:8px;background:#b91c1c;' onclick='sendCompliance()'>2 · Send "+p.sendable+" email(s) for real</button>":"");
+  } catch(e){ out.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
+}
+
+async function sendCompliance(){
+  if(!complianceDrafts.length) return;
+  if(!confirm("This sends "+complianceDrafts.length+" real email(s) from team@evervibesdigital.com to real businesses. Continue?")) return;
+  const out=$("compOut");
+  try {
+    const r=await api("/api/sender/send","POST",{
+      emails:complianceDrafts.map(e=>({to:e.to,subject:e.subject,body:e.body})),
+      confirmSend:true
+    },180000);
+    // Only mark a lead contacted once its email actually left. Marking on
+    // attempt is how 128 leads ended up flagged contacted with nothing sent.
+    const delivered=new Set((r.sent||[]).map(s=>s.to));
+    let marked=0;
+    for(const d of complianceDrafts){
+      if(!delivered.has(d.to)) continue;
+      try { await api("/api/leadscan/mark-sent","POST",{id:d.leadId}); marked++; } catch(_){}
+    }
+    out.innerHTML="<div style='border:1px solid var(--bd);border-radius:8px;padding:12px;'>"
+      +"<b>Sent "+r.sentCount+", failed "+r.failedCount+".</b> "+marked+" lead(s) marked contacted."
+      +((r.failed||[]).length?"<ul style='margin:6px 0 0 18px;font-size:13px;'>"+r.failed.map(f=>"<li>"+esc(f.to)+": "+esc(f.error)+"</li>").join("")+"</ul>":"")
+      +"</div>";
+    complianceDrafts=[];
+  } catch(e){ out.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
 }
 
 async function suppressEmail(){

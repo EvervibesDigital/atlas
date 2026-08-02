@@ -35,6 +35,12 @@ export type LeadScanCommand =
   | { op: "list"; status?: LeadStatus }
   | { op: "approve"; id: string }
   | { op: "reject"; id: string }
+  /** Renders cold outreach for a batch of `new` leads, in the shape `sender`
+   * takes. Identity comes from secrets, not the request. Sends nothing. */
+  | { op: "draftBatch"; ids?: string[]; startingPrice?: string }
+  /** Marks a lead contacted AFTER `sender` really delivered to it. Distinct
+   * from `approve`, which fires the n8n new-lead confirmation workflow. */
+  | { op: "markSent"; id: string }
   /** Renders the cold-outreach email for one lead so the wording can be read
    * and approved before anything is sent. Sends nothing. */
   | {
