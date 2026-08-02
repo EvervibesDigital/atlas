@@ -4,7 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 import ffmpegPath from "ffmpeg-static";
 import type { Renderer } from "./video-renderer";
-import { buildSrt, buildConcatFileContent, ffmpegFilterPath, parseFfmpegDuration, reviewRender, kenBurnsFilter } from "./render-utils";
+import { buildSrt, buildConcatFileContent, ffmpegFilterPath, parseFfmpegDuration, reviewRender, kenBurnsFilter, buildMusicBedFilter } from "./render-utils";
 
 const execAsync = promisify(exec);
 
@@ -20,6 +20,12 @@ export interface MontageRendererOptions {
    * every consumer of this renderer targets. */
   width?: number;
   height?: number;
+  /** Path to a music file to lay under the narration. No default: the track
+   * has to be one Mat holds a commercial licence for, so ATLAS must never
+   * pick one on its own. Omitted = narration only, exactly as before. */
+  musicTrack?: string;
+  /** Bed level before ducking. See buildMusicBedFilter for the default. */
+  musicVolume?: number;
 }
 
 /**
@@ -39,6 +45,8 @@ export class MontageRenderer implements Renderer {
   private piperBin?: string;
   private kenBurns: boolean;
   private width: number;
+  private musicTrack?: string;
+  private musicVolume?: number;
   private height: number;
   private piperModel?: string;
 
@@ -49,6 +57,8 @@ export class MontageRenderer implements Renderer {
     // a bot" tell on Reels, and the motion costs nothing but ffmpeg time.
     this.kenBurns = opts.kenBurns !== false;
     this.width = opts.width ?? 1080;
+    this.musicTrack = opts.musicTrack;
+    this.musicVolume = opts.musicVolume;
     this.height = opts.height ?? 1920;
     this.piperModel = opts.piperModel;
   }
@@ -124,6 +134,25 @@ export class MontageRenderer implements Renderer {
       const finalPath = path.join(this.tempDir, `montage_reel_${runId}.mp4`);
       const concatCmd = `"${ffmpegPath}" -y -f concat -safe 0 -i "${concatListPath}" -c copy "${finalPath}"`;
       await execAsync(concatCmd);
+
+      // Music goes on the finished concatenation, never per segment — mixing
+      // per scene restarts the track on every cut, which sounds like a
+      // skipping record instead of a soundtrack.
+      if (this.musicTrack) {
+        const bedded = path.join(runDir, "bedded.mp4");
+        const filter = buildMusicBedFilter({ durationSec: totalDuration, musicVolume: this.musicVolume });
+        // -stream_loop -1 extends a short track to cover the whole reel; the
+        // amix's duration=first is what stops it running forever.
+        const musicCmd = `"${ffmpegPath}" -y -i "${finalPath}" -stream_loop -1 -i "${this.musicTrack}" -filter_complex "${filter}" -map 0:v -map "[aout]" -c:v copy -c:a aac -shortest "${bedded}"`;
+        try {
+          await execAsync(musicCmd);
+          await fs.copyFile(bedded, finalPath);
+        } catch (musicErr) {
+          // A missing or unreadable track must not cost the whole render — the
+          // narrated video is still perfectly publishable without a bed.
+          console.error(`[MontageRenderer] Music bed failed, keeping the un-bedded render:`, (musicErr as Error).message);
+        }
+      }
 
       const stat = await fs.stat(finalPath);
       const review = reviewRender({

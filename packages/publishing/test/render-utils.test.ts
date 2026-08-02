@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wrapText, parseFfmpegDuration, reviewRender, buildSrt, buildConcatFileContent, kenBurnsFilter } from "../src/render-utils";
+import { wrapText, parseFfmpegDuration, reviewRender, buildSrt, buildConcatFileContent, kenBurnsFilter, buildMusicBedFilter } from "../src/render-utils";
 
 describe("wrapText", () => {
   it("wraps long text into multiple lines under maxLen", () => {
@@ -117,5 +117,51 @@ describe("kenBurnsFilter", () => {
     expect(motions[0]).toBe(motions[3]);
     expect(motions[1]).toContain("1.12-");
     expect(motions[2]).toContain("(ih-ih/zoom)*on/");
+  });
+});
+
+describe("buildMusicBedFilter", () => {
+  it("ducks the MUSIC under the narration, not the other way round", () => {
+    // sidechaincompress compresses its FIRST input using the SECOND as the
+    // trigger. Swapped, it buries the narration under the music — and still
+    // renders perfectly happily, so nothing catches it but this test.
+    const f = buildMusicBedFilter({ durationSec: 30 });
+    expect(f).toContain("[bed][0:a]sidechaincompress");
+    expect(f).not.toContain("[0:a][bed]sidechaincompress");
+  });
+
+  it("mixes to the narration's length, not the looped music's", () => {
+    // The bed is loop-extended by the caller, so mixing to the longest input
+    // would produce a video that never ends.
+    expect(buildMusicBedFilter({ durationSec: 30 })).toContain("duration=first");
+  });
+
+  it("places the fade-out relative to the clip's own end", () => {
+    expect(buildMusicBedFilter({ durationSec: 30, fadeOutSec: 2 })).toContain("st=28.00:d=2");
+  });
+
+  it("never starts a fade before zero on a clip shorter than the fade", () => {
+    const f = buildMusicBedFilter({ durationSec: 1, fadeOutSec: 3 });
+    expect(f).toContain("st=0.00");
+    expect(f).not.toMatch(/st=-/);
+  });
+
+  it("does not let amix attenuate the narration", () => {
+    // amix divides by input count by default, so adding a bed made the VOICE
+    // 6 dB quieter — measured -27.1 dB against -21.1 dB over the same window
+    // on a real render. ffmpeg exited 0 and the file was valid; the voice was
+    // just harder to hear. With normalize=0 the same window measures -20.6 dB.
+    const f = buildMusicBedFilter({ durationSec: 30 });
+    expect(f).toContain("normalize=0");
+  });
+
+  it("limits the summed output, since un-normalized mixing can clip", () => {
+    expect(buildMusicBedFilter({ durationSec: 30 })).toMatch(/alimiter=limit=0\.9\d/);
+  });
+
+  it("keeps the bed well under unity so it cannot swamp speech", () => {
+    const volume = Number(buildMusicBedFilter({ durationSec: 30 }).match(/volume=([\d.]+)/)![1]);
+    expect(volume).toBeGreaterThan(0);
+    expect(volume).toBeLessThan(0.4);
   });
 });

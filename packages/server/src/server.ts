@@ -2142,6 +2142,35 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, await a.invoke("gigfinder", { op: "planWork", id: decodeURIComponent(gigPlan[1]!) }));
     }
 
+    // ── Engineering intake: a one-line request → a paste-ready brief naming
+    // the files that matter. Fully deterministic, so it still works when the
+    // AI quota is gone.
+    if (method === "POST" && path === "/api/engineering/plan-work") {
+      const { title, description, limit } = await readBody(req);
+      if (!title) return send(res, 400, { error: "title required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("engineering", {
+        op: "planWork",
+        task: { title: String(title), description: description ? String(description) : undefined },
+        limit: limit === undefined ? undefined : Number(limit),
+      }));
+    }
+    if (method === "POST" && path === "/api/engineering/classify") {
+      const { title, description } = await readBody(req);
+      if (!title) return send(res, 400, { error: "title required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("engineering", {
+        op: "classify",
+        task: { title: String(title), description: description ? String(description) : undefined },
+      }));
+    }
+    if (method === "POST" && path === "/api/engineering/audit") {
+      const { dir } = await readBody(req);
+      if (!dir) return send(res, 400, { error: "dir required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("engineering", { op: "audit", dir: String(dir) }));
+    }
+
     if (method === "POST" && path === "/api/codebase") {
       const { dir, name } = await readBody(req);
       if (!dir) return send(res, 400, { error: "dir (folder path) required" });

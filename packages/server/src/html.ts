@@ -225,6 +225,15 @@ export const PAGE = `<!doctype html>
       <h2>ATLAS grows itself</h2>
       <div class="note">Three ways ATLAS improves itself — all on your free LLMs, no token cost. <b>Self-improve</b> = ATLAS reads its own code + suggests changes (you approve). <b>Skills</b> = new capabilities as data (safe, instant). <b>Forge</b> = new plugin (gated + reviewed).</div>
 
+      <h2 style="margin-top:16px">🛠️ Engineering intake (no AI needed)</h2>
+      <div class="note">Describe something you want changed or fixed. ATLAS classifies the risk, finds the files that actually matter out of ~300, and writes a brief you paste straight into Claude Code. Works even when every AI provider is out of quota.</div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+        <input id="engTitle" placeholder="e.g. the compliance outreach email is missing the address" style="flex:1;min-width:260px;" />
+        <button onclick="planEngWork()">Plan it</button>
+      </div>
+      <input id="engDesc" placeholder="optional: more detail" style="width:100%;margin-top:6px;" />
+      <div id="engOut" style="margin-top:10px;"></div>
+
       <h2 style="margin-top:16px">🔧 Self-Improve (ATLAS modifies itself)</h2>
       <div class="note">Ask ATLAS to improve a specific system (memory, brain, learning, etc). It reads its own code using only your free local brain (Ollama) and suggests a concrete change.</div>
       <div style="display:flex;gap:8px;margin-top:8px;">
@@ -749,6 +758,28 @@ document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () =>
   if (b.dataset.tab==="media-factory") loadCreators();
   if (b.dataset.tab==="health") loadHealth();
 });
+
+const RISK_LABEL = ["low","moderate","production-touching","security-sensitive"];
+
+async function planEngWork(){
+  const title=$("engTitle").value.trim(); if(!title) return;
+  const out=$("engOut"); out.innerHTML="<div class='note'>Scanning the repo…</div>";
+  try {
+    const p=await api("/api/engineering/plan-work","POST",{title,description:$("engDesc").value.trim()||undefined});
+    const files=(p.candidates||[]).map(c=>"<li><code>"+esc(c.path)+"</code> <span class='note'>— "+esc((c.matched||[]).join(", "))+"</span></li>").join("")
+      ||"<li class='note'>No file matched. The ranking is keyword-based, so try the words the code would use.</li>";
+    // The brief is multi-line, so it lives in a textarea — never an onclick
+    // attribute, where newlines and quotes break the whole served script.
+    out.innerHTML="<div style='border:1px solid var(--bd);border-radius:8px;padding:12px;'>"
+      +"<div><b>"+esc(p.task.type)+"</b> · risk "+p.task.risk+" ("+esc(RISK_LABEL[p.task.risk]||"")+")</div>"
+      +"<div class='note' style='margin:4px 0 8px;'>"+esc(p.posture)+"</div>"
+      +"<div style='font-size:13px;'><b>Where to look</b><ul style='margin:4px 0 8px 18px;'>"+files+"</ul></div>"
+      +"<textarea id='engBrief' rows='12' style='width:100%;font-family:monospace;font-size:12px;'></textarea>"
+      +"<button style='margin-top:6px;' onclick='copyEngBrief()'>Copy brief</button></div>";
+    $("engBrief").value=p.brief;
+  } catch(e){ out.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
+}
+function copyEngBrief(){ const t=$("engBrief"); t.select(); document.execCommand("copy"); }
 
 const HEALTH_STYLE = { ready:["#16a34a","ready"], "needs-key":["#d97706","needs key"], partial:["#d97706","partly wired"], unreachable:["#dc2626","unreachable"] };
 

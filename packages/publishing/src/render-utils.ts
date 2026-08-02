@@ -157,6 +157,56 @@ export function kenBurnsFilter(opts: KenBurnsOptions): string {
   return `${fill},zoompan=z='${z}':x='${x}':y='${y}':d=${frames}:s=${opts.width}x${opts.height}:fps=${fps}`;
 }
 
+export interface MusicBedOptions {
+  /** Music level before ducking. 0.18 sits under speech without vanishing. */
+  musicVolume?: number;
+  /** How far the bed drops while narration plays. Higher ratio = harder duck. */
+  duckRatio?: number;
+  /** Seconds of fade at the end so the bed doesn't stop dead on the last word. */
+  fadeOutSec?: number;
+  /** Total video length, needed to place the fade. */
+  durationSec: number;
+}
+
+/**
+ * ffmpeg `-filter_complex` for laying a music bed under existing narration.
+ *
+ * Three decisions worth stating, because the obvious version of each is wrong:
+ *
+ * 1. **Applied to the finished concatenated video, not per scene.** Mixing per
+ *    segment restarts the track on every cut, which sounds like a skipping
+ *    record rather than a soundtrack.
+ *
+ * 2. **Ducked by sidechain compression, not a fixed low volume.** A bed quiet
+ *    enough to never bury narration is too quiet to hear in the gaps. Sidechain
+ *    ducking lets it breathe between lines and pull back under speech. Note the
+ *    argument order: `[bed][voice]sidechaincompress` compresses the FIRST input
+ *    using the SECOND as the trigger — reversed, it ducks the narration under
+ *    the music, which is exactly backwards and still renders happily.
+ *
+ * 3. **`duration=first` on the amix.** The music is loop-extended by the caller
+ *    (`-stream_loop -1`), so mixing to the longest input would run forever.
+ *
+ * 4. **`normalize=0` on the amix.** This one was caught by measuring the output
+ *    rather than reading it: amix divides by the input count by default, so
+ *    adding a bed made the NARRATION 6 dB quieter — measured -21.1 dB against
+ *    -27.1 dB over the same window. The render succeeded, the file was valid,
+ *    and the voice was simply harder to hear. `alimiter` then catches the
+ *    clipping that un-normalized summing can otherwise cause.
+ */
+export function buildMusicBedFilter(opts: MusicBedOptions): string {
+  const volume = opts.musicVolume ?? 0.18;
+  const ratio = opts.duckRatio ?? 8;
+  const fade = opts.fadeOutSec ?? 2;
+  // Never start the fade before zero on a clip shorter than the fade itself.
+  const fadeStart = Math.max(0, opts.durationSec - fade);
+  return [
+    `[1:a]volume=${volume},afade=t=out:st=${fadeStart.toFixed(2)}:d=${fade}[bed]`,
+    `[bed][0:a]sidechaincompress=threshold=0.03:ratio=${ratio}:attack=20:release=400[ducked]`,
+    `[0:a][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`,
+  ].join(";");
+}
+
 export interface RenderReview {
   ok: boolean;
   issues: string[];

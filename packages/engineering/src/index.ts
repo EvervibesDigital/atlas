@@ -32,16 +32,31 @@ export function classify(task: { title: string; description?: string }): Classif
   return { title: task.title, type, risk };
 }
 
-export type EngineeringCommand = { op: "classify"; task: { title: string; description?: string } } | { op: "audit"; dir: string };
+export type EngineeringCommand =
+  | { op: "classify"; task: { title: string; description?: string } }
+  | { op: "audit"; dir: string }
+  | { op: "planWork"; task: { title: string; description?: string }; limit?: number };
 
 /** Engineering plugin (service "engineering", role planner — it organizes, it doesn't execute). */
-export function createEngineeringPlugin(): Plugin {
+export function createEngineeringPlugin(opts: { repoRoot?: string } = {}): Plugin {
+  const repoRoot = opts.repoRoot ?? process.cwd();
   return {
     manifest: { name: "engineering", version: "0.1.0", capabilities: ["engineering"], permissions: ["call:techdebt"], role: "planner" },
     register(ctx) {
       ctx.provide("engineering", async (payload) => {
         const cmd = payload as EngineeringCommand;
         if (cmd.op === "classify") return classify(cmd.task);
+
+        if (cmd.op === "planWork") {
+          // Deliberately no brain call. This is the one engineering path that
+          // must keep working when the free AI quota is gone — which is
+          // precisely when Mat is trying to find out what broke.
+          const { loadRepoFiles } = await import("./repo");
+          const { planEngineeringWork } = await import("./work-plan");
+          const files = await loadRepoFiles(repoRoot);
+          return planEngineeringWork(files, classify(cmd.task), cmd.task.description, cmd.limit ?? 8);
+        }
+
         if (cmd.op === "audit") {
           try {
             return await ctx.call("techdebt", { op: "scan", dir: cmd.dir });

@@ -37,8 +37,6 @@
       "codebase.generate",
       "codebase.heal",
       "email.send",
-      "engineering.audit",
-      "engineering.classify",
       "experiments.evaluate",
       "experiments.list",
       "experiments.record",
