@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { PendingAction, WholesaleCommand } from "./types";
 import { toBuyerRows, buyerStats } from "./buyers";
-import { storeDrafts, findDraft, removeDraft, type IntroDraft } from "./intro-drafts";
+import { storeDrafts, findDraft, removeDraft, withComplianceFooter, type IntroDraft } from "./intro-drafts";
 
 /**
  * Wholesale plugin (service "wholesale") — bridges ATLAS to evervibes' REAL,
@@ -161,6 +161,40 @@ export function createWholesalePlugin(opts: { fetcher?: typeof fetch; introDraft
 
         if (cmd.op === "listIntroDrafts") {
           return { drafts: await loadDrafts() };
+        }
+
+        /**
+         * Stored intro drafts in the exact shape `sender` takes.
+         *
+         * Mirrors leadscan.draftBatch deliberately: one review-then-send
+         * pattern across both businesses, and one place email leaves ATLAS.
+         * Identity comes from secrets, never the request — a per-call postal
+         * address is a per-call chance to send a non-compliant email.
+         */
+        if (cmd.op === "draftBatchForSender") {
+          const postalAddress = await ctx.secret("COMPANY_POSTAL_ADDRESS");
+          if (!postalAddress) {
+            throw new Error("wholesale: COMPANY_POSTAL_ADDRESS is not set — commercial email legally requires a physical address in the body.");
+          }
+          const optOut = (await ctx.secret("UNSUBSCRIBE_NOTE")) ?? undefined;
+          const drafts = await loadDrafts();
+          const chosen = cmd.ids?.length ? drafts.filter((d) => cmd.ids!.includes(d.id)) : drafts;
+
+          const emails: Array<{ draftId: string; to: string; subject: string; body: string }> = [];
+          const skipped: Array<{ draftId: string; name: string; reason: string }> = [];
+          for (const d of chosen) {
+            if (!(d.email ?? "").includes("@")) {
+              skipped.push({ draftId: d.id, name: d.name, reason: "no email address on this buyer" });
+              continue;
+            }
+            emails.push({
+              draftId: d.id,
+              to: d.email,
+              subject: d.subject,
+              body: withComplianceFooter(d.body, postalAddress, optOut),
+            });
+          }
+          return { emails, skipped, drafted: emails.length, considered: chosen.length };
         }
 
         if (cmd.op === "discardIntroDraft") {

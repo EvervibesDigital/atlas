@@ -218,6 +218,11 @@ export const PAGE = `<!doctype html>
         <input id="compPrice" placeholder="starting price, e.g. $400" style="flex:1;min-width:160px;" />
       </div>
       <div id="compOut" style="margin-top:10px;"></div>
+
+      <h2 style="margin-top:18px">🏠 Wholesale buyer intros</h2>
+      <div class="note">Sends the stored intro drafts through the same checked path as everything else — suppression list, postal address, opt-out. Generate the drafts first from the Businesses tab.</div>
+      <div style="margin-top:8px"><button onclick='draftWholesale()'>1 · Load intro drafts</button></div>
+      <div id="wholesaleOut" style="margin-top:10px;"></div>
     </section>
 
     <section id="tab-connect" class="card hide">
@@ -900,6 +905,56 @@ async function sendCompliance(){
       +((r.failed||[]).length?"<ul style='margin:6px 0 0 18px;font-size:13px;'>"+r.failed.map(f=>"<li>"+esc(f.to)+": "+esc(f.error)+"</li>").join("")+"</ul>":"")
       +"</div>";
     complianceDrafts=[];
+  } catch(e){ out.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
+}
+
+let wholesaleDrafts = [];
+
+async function draftWholesale(){
+  const out=$("wholesaleOut"); out.innerHTML="<div class='note'>Loading…</div>";
+  wholesaleDrafts=[];
+  try {
+    const d=await api("/api/wholesale/draft-batch","POST",{});
+    if(!d.emails.length){ out.innerHTML="<div class='note'>No intro drafts stored. Generate them from the Businesses tab first.</div>"; return; }
+    const p=await api("/api/sender/preview","POST",{emails:d.emails.map(e=>({to:e.to,subject:e.subject,body:e.body}))});
+    wholesaleDrafts=d.emails;
+    const skipped=(d.skipped||[]).map(s=>"<li>"+esc(s.name)+" — "+esc(s.reason)+"</li>").join("");
+    const cards=d.emails.map((e,i)=>{
+      const row=p.rows[i]||{sendable:false,problems:[]};
+      const bad=row.problems.map(x=>esc(x.detail)).join("; ");
+      return "<div style='border:1px solid var(--bd);border-left:3px solid "+(row.sendable?"#16a34a":"#dc2626")+";border-radius:8px;padding:10px;margin-bottom:8px;'>"
+        +"<div><b>"+esc(e.to)+"</b> — "+esc(e.subject)+"</div>"
+        +(bad?"<div class='note' style='color:#dc2626;margin:4px 0 0;'>"+bad+"</div>":"")
+        +"<textarea rows='8' readonly style='width:100%;margin-top:6px;font-size:12px;'>"+esc(e.body)+"</textarea></div>";
+    }).join("");
+    out.innerHTML=cards
+      +(skipped?"<div class='note' style='margin-top:6px;'><b>Skipped:</b><ul style='margin:4px 0 0 18px;'>"+skipped+"</ul></div>":"")
+      +"<div style='margin-top:10px;'><b>"+p.sendable+" of "+p.total+" ready to send.</b></div>"
+      +(p.sendable>0?"<button style='margin-top:8px;background:#b91c1c;' onclick='sendWholesale()'>2 · Send "+p.sendable+" intro(s) for real</button>":"");
+  } catch(e){ out.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
+}
+
+async function sendWholesale(){
+  if(!wholesaleDrafts.length) return;
+  if(!confirm("This sends "+wholesaleDrafts.length+" real email(s) to real cash buyers from team@evervibesdigital.com. Continue?")) return;
+  const out=$("wholesaleOut");
+  try {
+    const r=await api("/api/sender/send","POST",{
+      emails:wholesaleDrafts.map(e=>({to:e.to,subject:e.subject,body:e.body})),
+      confirmSend:true
+    },180000);
+    // Discard only the drafts that actually went out. Clearing on attempt
+    // would lose the copy for anything that failed, with nothing to retry.
+    const delivered=new Set((r.sent||[]).map(s=>s.to));
+    let cleared=0;
+    for(const d of wholesaleDrafts){
+      if(!delivered.has(d.to)) continue;
+      try { await api("/api/wholesale/intro-drafts/"+encodeURIComponent(d.draftId),"DELETE"); cleared++; } catch(_){}
+    }
+    out.innerHTML="<div style='border:1px solid var(--bd);border-radius:8px;padding:12px;'><b>Sent "+r.sentCount+", failed "+r.failedCount+".</b> "+cleared+" draft(s) cleared."
+      +((r.failed||[]).length?"<ul style='margin:6px 0 0 18px;font-size:13px;'>"+r.failed.map(f=>"<li>"+esc(f.to)+": "+esc(f.error)+"</li>").join("")+"</ul>":"")
+      +"</div>";
+    wholesaleDrafts=[];
   } catch(e){ out.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
 }
 

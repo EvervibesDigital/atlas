@@ -39,6 +39,9 @@ export type WholesaleCommand =
    * confirmation, so no separate confirmSend flag. */
   | { op: "approveIntroDraft"; id: string }
   | { op: "discardIntroDraft"; id: string }
+  /** Stored intro drafts in the shape `sender` takes, with the CAN-SPAM
+   * footer added. Sends nothing. */
+  | { op: "draftBatchForSender"; ids?: string[] }
   /** Sends REAL emails. Requires confirmSend: true. Pass `drafts` (from
    * previewIntros, after approval) to send that exact copy verbatim. */
   | {

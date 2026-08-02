@@ -2097,6 +2097,19 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("wholesale", { op: "veto", id: decodeURIComponent(wholesaleVeto[1]!), reason }));
     }
+    if (method === "GET" && path === "/api/wholesale/intro-drafts") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("wholesale", { op: "listIntroDrafts" }));
+    }
+    // Stored intro drafts in sender's shape. Wholesale sends through `sender`
+    // rather than evervibes' own endpoint so the suppression list and the
+    // CAN-SPAM checks apply to it too — a second send path would let someone
+    // who opted out of compliance email still receive a wholesale intro.
+    if (method === "POST" && path === "/api/wholesale/draft-batch") {
+      const { ids } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("wholesale", { op: "draftBatchForSender", ids }));
+    }
     const wholesaleDiscard = path.match(/^\/api\/wholesale\/intro-drafts\/([^/]+)$/);
     if (method === "DELETE" && wholesaleDiscard) {
       const a = await ensureAtlas();

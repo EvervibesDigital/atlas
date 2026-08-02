@@ -57,6 +57,31 @@ export function storeDrafts(
   return out;
 }
 
+/**
+ * Ensure a stored intro carries the two things US commercial email must have:
+ * a physical postal address and a way to opt out.
+ *
+ * The evervibes send-intro endpoint appends its own footer server-side, so a
+ * draft returned from `preview` has neither. Routing wholesale through
+ * `sender` — which refuses without both — means the footer has to be added
+ * here instead. That refusal is the point: `sender` is only a meaningful
+ * safety boundary if there is no second path around it, and wholesale sending
+ * through evervibes would have skipped the suppression list entirely. Someone
+ * who opted out of compliance email could still have received a wholesale
+ * intro.
+ *
+ * Idempotent — an address already present is not duplicated, so re-drafting
+ * the same buyer twice cannot stack footers.
+ */
+export function withComplianceFooter(body: string, postalAddress: string, optOut?: string): string {
+  const text = (body ?? "").trimEnd();
+  const optOutLine = (optOut ?? "").trim() || "If this isn't useful, just say so and I won't follow up.";
+  const parts = [text];
+  if (!text.includes(optOutLine)) parts.push(optOutLine);
+  if (!text.includes(postalAddress.trim())) parts.push(postalAddress.trim());
+  return parts.join("\n\n");
+}
+
 export function findDraft(drafts: IntroDraft[], id: string): IntroDraft | undefined {
   return drafts.find((d) => d.id === id || d.buyerId === id);
 }
