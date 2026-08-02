@@ -491,6 +491,8 @@ export const PAGE = `<!doctype html>
       <h2>💵 Gig Finder</h2>
       <div class="note">Finds AI-doable freelance work and drafts a pitch. ATLAS never submits a bid for you — copy the draft into the real platform yourself, then click "Mark submitted" here to track it.</div>
       <div id="gigStats" class="note" style="margin-top:8px">Loading…</div>
+      <div style="margin-top:10px"><button class="sec" onclick="repairBids()">🧹 Repair broken bids</button></div>
+      <div id="repairOut" class="note" style="margin-top:6px"></div>
       <div id="submitQueue" style="margin-top:12px"></div>
       <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button onclick="searchGigs()">🔍 Search now (web)</button>
@@ -1432,6 +1434,18 @@ async function gigStatus(id,status){ try { await api("/api/gigs/"+id+"/status","
 let submitQueue = [];
 let submitIdx = 0;
 
+async function repairBids(){
+  const out=$("repairOut"); out.textContent="Checking…";
+  try {
+    const dry=await api("/api/gigs/repair-bids","POST",{dryRun:true});
+    if(!dry.repaired){ out.textContent="Nothing to repair — every stored bid passes the quality gate."; return; }
+    if(!confirm("Replace "+dry.repaired+" broken bid(s) with a plain, coherent fallback? The originals are truncated fragments and cannot be sent as-is.")) { out.textContent="Left unchanged."; return; }
+    const r=await api("/api/gigs/repair-bids","POST",{dryRun:false});
+    out.textContent="Repaired "+r.repaired+" bid(s). Reloading the queue.";
+    loadSubmitQueue();
+  } catch(e){ out.textContent=e.message; }
+}
+
 async function loadSubmitQueue(){
   try {
     const r = await api("/api/gigs?status=approved");
@@ -1456,12 +1470,12 @@ function renderSubmitQueue(){
   const bid=(g.draftBid||"").trim();
   let problem=null;
   if(!bid) problem="no bid was drafted";
-  else if(bid.length<150) problem="only "+bid.length+" characters — the generation was cut off";
-  else if(!/[.!?]$/.test(bid)) problem="ends mid-sentence — the generation was cut off";
-  else if(bid.indexOf("*")>=0) problem="contains leftover template scaffolding";
+  else if(bid.length<80) problem="only "+bid.length+" characters — the generation was cut off";
+  else if(!/[.!?]["')]?$/.test(bid)) problem="ends mid-sentence — the generation was cut off";
+  else if(bid.indexOf("*")>=0||bid.indexOf("[")>=0||bid.indexOf("#")>=0) problem="contains leftover template scaffolding";
   const warn=problem
     ? "<div style='background:rgba(220,38,38,.12);border-radius:6px;padding:8px;margin-top:8px;font-size:13px'>"
-      +"<b>⚠️ Don't send this as-is</b> — "+esc(problem)+". Rewrite it below, or skip and regenerate once an AI provider has quota.</div>"
+      +"<b>⚠️ Don't send this as-is</b> — "+esc(problem)+". Rewrite it below, or press <b>Repair broken bids</b> above to swap it for a plain, coherent fallback (no AI needed).</div>"
     : "";
   el.innerHTML="<div style='border:1px solid var(--bd);border-left:3px solid "+(problem?"#dc2626":"var(--acc)")+";border-radius:8px;padding:12px'>"
     +"<div style='display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline'>"

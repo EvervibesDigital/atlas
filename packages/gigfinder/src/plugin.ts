@@ -30,6 +30,9 @@ export type GigFinderCommand =
   | { op: "approve"; id: string }
   | { op: "reject"; id: string }
   | { op: "markSubmitted"; id: string }
+  /** Replaces bids stored before the quality gate existed with the
+   * deterministic fallback. Needs no AI. `dryRun` defaults to true. */
+  | { op: "repairBids"; dryRun?: boolean }
   | { op: "updateStatus"; id: string; status: GigStatus; paidAmount?: number }
   /** Turns a gig into a scoped work package + paste-ready Claude Code
    * handoff prompt. Degrades to a deterministic template package when the
@@ -294,6 +297,40 @@ Source: ${gig.url}`,
           const updated = await registry.update(cmd.id, { status: "rejected" });
           if (!updated) throw new Error(`no gig "${cmd.id}"`);
           return updated;
+        }
+
+        /**
+         * Repair bids that were stored before the quality gate existed.
+         *
+         * `draftBid` has validated model output against `isUsableBid` and
+         * fallen back to a deterministic template for a while now — but 28
+         * gigs were approved BEFORE that landed, and 7 of them hold truncated
+         * generations. The worst is verbatim `"Call to Action/Wrap up):* Let
+         * me know"`, which would go to a client under Mat's name.
+         *
+         * Uses `renderFallbackBid`, so this needs **no AI** — which matters,
+         * because the reason those bids are broken in the first place is that
+         * every provider is out of quota. A repair that needed a working brain
+         * would be unavailable exactly when it is needed.
+         *
+         * `dryRun` defaults to true: this overwrites stored text, so seeing
+         * what would change has to be the default and rewriting the explicit
+         * choice.
+         */
+        if (cmd.op === "repairBids") {
+          const dryRun = cmd.dryRun !== false;
+          const all = await registry.list();
+          const broken = all.filter((g) => !isUsableBid(g.draftBid ?? ""));
+          const repaired: Array<{ id: string; title: string; before: string; after: string }> = [];
+          for (const gig of broken) {
+            // A gig with no bid at all was never approved — leave it alone
+            // rather than inventing a pitch for something unreviewed.
+            if (!(gig.draftBid ?? "").trim()) continue;
+            const after = renderFallbackBid(gig.source, gig.title, gig.budget);
+            repaired.push({ id: gig.id, title: gig.title, before: gig.draftBid!, after });
+            if (!dryRun) await registry.update(gig.id, { draftBid: after });
+          }
+          return { dryRun, examined: all.length, repaired: repaired.length, changes: repaired };
         }
 
         if (cmd.op === "markSubmitted") {
