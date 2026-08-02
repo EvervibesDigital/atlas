@@ -393,6 +393,10 @@ export const PAGE = `<!doctype html>
             <option>GOOGLE_SHEETS_PRIVATE_KEY</option><option>EVERVIBES_APP_URL</option>
             <option>EMAIL_USER</option><option>EMAIL_PASS</option>
             <option>EMAIL_SMTP_HOST</option><option>EMAIL_IMAP_HOST</option>
+            <option>COMPANY_POSTAL_ADDRESS</option><option>SENDER_FROM</option>
+            <option>SENDER_SMTP_USER</option><option>SENDER_SMTP_PASS</option>
+            <option>SENDER_SMTP_HOST</option><option>SENDER_SMTP_PORT</option>
+            <option>RESEND_API_KEY</option><option>SENDER_PROVIDER</option>
           </datalist>
           <label>Key value</label>
           <input id="keyVal" type="password" placeholder="paste key value" style="width:100%;" />
