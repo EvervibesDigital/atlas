@@ -496,7 +496,10 @@ export const PAGE = `<!doctype html>
       <h2>💵 Gig Finder</h2>
       <div class="note">Finds AI-doable freelance work and drafts a pitch. ATLAS never submits a bid for you — copy the draft into the real platform yourself, then click "Mark submitted" here to track it.</div>
       <div id="gigStats" class="note" style="margin-top:8px">Loading…</div>
-      <div style="margin-top:10px"><button class="sec" onclick="repairBids()">🧹 Repair broken bids</button></div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="sec" onclick="repairBids()">🧹 Repair broken bids</button>
+        <button class="sec" onclick="checkWins()">📥 Check inbox for wins</button>
+      </div>
       <div id="repairOut" class="note" style="margin-top:6px"></div>
       <div id="submitQueue" style="margin-top:12px"></div>
       <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -1488,6 +1491,16 @@ async function gigStatus(id,status){ try { await api("/api/gigs/"+id+"/status","
 // clipboard and opens the posting. He reads and clicks.
 let submitQueue = [];
 let submitIdx = 0;
+
+async function checkWins(){
+  const out=$("repairOut"); out.textContent="Reading your inbox…";
+  try {
+    const r=await api("/api/gigs/check-wins","POST",{},180000);
+    out.textContent="Checked "+r.checked+" message(s): "+r.won+" win(s), "+r.flagged+" needing a look. "
+      +(r.won?"Won gigs now have a work package waiting.":"");
+    loadGigs();
+  } catch(e){ out.textContent=e.message; }
+}
 
 async function repairBids(){
   const out=$("repairOut"); out.textContent="Checking…";

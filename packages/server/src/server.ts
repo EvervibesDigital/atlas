@@ -1873,6 +1873,13 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("gigfinder", { op: "markSubmitted", id: decodeURIComponent(gigSubmitted[1]!) }));
     }
+    // Reads the inbox for replies to submitted bids, marks wins, and scopes
+    // the work package immediately so the handoff prompt is already waiting.
+    // Read-only against email — it never replies to anyone.
+    if (method === "POST" && path === "/api/gigs/check-wins") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("gigfinder", { op: "checkWins" }));
+    }
     // Repairs bids stored before the quality gate existed. dryRun defaults to
     // true in the plugin — this route passes the flag through rather than
     // choosing for the caller, since it overwrites stored text.

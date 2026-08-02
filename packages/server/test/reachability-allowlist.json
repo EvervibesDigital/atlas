@@ -2,29 +2,27 @@
   "_README": [
     "Ops that the reachability audit reports as having no caller outside their own package.",
     "",
-    "'intentional' — an op that is SUPPOSED to have no external caller. Every entry",
+    "'intentional' \u00e2\u20ac\u201d an op that is SUPPOSED to have no external caller. Every entry",
     "needs a real reason; an empty one fails the test. This is the escape hatch for",
     "ops driven by a background worker, a dynamic dispatch the text scan can't read,",
     "or a deliberately manual operator action.",
     "",
-    "'backlog' — the debt baseline captured on the audit's first run (2026-08-01).",
+    "'backlog' \u00e2\u20ac\u201d the debt baseline captured on the audit's first run (2026-08-01).",
     "These are NOT approved. They are frozen so that new unreachable code fails CI",
     "immediately while the existing pile is worked down. The test ratchets both ways:",
     "adding an unlisted unreachable op fails, and wiring a backlog op up ALSO fails",
-    "until it's deleted from this list — so the number can only go down.",
+    "until it's deleted from this list \u00e2\u20ac\u201d so the number can only go down.",
     "",
     "Do not add to 'backlog'. Wire the op up, or justify it in 'intentional'."
   ],
-
   "intentional": {
     "publishing.render": "Synchronous render, superseded by the enqueueRender/renderQueuedJob queue path which the worker tick drives. Kept because MontageRenderer's tests exercise it directly and a blocking render is still useful for one-off debugging.",
-    "backup.restore": "Deliberately operator-only. Restoring a snapshot overwrites live state, so it must not be reachable from a route or an autonomous cycle — an accidental call is unrecoverable.",
+    "backup.restore": "Deliberately operator-only. Restoring a snapshot overwrites live state, so it must not be reachable from a route or an autonomous cycle \u00e2\u20ac\u201d an accidental call is unrecoverable.",
     "setup.runAutonomous": "First-boot provisioning, run once by hand via `pnpm setup`. Wiring it to a route would let a stray request re-provision a live instance."
   },
-
   "backlog": {
     "_captured": "2026-08-01",
-    "_note": "Found by the audit's first run. Untriaged — presence here is a record of debt, not a judgement that it is correct.",
+    "_note": "Found by the audit's first run. Untriaged \u00e2\u20ac\u201d presence here is a record of debt, not a judgement that it is correct.",
     "ops": [
       "actions.result",
       "analytics.compute",
@@ -41,7 +39,6 @@
       "experiments.list",
       "experiments.record",
       "experiments.start",
-      "gigfinder.checkWins",
       "learning.dismiss",
       "learning.reflect",
       "learning.reflections",
