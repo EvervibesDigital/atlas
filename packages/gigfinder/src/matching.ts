@@ -46,7 +46,21 @@ const EMPLOYMENT_SIGNALS = [
 // One optional qualifier is allowed between the seniority word and the role.
 // The real posting was "Senior Full-Stack Engineers" — requiring the two
 // words to be adjacent missed it completely.
-const CAREER_TITLE_RE = /\b(senior|staff|principal|lead)\s+(?:[\w-]+\s+)?(engineer|developer|architect)s?\b/i;
+// Up to TWO qualifiers between the seniority word and the role. One was not
+// enough for the real titles: "Senior Full-Stack Engineers" needs one,
+// "Senior Embedded Software Developer" needs two.
+const CAREER_TITLE_RE = /\b(senior|staff|principal|lead)\s+(?:[\w-]+\s+){0,2}(engineer|developer|architect)s?\b/i;
+
+/**
+ * Engagements measured in weeks or months.
+ *
+ * Mat's ask is "quick fast easy jobs ATLAS can do". A real posting in the
+ * queue read "Senior Full-Stack Engineers | ... | $20–$25/hr | 12+ Weeks" —
+ * it quotes an hourly rate, so a budget-based rule keeps it, but a twelve-week
+ * commitment is the opposite of quick. Duration outranks the presence of a
+ * dollar sign.
+ */
+const LONG_ENGAGEMENT_RE = /\b(\d+\+?\s*(weeks?|months?)|long[- ]term|ongoing|part[- ]time|\d+\s*hrs?\/week|hours per week)\b/i;
 
 /**
  * Reddit post ids are base36 and monotonically increasing. Ids of 7 chars
@@ -120,6 +134,9 @@ export function isEmploymentPosting(title: string, snippet: string): boolean {
   // this queue run $15-$500; a five-figure number is a yearly package.
   const money = /\$?\s?(\d[\d,]{4,})/.exec(text.replace(/,/g, ""));
   if (money && Number(money[1]) >= 30000) return true;
+
+  // A multi-week engagement is not a quick gig, even when it quotes a rate.
+  if (LONG_ENGAGEMENT_RE.test(text)) return true;
 
   // A career-grade title with no budget attached reads as a staff role.
   if (CAREER_TITLE_RE.test(text) && !/\$\s?\d/.test(text)) return true;

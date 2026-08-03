@@ -211,3 +211,23 @@ describe("isEmploymentPosting reads the TITLE only", () => {
     expect(isEmploymentPosting("[Hiring] Python script, budget $400", "")).toBe(false);
   });
 });
+
+describe("long engagements are not quick gigs", () => {
+  it("rejects a multi-week contract even though it quotes an hourly rate", () => {
+    // Verbatim from the live queue. The dollar sign made a budget-based rule
+    // keep it, but twelve weeks is the opposite of what Mat asked for.
+    expect(isEmploymentPosting("[Hiring] Senior Full-Stack Engineers | Next.js + Python/FastAPI | Remote | $20–$25/hr | 12+ Weeks", "")).toBe(true);
+  });
+
+  it("catches a seniority title needing TWO qualifier words", () => {
+    // "Senior Embedded Software Developer" — one optional qualifier was not
+    // enough, so this survived the first prune.
+    expect(isEmploymentPosting("[HIRING] Senior Embedded Software Developer", "")).toBe(true);
+  });
+
+  it("still keeps a genuinely short paid task", () => {
+    expect(isEmploymentPosting("[Hiring] $15/hr – Simple OpenAI API Integration into Search UI (fast 2-hour task)", "")).toBe(false);
+    expect(isEmploymentPosting("[Hiring] Telegram Bot + Simple Website Developer", "")).toBe(false);
+    expect(isEmploymentPosting("[Hiring] Need a Python script, budget $400, delivery in 3 days", "")).toBe(false);
+  });
+});
