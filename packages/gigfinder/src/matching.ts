@@ -77,10 +77,50 @@ export function isJunkTitle(title: string): boolean {
   ].some((j) => t.includes(j));
 }
 
+/**
+ * Whole-phrase containment, so a short signal can't hide inside a longer word.
+ * Written with explicit boundary checks rather than a built regex because the
+ * signals contain `-` and `+`, which are regex metacharacters — escaping them
+ * inline is how this got broken twice.
+ */
+export function wordPresent(haystack: string, needle: string): boolean {
+  const h = haystack.toLowerCase();
+  const n = needle.toLowerCase();
+  let from = 0;
+  for (;;) {
+    const i = h.indexOf(n, from);
+    if (i < 0) return false;
+    const before = i === 0 ? "" : h[i - 1]!;
+    const after = i + n.length >= h.length ? "" : h[i + n.length]!;
+    const isWordChar = (c: string) => c !== "" && /[a-z0-9]/.test(c);
+    if (!isWordChar(before) && !isWordChar(after)) return true;
+    from = i + 1;
+  }
+}
+
 /** Salaried role rather than a short paid task. */
 export function isEmploymentPosting(title: string, snippet: string): boolean {
-  const text = `${title} ${snippet}`.toLowerCase();
-  if (EMPLOYMENT_SIGNALS.some((k) => text.includes(k))) return true;
+  // TITLE ONLY, deliberately — and `snippet` is kept in the signature so every
+  // existing call site stays correct.
+  //
+  // Search snippets here are Reddit LISTING-PAGE text: several unrelated
+  // postings mashed into one string. Measured on the live queue, that made
+  // "[Hiring] $15/hr - Simple OpenAI API Integration (fast 2-hour task)" match
+  // "full-time" from a *different* job further down the same page. A false
+  // positive silently deletes a gig Mat wanted; a false negative just means he
+  // skips one card. The title belongs to the post itself, so it is the only
+  // trustworthy field.
+  const text = (title ?? "").toLowerCase();
+
+  // Word-boundary matching, not substring: "pto" was matching "crypto" and
+  // flagging crypto-bot gigs as salaried employment.
+  if (EMPLOYMENT_SIGNALS.some((k) => wordPresent(text, k))) return true;
+
+  // An annual-scale figure is a salary, not a project budget. Gig budgets in
+  // this queue run $15-$500; a five-figure number is a yearly package.
+  const money = /\$?\s?(\d[\d,]{4,})/.exec(text.replace(/,/g, ""));
+  if (money && Number(money[1]) >= 30000) return true;
+
   // A career-grade title with no budget attached reads as a staff role.
   if (CAREER_TITLE_RE.test(text) && !/\$\s?\d/.test(text)) return true;
   return false;

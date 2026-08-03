@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isEmploymentPosting, isAncientRedditPost, isJunkTitle, isRealGigCandidate } from "../src/matching";
+import { isEmploymentPosting, isAncientRedditPost, isJunkTitle, isRealGigCandidate, wordPresent } from "../src/matching";
 
 /**
  * Every string here is VERBATIM from the live gig queue on 2026-08-02, where
@@ -11,7 +11,10 @@ describe("isEmploymentPosting", () => {
   it("rejects the real full-time roles that were in the queue", () => {
     expect(isEmploymentPosting("[Hiring] Senior Full-Stack Engineers | Next.js + Python/FastAPI | Remote", "")).toBe(true);
     expect(isEmploymentPosting("[Hiring] Go/Golang job: Senior Software Engineer", "")).toBe(true);
-    expect(isEmploymentPosting("[HIRING] MACHINE LEARNING ENGINEER at State Farm", "salary and benefits package")).toBe(true);
+    // Note: the salary wording lives in the snippet, which is deliberately
+    // ignored (listing pages mix postings). This one is caught by the
+    // ancient-post filter instead — it is a 2020 listing.
+    expect(isAncientRedditPost("https://www.reddit.com/r/jobbit/comments/jl9jva/hiring_machine")).toBe(true);
   });
 
   it("keeps the real short gigs that were in the same queue", () => {
@@ -20,9 +23,19 @@ describe("isEmploymentPosting", () => {
     expect(isEmploymentPosting("[Hiring] Need someone to code a script that automates a report", "")).toBe(false);
   });
 
-  it("does not reject a senior-titled post that quotes a real budget", () => {
-    // "Senior developer wanted, $400, 2-day script" is a gig, not a career.
-    expect(isEmploymentPosting("Senior developer wanted for a 2-day script", "budget $400")).toBe(false);
+  it("keeps a senior-titled post when the budget is IN THE TITLE", () => {
+    // "Senior developer wanted, $400" is a gig, not a career.
+    expect(isEmploymentPosting("Senior developer wanted for a 2-day script, $400", "")).toBe(false);
+  });
+
+  it("ACCEPTED TRADE-OFF: a senior title with the budget only in the body is rejected", () => {
+    // Reading the snippet is not an option — listing pages mix several
+    // postings together, which wrongly pruned a real $15/hr gig. So a
+    // seniority word in the title with no figure beside it is treated as a
+    // staff role. Mat loses the occasional well-paid senior-titled gig; the
+    // alternative was silently deleting short gigs he wanted. Pinned so the
+    // trade-off is a decision on the record, not a surprise.
+    expect(isEmploymentPosting("Senior developer wanted for a 2-day script", "budget $400")).toBe(true);
   });
 });
 
@@ -158,5 +171,43 @@ describe("gigfinder.pruneQueue", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("wordPresent — the substring bug that flagged real gigs", () => {
+  it('does not let "pto" match inside "crypto"', () => {
+    // Live queue: crypto-bot gigs were being rejected as salaried employment
+    // because "pto" (paid time off) is a substring of "crypto".
+    expect(wordPresent("build me a crypto trading bot", "pto")).toBe(false);
+    expect(wordPresent("generous pto and benefits", "pto")).toBe(true);
+  });
+
+  it("handles signals containing regex metacharacters", () => {
+    // "full-time" and "part-time employee" contain '-', which broke an
+    // inline-escaped RegExp twice.
+    expect(wordPresent("this is a full-time role", "full-time")).toBe(true);
+    expect(wordPresent("a fullXtime role", "full-time")).toBe(false);
+  });
+});
+
+describe("isEmploymentPosting reads the TITLE only", () => {
+  it("ignores employment words that leaked in from another posting", () => {
+    // Reddit search snippets are LISTING PAGES: several jobs in one string.
+    // This exact gig was wrongly pruned because a different job further down
+    // the same page said "full-time".
+    const title = "[Hiring] $15/hr – Simple OpenAI API Integration into Search UI (fast 2-hour task)";
+    const contaminatedSnippet = "... another post: senior engineer, full-time with benefits package ...";
+    expect(isEmploymentPosting(title, contaminatedSnippet)).toBe(false);
+  });
+
+  it("still catches a salaried role from its own title", () => {
+    expect(isEmploymentPosting("[Hiring] 🐍 Senior Python Developer - 📍 Fully Remote", "")).toBe(true);
+  });
+
+  it("treats an annual-scale figure as a salary, not a project budget", () => {
+    // Gig budgets in the real queue run $15-$500. A five-figure number is a
+    // yearly package.
+    expect(isEmploymentPosting("[HIRING] Embedded Systems Software Developer [💰 101420]", "")).toBe(true);
+    expect(isEmploymentPosting("[Hiring] Python script, budget $400", "")).toBe(false);
   });
 });
