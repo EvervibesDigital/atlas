@@ -9,7 +9,7 @@ import { DryRunPublisher, type Publisher } from "./publisher";
 import { VideoRenderer, NoOpRenderer, type Renderer } from "./video-renderer";
 import { MontageRenderer } from "./montage-renderer";
 import { enqueueJob, type VideoRenderJob } from "./video-queue";
-import { captionProblem, duplicateOf, previewCaption } from "./caption";
+import { captionProblem, duplicateOf, previewCaption, hookKey, captionHook } from "./caption";
 
 /**
  * Locate a Piper install. Precedence: PIPER_BIN/PIPER_MODEL env vars, then the
@@ -127,6 +127,55 @@ export function createPublishingPlugin(opts: { publisher?: Publisher; renderer?:
           const jobs = JSON.parse(raw) as VideoRenderJob[];
           const job = jobs.find((j) => j.id === cmd.jobId);
           return { job: job ?? null };
+        }
+
+        /**
+         * Clear duplicate Reels already sitting in the approval queue.
+         *
+         * The gate in `publish` stops NEW duplicates; this clears the backlog
+         * that accumulated before it existed — 50 pending Reels carrying 15
+         * distinct hooks on 2026-08-02.
+         *
+         * Keeps the OLDEST of each hook and rejects the rest: the first one
+         * queued is the one whose rendered video has been sitting ready
+         * longest, and rejecting an approval is reversible in a way that
+         * deleting a render is not.
+         *
+         * `dryRun` defaults to true — this rejects real queued work, so seeing
+         * the list has to be the default and acting on it the explicit choice.
+         */
+        if (cmd.op === "dedupePending") {
+          const dryRun = cmd.dryRun !== false;
+          const listed = (await ctx.call("approvals", { op: "list", status: "pending" })) as
+            | Array<{ id: string; action?: string; detail?: string; createdAt?: string }>
+            | { approvals?: Array<{ id: string; action?: string; detail?: string; createdAt?: string }> };
+          const rows = Array.isArray(listed) ? listed : (listed.approvals ?? []);
+          const reels = rows
+            .filter((r) => (r.action ?? "").startsWith("Post Reel"))
+            .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+
+          const seen = new Map<string, string>();
+          const duplicates: Array<{ id: string; hook: string; keptId: string }> = [];
+          for (const r of reels) {
+            const key = hookKey(r.detail ?? "");
+            if (!key) continue;
+            const keptId = seen.get(key);
+            if (keptId) duplicates.push({ id: r.id, hook: captionHook(r.detail ?? ""), keptId });
+            else seen.set(key, r.id);
+          }
+
+          let rejected = 0;
+          if (!dryRun) {
+            for (const d of duplicates) {
+              try {
+                await ctx.call("approvals", { op: "reject", id: d.id });
+                rejected++;
+              } catch {
+                /* one failure must not strand the rest of the cleanup */
+              }
+            }
+          }
+          return { dryRun, pendingReels: reels.length, uniqueHooks: seen.size, duplicates: duplicates.length, rejected, examples: duplicates.slice(0, 5) };
         }
 
         if (cmd.op === "validate") {

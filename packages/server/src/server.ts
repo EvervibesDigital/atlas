@@ -2220,6 +2220,13 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("publishing", { op: "validate", input }));
     }
+    // Clears duplicate Reels already queued. dryRun defaults true in the
+    // plugin — this rejects real queued work, so the flag passes through.
+    if (method === "POST" && path === "/api/publishing/dedupe-pending") {
+      const { dryRun } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("publishing", { op: "dedupePending", dryRun }));
+    }
     // Reads DMs/comments. Read-only — replying is a separate, gated op.
     if (method === "POST" && path === "/api/social/poll-inbox") {
       const a = await ensureAtlas();

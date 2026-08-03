@@ -199,6 +199,7 @@ export const PAGE = `<!doctype html>
     <section id="tab-health" class="card hide">
       <h2>Capability health</h2>
       <div class="note">Every service, and whether it would actually work if you pressed the button. <b>Unreachable</b> means nothing can trigger it — no route, no cycle step, no other plugin. <b>Needs key</b> means it is wired but has no credential to run with.</div>
+      <div style="margin:10px 0"><button class="sec" onclick='dedupeReels()'>🎬 Clear duplicate Reels</button> <span id="dedupeOut" class="note"></span></div>
       <div id="healthCounts" style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0;"></div>
       <div id="healthList"></div>
 
@@ -837,6 +838,20 @@ async function loadHealth(){
     }).join("")||"<div class='note'>No services found.</div>";
   } catch(e){ el.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
   loadSender();
+}
+
+async function dedupeReels(){
+  const out=$("dedupeOut"); out.textContent="Checking the queue…";
+  try {
+    const dry=await api("/api/publishing/dedupe-pending","POST",{dryRun:true});
+    if(!dry.duplicates){ out.textContent=dry.pendingReels+" queued Reel(s), all unique. Nothing to clear."; return; }
+    // No backslash-n escapes in this file: html.ts is one big template
+    // literal, so an escape here becomes a real newline in the served JS
+    // and breaks the string. One sentence instead.
+    if(!confirm("Reject "+dry.duplicates+" duplicate Reel(s)? "+dry.pendingReels+" are queued but only "+dry.uniqueHooks+" hooks are distinct. The oldest of each hook is kept.")) { out.textContent="Left unchanged."; return; }
+    const r=await api("/api/publishing/dedupe-pending","POST",{dryRun:false},120000);
+    out.textContent="Rejected "+r.rejected+" duplicate(s). "+r.uniqueHooks+" unique Reel(s) still waiting.";
+  } catch(e){ out.textContent=e.message; }
 }
 
 async function loadSender(){
