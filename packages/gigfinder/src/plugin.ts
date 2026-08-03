@@ -1,6 +1,6 @@
 import type { Plugin } from "@atlas/core";
 import { GigRegistry } from "./registry";
-import { isRealGigCandidate, extractBudget } from "./matching";
+import { isRealGigCandidate, extractBudget, isJunkTitle, isEmploymentPosting, isAncientRedditPost } from "./matching";
 import { renderFallbackBid, bidSystemPrompt, isUsableBid } from "./templates";
 import { templateWorkPackage, buildHandoffPrompt, isUsableWorkPackage, workPackageSystemPrompt, type WorkPackage } from "./work-package";
 import { scoreWinConfidence, matchGigForEmail, WIN_CONFIDENCE_THRESHOLD } from "./win-detection";
@@ -30,6 +30,10 @@ export type GigFinderCommand =
   | { op: "approve"; id: string }
   | { op: "reject"; id: string }
   | { op: "markSubmitted"; id: string }
+  /** Re-applies the current filters to gigs already stored, so a gig that got
+   * in before a rule existed doesn't sit in the queue forever. dryRun
+   * defaults to true. */
+  | { op: "pruneQueue"; dryRun?: boolean }
   /** Replaces bids stored before the quality gate existed with the
    * deterministic fallback. Needs no AI. `dryRun` defaults to true. */
   | { op: "repairBids"; dryRun?: boolean }
@@ -331,6 +335,47 @@ Source: ${gig.url}`,
             if (!dryRun) await registry.update(gig.id, { draftBid: after });
           }
           return { dryRun, examined: all.length, repaired: repaired.length, changes: repaired };
+        }
+
+        /**
+         * Re-apply the current filters to gigs already stored.
+         *
+         * The filters only run at search time, so a gig that got in before a
+         * rule existed stays in forever. On 2026-08-02 the queue held 6
+         * salaried roles, 5 boilerplate titles and 3 posts from 2020-2022 —
+         * none of which Mat would ever bid on, all of which he had to skip
+         * past one at a time.
+         *
+         * Only touches `new` and `approved` gigs that were never submitted:
+         * a submitted bid is history and rewriting history hides what happened.
+         * `dryRun` defaults to true.
+         */
+        if (cmd.op === "pruneQueue") {
+          const dryRun = cmd.dryRun !== false;
+          const all = await registry.list();
+          const candidates = all.filter((g) => (g.status === "new" || g.status === "approved") && !g.submittedAt);
+
+          const doomed: Array<{ id: string; title: string; reason: string }> = [];
+          for (const g of candidates) {
+            let reason: string | null = null;
+            if (isJunkTitle(g.title)) reason = "boilerplate title, not a real posting";
+            else if (isEmploymentPosting(g.title, g.snippet ?? "")) reason = "salaried role, not a short gig";
+            else if (isAncientRedditPost(g.url)) reason = "posted before 2023 — long dead";
+            if (reason) doomed.push({ id: g.id, title: g.title, reason });
+          }
+
+          let removed = 0;
+          if (!dryRun) {
+            for (const d of doomed) {
+              try {
+                await registry.update(d.id, { status: "rejected", notes: `auto-pruned: ${d.reason}` });
+                removed++;
+              } catch {
+                /* one failure must not strand the rest of the cleanup */
+              }
+            }
+          }
+          return { dryRun, examined: candidates.length, matched: doomed.length, removed, items: doomed.slice(0, 12) };
         }
 
         if (cmd.op === "markSubmitted") {

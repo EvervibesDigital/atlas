@@ -20,6 +20,72 @@ const AI_DOABLE_KEYWORDS = [
 // isn't wrongly excluded.
 const EXCLUDE_KEYWORDS = ["no ai", "humans only", "no bots", "no automated", "in-person only", "on-site only", "[for hire]"];
 
+/**
+ * Salaried employment, not a gig.
+ *
+ * Mat wants short jobs ATLAS can finish in days. A full-time engineering role
+ * is a months-long commitment with interviews attached — applying wastes his
+ * time and the client's. Measured against the real queue on 2026-08-02, which
+ * held six of these, including "[Hiring] Senior Full-Stack Engineers |
+ * Next.js + Python/FastAPI | Remote" and "[Hiring] Go/Golang job: Senior
+ * Software Engineer".
+ */
+const EMPLOYMENT_SIGNALS = [
+  "full-time", "full time", "fulltime", "part-time employee", "w2", "401k",
+  "benefits package", "health insurance", "paid time off", "pto",
+  "salary", "salaried", "annual compensation", "equity package",
+  "join our team", "join the team", "we're building a team",
+];
+
+/**
+ * Seniority titles that mean "career hire", not "small paid task".
+ * Kept separate from EMPLOYMENT_SIGNALS because a real gig CAN say "senior
+ * developer wanted for a 2-day script" — so seniority alone doesn't reject;
+ * it only counts when paired with an employment signal or a job-title shape.
+ */
+// One optional qualifier is allowed between the seniority word and the role.
+// The real posting was "Senior Full-Stack Engineers" — requiring the two
+// words to be adjacent missed it completely.
+const CAREER_TITLE_RE = /\b(senior|staff|principal|lead)\s+(?:[\w-]+\s+)?(engineer|developer|architect)s?\b/i;
+
+/**
+ * Reddit post ids are base36 and monotonically increasing. Ids of 7 chars
+ * beginning with "1" are 2023-onward; 6-char ids are 2022 and earlier.
+ * Verified against the live queue: 55 of 58 were 7-char, and the 6-char ones
+ * were a 2020 State Farm posting and a 2022 script request — both long dead.
+ *
+ * This is a coarse floor, not a freshness check. It cannot tell yesterday from
+ * six months ago, which is why it only removes the obviously-ancient.
+ */
+export function isAncientRedditPost(url: string): boolean {
+  const m = /\/comments\/([a-z0-9]+)/i.exec(url ?? "");
+  if (!m) return false;
+  const id = m[1]!;
+  if (id.length >= 7) return false;
+  return true;
+}
+
+/** Titles that are the site's own boilerplate, not the posting's. */
+export function isJunkTitle(title: string): boolean {
+  const t = (title ?? "").trim().toLowerCase();
+  if (!t) return true;
+  return [
+    "reddit - the heart of the internet",
+    "reddit - dive into anything",
+    "just a moment...",
+    "access denied",
+  ].some((j) => t.includes(j));
+}
+
+/** Salaried role rather than a short paid task. */
+export function isEmploymentPosting(title: string, snippet: string): boolean {
+  const text = `${title} ${snippet}`.toLowerCase();
+  if (EMPLOYMENT_SIGNALS.some((k) => text.includes(k))) return true;
+  // A career-grade title with no budget attached reads as a staff role.
+  if (CAREER_TITLE_RE.test(text) && !/\$\s?\d/.test(text)) return true;
+  return false;
+}
+
 // A page can mention "automation" and "API" and still not be a job posting —
 // a pricing article or a "how much should I charge" forum thread hits the
 // same keywords. Require an actual hiring-intent phrase too, and reject the
@@ -108,6 +174,9 @@ export function isAiDoable(title: string, snippet: string): boolean {
  * pass, which is how call:social sat missing from the orchestrator's
  * manifest for weeks without anyone noticing. */
 export function isRealGigCandidate(title: string, snippet: string, url: string): boolean {
+  if (isJunkTitle(title)) return false;
+  if (isEmploymentPosting(title, snippet)) return false;
+  if (isAncientRedditPost(url)) return false;
   return isAiDoable(title, snippet) && isSpecificPosting(url);
 }
 
