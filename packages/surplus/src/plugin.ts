@@ -36,12 +36,15 @@ const AGENT_IDS: Record<SurplusRole, string> = {
 };
 
 /** The v2_leads sheet — one of the 5 Google Sheets the Twin platform already writes to (found 2026-07-21). */
+const COUNTY_REGISTRY_SHEET_ID = "12-Yzy4OOoVMRq3_CShleyS8EcA0RST1B4GlEOovwFsc";
 const LEADS_SHEET_ID = "1bkr0CK7_2dWDvUuP366PSnxHSdZ41DL1BauYARV5OlI";
 const MIN_SURPLUS = 5000;
 
 export type SurplusCommand =
   | { op: "listAgents" }
   | { op: "schedules" }
+  /** Structural + liveness audit of the County Registry sheet. */
+  | { op: "auditCounties"; checkLive?: boolean }
   | { op: "blueprint"; role: SurplusRole }
   | { op: "run"; role: SurplusRole; message?: string }
   | { op: "runEvents"; role: SurplusRole; runId: string }
@@ -168,6 +171,35 @@ export function createSurplusPlugin(opts: { fetcher?: FetchLike; twinBase?: stri
         if (cmd.op === "schedules") {
           const schedules = await c.listSchedules();
           return { schedules };
+        }
+
+        /**
+         * Audit the County Registry sheet that drives the scraper.
+         *
+         * Run before trusting any scraper built on it: on 2026-08-02 the
+         * registry was misaligned by one column AND its URLs were fabricated
+         * (2 of the first 3 returned 404). A scraper reading that sheet finds
+         * nothing, which is exactly what happened.
+         *
+         * `checkLive` costs one HTTP request per county, so it is opt-in.
+         */
+        if (cmd.op === "auditCounties") {
+          const { auditRegistry, checkUrls } = await import("./county-registry");
+          const sheets = await sheetsClient();
+          const rows = (await sheets.getRows(COUNTY_REGISTRY_SHEET_ID)) as Array<Record<string, string>>;
+          const audit = auditRegistry(rows);
+          if (!cmd.checkLive) return { ...audit, urls: audit.urls.slice(0, 10), checked: false };
+
+          const checks = await checkUrls(audit.urls.map((u) => ({ county: u.county, url: u.url })), opts.fetcher ?? fetch);
+          const dead = checks.filter((c) => !c.alive);
+          return {
+            ...audit,
+            urls: undefined,
+            checked: true,
+            alive: checks.length - dead.length,
+            dead: dead.length,
+            deadList: dead.slice(0, 25),
+          };
         }
 
         if (cmd.op === "blueprint") {

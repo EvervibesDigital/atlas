@@ -2012,6 +2012,13 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("surplus", { op: "run", role, message }));
     }
+    // Audits the County Registry sheet the scraper depends on. checkLive
+    // costs one request per county, so it is opt-in.
+    if (method === "GET" && path === "/api/surplus/audit-counties") {
+      const checkLive = new URL(req.url ?? "", "http://x").searchParams.get("live") === "1";
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("surplus", { op: "auditCounties", checkLive }));
+    }
     if (method === "GET" && path === "/api/surplus/blueprint") {
       const role = new URL(req.url ?? "", "http://x").searchParams.get("role") ?? "scraper";
       const a = await ensureAtlas();
