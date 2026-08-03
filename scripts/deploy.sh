@@ -52,7 +52,11 @@ ssh -i "$KEY" "$HOST" "
 echo "==> Waiting for health"
 for i in $(seq 1 12); do
   sleep 5
-  code=$(ssh -i "$KEY" "$HOST" "curl -s -o /dev/null -w '%{http_code}' localhost:4317/api/health" || echo 000)
+  # Same trap as the module-error check below: an outer `|| echo` appends a
+  # SECOND line, so a failed curl reported "000000" instead of "000". Keep the
+  # fallback inside the remote command, where it swallows the exit code
+  # without adding output.
+  code=$(ssh -i "$KEY" "$HOST" "curl -s -o /dev/null -w '%{http_code}' localhost:4317/api/health || true")
   if [ "$code" = "200" ]; then
     # A single 200 can land before a module error surfaces, so confirm the log
     # is clean too — that is exactly what the 2026-08-02 outage looked like.
