@@ -36,8 +36,13 @@ export class TwinClient {
 
   /** GET /v1/agents — the API returns each name nested under agent_name.name; flatten it. */
   async listAgents(limit = 50): Promise<TwinAgent[]> {
-    const raw = (await this.get(`/v1/agents?limit=${limit}`)) as { data?: unknown[] };
-    const arr = Array.isArray(raw) ? raw : (raw.data ?? []);
+    // Twin returns { agents: [...] }, NOT { data: [...] }. Reading `.data`
+    // made this return [] on every call while still reporting HTTP 200 — so
+    // surplus.listAgents and /api/surplus/status showed "no agents" for weeks
+    // against a workspace that had plenty. `data` is kept as a fallback in
+    // case the shape ever changes back.
+    const raw = (await this.get(`/v1/agents?limit=${limit}`)) as { agents?: unknown[]; data?: unknown[] };
+    const arr = Array.isArray(raw) ? raw : (raw.agents ?? raw.data ?? []);
     return (arr as Array<Record<string, unknown>>).map((a) => ({
       agent_id: String(a.agent_id ?? ""),
       name: String((a.agent_name as { name?: string } | undefined)?.name ?? "(unnamed)"),
@@ -50,8 +55,9 @@ export class TwinClient {
 
   /** GET /v1/schedules — the recurring (billable) surface; used to see/verify what's on autopilot. */
   async listSchedules(): Promise<TwinSchedule[]> {
-    const raw = (await this.get(`/v1/schedules`)) as { data?: unknown[] };
-    const arr = Array.isArray(raw) ? raw : (raw.data ?? []);
+    // Same shape mismatch as listAgents — the key is `schedules`.
+    const raw = (await this.get(`/v1/schedules`)) as { schedules?: unknown[]; data?: unknown[] };
+    const arr = Array.isArray(raw) ? raw : (raw.schedules ?? raw.data ?? []);
     return (arr as Array<Record<string, unknown>>).map((s) => ({
       agent_id: String(s.agent_id ?? ""),
       cron: String(s.cron ?? ""),
