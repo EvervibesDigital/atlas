@@ -1903,6 +1903,18 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       return send(res, 200, await a.invoke("gigfinder", { op: "updateStatus", id: decodeURIComponent(gigStatus[1]!), status, paidAmount }));
     }
 
+    // The product-type catalog, so the UI offers real KDP specs rather than
+    // free text that fails at upload.
+    if (method === "GET" && path === "/api/kdp/product-types") {
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("kdp", { op: "productTypes" }));
+    }
+    // Check a spec against Amazon's real limits before anything is built.
+    if (method === "POST" && path === "/api/kdp/validate-spec") {
+      const { spec, productType, niche } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("kdp", { op: "validateSpec", spec, productType, niche }));
+    }
     if (method === "GET" && path === "/api/kdp/status") {
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("kdp", { op: "status" }));

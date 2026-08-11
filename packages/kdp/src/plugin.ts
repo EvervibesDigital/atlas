@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import AdmZip from "adm-zip";
 import type { KdpBook, KdpBookStatus, KdpOpportunity } from "./types";
+import type { BookSpec } from "./product-types";
 import { buildUploadSteps, buildCategorySteps, buildFinalConfirmationStep, DEFAULT_KDP_PRICE_POLICY, type PricePolicy } from "./upload-steps";
 
 /**
@@ -26,7 +27,11 @@ import { buildUploadSteps, buildCategorySteps, buildFinalConfirmationStep, DEFAU
  */
 export type KdpCommand =
   | { op: "scan" }
-  | { op: "generate"; limit?: number }
+  | { op: "generate"; limit?: number; spec?: BookSpec }
+  /** The product-type catalog + trim sizes, for the UI to offer real choices. */
+  | { op: "productTypes" }
+  /** Check a spec against Amazon's real limits before anything is built. */
+  | { op: "validateSpec"; spec?: BookSpec; productType?: string; niche?: string }
   | { op: "status" }
   | { op: "markStatus"; id: string; status: KdpBookStatus; amazonUrl?: string; amazonAsin?: string }
   | { op: "downloadZip"; id: string }
@@ -107,12 +112,43 @@ export function createKdpPlugin(opts: { fetcher?: typeof fetch; driver?: Browser
           return data;
         }
 
+        /** The catalog + its specs, so the UI can offer real choices. */
+        if (cmd.op === "productTypes") {
+          const { PRODUCT_TYPES, TRIM_SIZES } = await import("./product-types");
+          return { productTypes: PRODUCT_TYPES, trimSizes: TRIM_SIZES };
+        }
+
+        /**
+         * Check a book spec against Amazon's real limits BEFORE it is built.
+         *
+         * Publishing is manual — there is no KDP API — so a rejected upload
+         * costs a whole wizard run and reports nothing until the files are
+         * already there. Catching it here is the difference between a typo
+         * and a wasted afternoon.
+         */
+        if (cmd.op === "validateSpec") {
+          const { validateSpec, pageDimensions, defaultSpec } = await import("./product-types");
+          const spec = cmd.spec ?? defaultSpec(cmd.productType ?? "", cmd.niche ?? "");
+          if (!spec) throw new Error(`kdp: unknown product type "${cmd.productType}"`);
+          const problems = validateSpec(spec);
+          return { spec, problems, valid: problems.length === 0, dimensions: pageDimensions(spec.productType, spec.trim) };
+        }
+
         if (cmd.op === "generate") {
+          // Validate first when a spec was given: generation is the expensive
+          // half, and an invalid spec cannot produce a publishable book.
+          if (cmd.spec) {
+            const { validateSpec } = await import("./product-types");
+            const problems = validateSpec(cmd.spec);
+            if (problems.length) {
+              throw new Error(`kdp: refusing to generate an unpublishable book — ${problems.join("; ")}`);
+            }
+          }
           const { url, secret } = await base();
           const r = await f(`${url}/api/cron/kdp-auto-generate`, {
             method: "POST",
             headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ limit: cmd.limit ?? 3 }),
+            body: JSON.stringify({ limit: cmd.limit ?? 3, ...(cmd.spec ? { spec: cmd.spec } : {}) }),
           });
           const data = (await r.json().catch(() => ({}))) as { generated?: number; built?: Array<{ title?: string }> };
           if (!r.ok) throw new Error(`kdp generate HTTP ${r.status}: ${JSON.stringify(data).slice(0, 200)}`);
