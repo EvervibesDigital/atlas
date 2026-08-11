@@ -39,7 +39,7 @@ export function createLeadScanPlugin(opts: { leadFile?: string; registry?: LeadR
       name: "leadscan",
       version: "0.1.0",
       capabilities: ["leadscan"],
-      permissions: ["secret:*", "call:outreach", "call:memory"],
+      permissions: ["secret:*", "call:outreach", "call:memory", "call:sender"],
       role: "executor",
     },
 
@@ -132,17 +132,20 @@ export function createLeadScanPlugin(opts: { leadFile?: string; registry?: LeadR
          * "3 of 7 drafted" plus the reason is actionable, whereas 3 emails
          * appearing from a list of 7 just looks broken.
          */
-        if (cmd.op === "draftBatch") {
+        /** Shared by `draftBatch` and `autoOutreach` so the two paths render
+         * IDENTICAL copy — the only difference between them is who presses
+         * send, never what the email says. */
+        async function draftEligible(ids?: string[], startingPriceOverride?: string) {
           const senderName = (await ctx.secret("SENDER_NAME")) ?? "Mat";
           const companyName = (await ctx.secret("COMPANY_NAME")) ?? "EverVibes";
           const companyAddress = await ctx.secret("COMPANY_POSTAL_ADDRESS");
           if (!companyAddress) {
             throw new Error("leadscan: COMPANY_POSTAL_ADDRESS is not set — commercial email legally requires a physical address in the body.");
           }
-          const startingPrice = cmd.startingPrice ?? (await ctx.secret("COMPLIANCE_STARTING_PRICE")) ?? undefined;
+          const startingPrice = startingPriceOverride ?? (await ctx.secret("COMPLIANCE_STARTING_PRICE")) ?? undefined;
 
           const all = await registry.list("new");
-          const chosen = cmd.ids?.length ? all.filter((l) => cmd.ids!.includes(l.id)) : all;
+          const chosen = ids?.length ? all.filter((l) => ids.includes(l.id)) : all;
 
           const emails: Array<{ leadId: string; to: string; subject: string; body: string }> = [];
           const skipped: Array<{ leadId: string; businessName: string; reason: string }> = [];
@@ -157,7 +160,55 @@ export function createLeadScanPlugin(opts: { leadFile?: string; registry?: LeadR
               skipped.push({ leadId: lead.id, businessName: lead.businessName, reason: (err as Error).message });
             }
           }
-          return { emails, skipped, drafted: emails.length, considered: chosen.length };
+          return { emails, skipped, considered: chosen.length };
+        }
+
+        if (cmd.op === "draftBatch") {
+          const { emails, skipped, considered } = await draftEligible(cmd.ids, cmd.startingPrice);
+          return { emails, skipped, drafted: emails.length, considered };
+        }
+
+        /**
+         * Unattended: draft the eligible leads and send whatever clears every
+         * check, no human read step. This is the daily-digest path — Mat
+         * reviews what WENT OUT after the fact, not before.
+         *
+         * Routed through `sender.sendAutonomous`, never `send`: `send` is
+         * all-or-nothing over a human-approved batch, which is right when a
+         * person is choosing what to approve. With nobody choosing, one bad
+         * lead in the batch would silently block every good one behind it.
+         */
+        if (cmd.op === "autoOutreach") {
+          const { emails, skipped: draftSkipped } = await draftEligible(cmd.ids, cmd.startingPrice);
+          if (!emails.length) return { drafted: 0, sent: 0, sendSkipped: 0, draftSkipped: draftSkipped.length };
+
+          const result = (await ctx.call("sender", {
+            op: "sendAutonomous",
+            emails: emails.map((e) => ({ to: e.to, subject: e.subject, body: e.body })),
+            confirmSend: true,
+            source: "leadscan",
+            maxPerRun: cmd.maxPerRun,
+          })) as { sentCount: number; skippedCount: number; sent: Array<{ to: string }> };
+
+          // Only marked contacted for addresses that ACTUALLY went out — this
+          // is exactly how 128 leads once ended up flagged contacted with
+          // nothing sent, and the fix is the same here as it was there.
+          const byEmail = new Map(emails.map((e) => [e.to, e.leadId]));
+          const deliveredIds = result.sent.map((s) => byEmail.get(s.to)).filter((id): id is string => Boolean(id));
+          for (const id of deliveredIds) await registry.update(id, { status: "contacted" });
+
+          if (deliveredIds.length) {
+            try {
+              await ctx.call("memory", {
+                op: "remember",
+                input: { kind: "task", content: `Auto-sent compliance outreach to ${deliveredIds.length} lead(s) overnight.` },
+              });
+            } catch {
+              /* memory optional */
+            }
+          }
+
+          return { drafted: emails.length, sent: result.sentCount, sendSkipped: result.skippedCount, draftSkipped: draftSkipped.length, markedContacted: deliveredIds.length };
         }
 
         /**

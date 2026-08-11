@@ -38,6 +38,9 @@ export type LeadScanCommand =
   /** Renders cold outreach for a batch of `new` leads, in the shape `sender`
    * takes. Identity comes from secrets, not the request. Sends nothing. */
   | { op: "draftBatch"; ids?: string[]; startingPrice?: string }
+  /** Drafts + sends unattended via sender.sendAutonomous — the daily-digest
+   * path. No per-email human read step. */
+  | { op: "autoOutreach"; ids?: string[]; startingPrice?: string; maxPerRun?: number }
   /** Marks a lead contacted AFTER `sender` really delivered to it. Distinct
    * from `approve`, which fires the n8n new-lead confirmation workflow. */
   | { op: "markSent"; id: string }

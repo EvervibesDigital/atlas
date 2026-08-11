@@ -278,3 +278,110 @@ describe("sender — SMTP transport (a mailbox you already own)", () => {
     expect(s.blockers.join(" ")).toMatch(/smtp\.hostinger\.com/);
   });
 });
+
+describe("sender — sendAutonomous (unattended, no human review)", () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "atlas-sender-")); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  function autonomousAtlas(makeTransport: TransportFactory, secrets: Record<string, string>) {
+    const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault({ ...secrets }) });
+    return atlas
+      .use(createSenderPlugin({
+        suppressionFile: join(dir, "suppressions.json"),
+        digestFile: join(dir, "digest.json"),
+        fetcher: forbiddenFetch,
+        makeTransport,
+      }))
+      .then(() => atlas);
+  }
+
+  it("still refuses without confirmSend:true", async () => {
+    const { makeTransport } = fakeSmtp();
+    const atlas = await autonomousAtlas(makeTransport, HOSTINGER);
+    await expect(atlas.invoke("sender", { op: "sendAutonomous", emails: [goodEmail()] })).rejects.toThrow(/confirmSend:true/);
+  });
+
+  it("sends the good ones and SKIPS the bad one — does not block the whole batch", async () => {
+    // This is the entire point of the autonomous path: `send` would refuse
+    // ALL of these because one fails a check. With no human to fix that one,
+    // blocking everyone behind it defeats the purpose of automating this.
+    const { fetcher, calls } = acceptingFetch();
+    const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault(FULL_SECRETS) });
+    await atlas.use(createSenderPlugin({ suppressionFile: join(dir, "s.json"), digestFile: join(dir, "d.json"), fetcher }));
+
+    const bad = { ...goodEmail("bad@example.com"), subject: "" };
+    const r = (await atlas.invoke("sender", {
+      op: "sendAutonomous", emails: [goodEmail("a@example.com"), bad, goodEmail("c@example.com")], confirmSend: true,
+    })) as { sentCount: number; skippedCount: number; skipped: Array<{ to: string; reason: string }> };
+
+    expect(r.sentCount).toBe(2);
+    expect(r.skippedCount).toBe(1);
+    expect(r.skipped[0]).toMatchObject({ to: "bad@example.com" });
+    expect(calls).toHaveLength(2);
+  });
+
+  it("respects maxPerRun — a bug cannot blast an entire list in one call", async () => {
+    const { fetcher, calls } = acceptingFetch();
+    const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault(FULL_SECRETS) });
+    await atlas.use(createSenderPlugin({ suppressionFile: join(dir, "s.json"), digestFile: join(dir, "d.json"), fetcher }));
+
+    const emails = ["a", "b", "c", "d", "e"].map((n) => goodEmail(`${n}@example.com`));
+    const r = (await atlas.invoke("sender", { op: "sendAutonomous", emails, confirmSend: true, maxPerRun: 2 })) as {
+      sentCount: number; skippedCount: number; skipped: Array<{ reason: string }>;
+    };
+    expect(r.sentCount).toBe(2);
+    expect(r.skippedCount).toBe(3);
+    expect(calls).toHaveLength(2);
+    expect(r.skipped[0]!.reason).toMatch(/daily cap/);
+  });
+
+  it("still honours suppression — an opted-out address is skipped, not sent", async () => {
+    const { fetcher, calls } = acceptingFetch();
+    const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault(FULL_SECRETS) });
+    await atlas.use(createSenderPlugin({ suppressionFile: join(dir, "s.json"), digestFile: join(dir, "d.json"), fetcher }));
+    await atlas.invoke("sender", { op: "suppress", email: "owner@smilesupdentistry.com" });
+
+    const r = (await atlas.invoke("sender", { op: "sendAutonomous", emails: [goodEmail()], confirmSend: true })) as { sentCount: number; skippedCount: number };
+    expect(r.sentCount).toBe(0);
+    expect(r.skippedCount).toBe(1);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("logs every sent, skipped, and failed email to the digest, tagged by source", async () => {
+    const { fetcher } = acceptingFetch();
+    const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault(FULL_SECRETS) });
+    await atlas.use(createSenderPlugin({ suppressionFile: join(dir, "s.json"), digestFile: join(dir, "d.json"), fetcher }));
+
+    const bad = { ...goodEmail("bad@example.com"), subject: "" };
+    await atlas.invoke("sender", { op: "sendAutonomous", emails: [goodEmail("a@example.com"), bad], confirmSend: true, source: "leadscan" });
+
+    const d = (await atlas.invoke("sender", { op: "digest" })) as { sent: number; skipped: number; bySource: Record<string, number> };
+    expect(d.sent).toBe(1);
+    expect(d.skipped).toBe(1);
+    expect(d.bySource).toEqual({ leadscan: 1 });
+  });
+});
+
+describe("sender — digest reflects both send paths", () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "atlas-sender-")); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  it("the human-reviewed send op logs to the same digest as sendAutonomous", async () => {
+    const { fetcher } = acceptingFetch();
+    const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault(FULL_SECRETS) });
+    await atlas.use(createSenderPlugin({ suppressionFile: join(dir, "s.json"), digestFile: join(dir, "d.json"), fetcher }));
+
+    await atlas.invoke("sender", { op: "send", emails: [goodEmail()], confirmSend: true, source: "manual" });
+    const d = (await atlas.invoke("sender", { op: "digest" })) as { sent: number };
+    expect(d.sent).toBe(1);
+  });
+
+  it("returns zero counts, not an error, when nothing has been sent today", async () => {
+    const atlas = new Atlas({ guardian: permissiveGuardian(), config: new ConfigVault({}) });
+    await atlas.use(createSenderPlugin({ suppressionFile: join(dir, "s.json"), digestFile: join(dir, "d.json") }));
+    const d = (await atlas.invoke("sender", { op: "digest" })) as { sent: number; skipped: number; failed: number };
+    expect(d).toMatchObject({ sent: 0, skipped: 0, failed: 0 });
+  });
+});

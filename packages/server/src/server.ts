@@ -563,6 +563,37 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
 
   setInterval(() => void publishDueSocialPosts(), 2 * 60 * 1000);
 
+  /**
+   * Unattended outreach, called once per hourly cycle. Bounded by a TOTAL
+   * daily cap shared across both businesses — read from sender's own digest
+   * rather than tracked separately, so the cap can't drift out of sync with
+   * what actually went out. Kept low deliberately: Hostinger's own ceiling is
+   * far higher (~100/hr), but cold outreach volume is a reputation decision,
+   * not a technical one, and a cautious default is the right one to start on.
+   */
+  const DAILY_OUTREACH_CAP = Number(process.env.ATLAS_DAILY_OUTREACH_CAP ?? 20);
+  async function runAutoOutreach(): Promise<void> {
+    if (!vault.unlocked) return;
+    try {
+      const a = await ensureAtlas();
+      const digest = (await a.invoke("sender", { op: "digest" })) as { sent: number };
+      let remaining = DAILY_OUTREACH_CAP - digest.sent;
+      if (remaining <= 0) return;
+
+      const lead = (await a.invoke("leadscan", { op: "autoOutreach", maxPerRun: remaining })) as { sent?: number };
+      remaining -= lead.sent ?? 0;
+      if (remaining <= 0) return;
+
+      const wh = (await a.invoke("wholesale", { op: "autoOutreach", maxPerRun: remaining })) as { sent?: number };
+      const total = (lead.sent ?? 0) + (wh.sent ?? 0);
+      if (total > 0) console.log(`[AUTO-OUTREACH] Sent ${total} email(s) unattended (leadscan ${lead.sent ?? 0}, wholesale ${wh.sent ?? 0}).`);
+    } catch (err) {
+      // Missing config (no postal address, no transport) is expected until
+      // Mat finishes setup — log it, never let it break the rest of the cycle.
+      console.error("[AUTO-OUTREACH] skipped:", (err as Error).message);
+    }
+  }
+
   async function runAutomationCycleOnce(): Promise<void> {
     if (isAutomationRunning) return;
     try {
@@ -571,6 +602,7 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       console.log(`[AUTOMATION] Running automated hourly cycle at ${lastAutomationRun}...`);
       const a = await ensureAtlas();
       await a.invoke("orchestrator", { op: "runDailyCycle", videoRef: null });
+      await runAutoOutreach();
       console.log("[AUTOMATION] Automated hourly cycle complete.");
     } catch (err) {
       console.error("[AUTOMATION] Automated cycle failed:", err);
@@ -806,23 +838,26 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
     const items = brief.items ?? [];
     const tok = await signBriefToken();
     const link = `${baseUrl.replace(/\/+$/, "")}/m?t=${encodeURIComponent(tok)}`;
-    const emails = items.filter((i) => i.tier === "bulk").length;
-    const asks = items.filter((i) => i.tier === "ask").length;
-    const lines = [
-      `Good morning. Here's what ATLAS has ready.`,
-      ``,
-      `${items.length} item(s) waiting: ${asks} need your call, ${emails} email(s)/low-stakes you can batch-approve.`,
-      ``,
-      ...items.slice(0, 15).map((i) => `• [${i.source}] ${i.title}${i.detail ? ` — ${i.detail.slice(0, 120)}` : ""}`),
-      items.length > 15 ? `…and ${items.length - 15} more.` : ``,
-      ``,
-      `👉 Review & approve from your phone (link good for 24h):`,
-      link,
-      ``,
-      `— ATLAS`,
-    ];
-    const subject = `☀️ ATLAS morning brief — ${items.length} waiting (${asks} need you)`;
-    const result = (await a.invoke("email", { op: "ownerNotify", subject, body: lines.filter((l) => l !== undefined).join("\n") })) as { to?: string };
+
+    // Best-effort: any of these can legitimately be unconfigured or briefly
+    // unreachable, and a stat the brief can't get is a reason to say "0", not
+    // a reason to fail the whole morning email.
+    const digest = await a
+      .invoke("sender", { op: "digest" })
+      .catch(() => ({ sent: 0, skipped: 0, failed: 0, bySource: {} })) as { sent: number; skipped: number; failed: number; bySource: Record<string, number> };
+    const gigStats = await a.invoke("gigfinder", { op: "stats" }).catch(() => ({})) as { approved?: number };
+    const kdpStatus = await a.invoke("kdp", { op: "status" }).catch(() => ({})) as { books?: Array<{ status?: string }> };
+    const kdpToPublish = (kdpStatus.books ?? []).filter((b) => b.status && b.status !== "published").length;
+
+    const { buildMorningBrief } = await import("./morning-brief");
+    const { subject, body } = buildMorningBrief({
+      items,
+      digest,
+      manual: { gigsToSubmit: gigStats.approved ?? 0, kdpToPublish },
+      reviewLink: link,
+    });
+
+    const result = (await a.invoke("email", { op: "ownerNotify", subject, body })) as { to?: string };
     try {
       await writeFile(briefStateFile, JSON.stringify({ lastSentDate: new Date().toISOString().slice(0, 10), at: new Date().toISOString() }), "utf8");
     } catch { /* best-effort */ }
@@ -2285,6 +2320,31 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const { emails, confirmSend, replyTo } = await readBody(req);
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("sender", { op: "send", emails: emails ?? [], confirmSend, replyTo }));
+    }
+    // Unattended sending: each email judged individually, capped per run.
+    // confirmSend and maxPerRun pass through untouched — the plugin's own
+    // gate is what makes this safe to call from an automated cycle.
+    if (method === "POST" && path === "/api/sender/send-autonomous") {
+      const { emails, confirmSend, source, maxPerRun } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("sender", { op: "sendAutonomous", emails: emails ?? [], confirmSend, source, maxPerRun }));
+    }
+    // Manual trigger for the same unattended pass the automation loop runs
+    // daily — useful for testing without waiting for the next hourly cycle.
+    if (method === "POST" && path === "/api/leadscan/auto-outreach") {
+      const { maxPerRun } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("leadscan", { op: "autoOutreach", maxPerRun }));
+    }
+    if (method === "POST" && path === "/api/wholesale/auto-outreach") {
+      const { maxPerRun } = await readBody(req);
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("wholesale", { op: "autoOutreach", maxPerRun }));
+    }
+    if (method === "GET" && path === "/api/sender/digest") {
+      const date = url.searchParams.get("date") ?? undefined;
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("sender", { op: "digest", date }));
     }
     if (method === "GET" && path === "/api/sender/suppressed") {
       const a = await ensureAtlas();

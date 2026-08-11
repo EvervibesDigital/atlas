@@ -3,3 +3,4 @@ export * from "./compliance";
 export * from "./suppression";
 export * from "./resend";
 export * from "./smtp";
+export * from "./digest";

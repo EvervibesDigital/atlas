@@ -224,6 +224,11 @@ export const PAGE = `<!doctype html>
       <div class="note">Sends the stored intro drafts through the same checked path as everything else — suppression list, postal address, opt-out. Generate the drafts first from the Businesses tab.</div>
       <div style="margin-top:8px"><button onclick='draftWholesale()'>1 · Load intro drafts</button></div>
       <div id="wholesaleOut" style="margin-top:10px;"></div>
+
+      <h2 style="margin-top:18px">📬 Auto-outreach digest</h2>
+      <div class="note">Runs on its own every hour, capped per day. Anything that clears every check sends with no per-email review; anything that doesn't is skipped and shown here, not sent.</div>
+      <div style="margin-top:8px"><button class="sec" onclick="loadOutreachDigest()">Refresh today's digest</button></div>
+      <div id="digestOut" style="margin-top:10px;"></div>
     </section>
 
     <section id="tab-connect" class="card hide">
@@ -410,6 +415,9 @@ export const PAGE = `<!doctype html>
             <option>COMPANY_POSTAL_ADDRESS</option><option>SENDER_FROM</option>
             <option>YOUTUBE_CLIENT_ID</option><option>YOUTUBE_CLIENT_SECRET</option>
             <option>YOUTUBE_REFRESH_TOKEN</option>
+            <option>SENDER_NAME</option><option>COMPANY_NAME</option>
+            <option>UNSUBSCRIBE_NOTE</option><option>COMPLIANCE_STARTING_PRICE</option>
+            <option>ATLAS_DAILY_OUTREACH_CAP</option>
             <option>SENDER_SMTP_USER</option><option>SENDER_SMTP_PASS</option>
             <option>SENDER_SMTP_HOST</option><option>SENDER_SMTP_PORT</option>
             <option>RESEND_API_KEY</option><option>SENDER_PROVIDER</option>
@@ -857,6 +865,7 @@ async function dedupeReels(){
 }
 
 async function loadSender(){
+  loadOutreachDigest();
   const el=$("senderStatus");
   try {
     const s=await api("/api/sender/status");
@@ -975,6 +984,24 @@ async function sendWholesale(){
       +((r.failed||[]).length?"<ul style='margin:6px 0 0 18px;font-size:13px;'>"+r.failed.map(f=>"<li>"+esc(f.to)+": "+esc(f.error)+"</li>").join("")+"</ul>":"")
       +"</div>";
     wholesaleDrafts=[];
+  } catch(e){ out.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
+}
+
+async function loadOutreachDigest(){
+  const out=$("digestOut"); out.innerHTML="<div class='note'>Loading…</div>";
+  try {
+    const d=await api("/api/sender/digest");
+    const bySrc=Object.entries(d.bySource||{}).map(([k,n])=>n+" "+k).join(", ")||"none";
+    out.innerHTML="<div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px'>"
+      +"<div style='border:1px solid var(--bd);border-radius:8px;padding:8px 12px'><div style='font-size:20px;font-weight:700;color:#16a34a'>"+d.sent+"</div><div class='note' style='margin:0'>sent ("+esc(bySrc)+")</div></div>"
+      +"<div style='border:1px solid var(--bd);border-radius:8px;padding:8px 12px'><div style='font-size:20px;font-weight:700;color:#d97706'>"+d.skipped+"</div><div class='note' style='margin:0'>skipped</div></div>"
+      +"<div style='border:1px solid var(--bd);border-radius:8px;padding:8px 12px'><div style='font-size:20px;font-weight:700;color:#dc2626'>"+d.failed+"</div><div class='note' style='margin:0'>failed</div></div>"
+      +"</div>"
+      +(d.entries||[]).slice(-30).reverse().map(e=>{
+        const c=e.outcome==="sent"?"#16a34a":e.outcome==="failed"?"#dc2626":"#d97706";
+        return "<div style='border-left:2px solid "+c+";padding:4px 8px;margin-bottom:4px;font-size:12px'>"
+          +"<b>"+esc(e.outcome)+"</b> "+esc(e.to)+(e.source?" · "+esc(e.source):"")+(e.reason?" — "+esc(e.reason):"")+"</div>";
+      }).join("");
   } catch(e){ out.innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
 }
 
@@ -1507,7 +1534,6 @@ async function gigStatus(id,status){ try { await api("/api/gigs/"+id+"/status","
 // This does the two things that are safe and slow: puts the bid on the
 // clipboard and opens the posting. He reads and clicks.
 let submitQueue = [];
-let submitIdx = 0;
 
 async function checkWins(){
   const out=$("repairOut"); out.textContent="Reading your inbox…";
@@ -1535,50 +1561,53 @@ async function loadSubmitQueue(){
   try {
     const r = await api("/api/gigs?status=approved");
     submitQueue = (r.jobs||[]).filter(g=>!g.submittedAt);
-    submitIdx = 0;
     renderSubmitQueue();
   } catch(e){ $("submitQueue").innerHTML="<div class='note'>"+esc(e.message)+"</div>"; }
 }
 
+// Mirrors isUsableBid in @atlas/gigfinder. Seven of the 28 real approved bids
+// were once truncated mid-generation — one was literally the leaked string
+// "Call to Action/Wrap up):* Let me know". Pasting that costs the gig.
+function bidProblem(bid){
+  bid=(bid||"").trim();
+  if(!bid) return "no bid was drafted";
+  if(bid.length<80) return "only "+bid.length+" characters — the generation was cut off";
+  if(!/[.!?]["')]?$/.test(bid)) return "ends mid-sentence — the generation was cut off";
+  if(bid.indexOf("*")>=0||bid.indexOf("[")>=0||bid.indexOf("#")>=0) return "contains leftover template scaffolding";
+  return null;
+}
+
+// Full scrollable list, not one-at-a-time: with 20-30 approved bids a day,
+// forcing a click-through-each-card flow is itself the bottleneck. Skim down,
+// copy+open the ones worth sending, mark done — no forced linear order.
 function renderSubmitQueue(){
   const el=$("submitQueue");
   if(!submitQueue.length){ el.innerHTML="<div class='note'>No approved bids waiting. Approve some below and they'll queue here.</div>"; return; }
-  if(submitIdx>=submitQueue.length){
-    el.innerHTML="<div style='border:1px solid var(--bd);border-left:3px solid #16a34a;border-radius:8px;padding:12px'><b>Queue cleared.</b> <button class='mini' onclick='loadSubmitQueue()'>Reload</button></div>";
-    return;
-  }
-  const g=submitQueue[submitIdx];
-  const budget=g.budget?(" · $"+g.budget):"";
-  // Mirrors isUsableBid in @atlas/gigfinder. Seven of the 28 real approved
-  // bids were truncated mid-generation — one was literally the leaked string
-  // "Call to Action/Wrap up):* Let me know". Pasting that costs the gig.
-  const bid=(g.draftBid||"").trim();
-  let problem=null;
-  if(!bid) problem="no bid was drafted";
-  else if(bid.length<80) problem="only "+bid.length+" characters — the generation was cut off";
-  else if(!/[.!?]["')]?$/.test(bid)) problem="ends mid-sentence — the generation was cut off";
-  else if(bid.indexOf("*")>=0||bid.indexOf("[")>=0||bid.indexOf("#")>=0) problem="contains leftover template scaffolding";
-  const warn=problem
-    ? "<div style='background:rgba(220,38,38,.12);border-radius:6px;padding:8px;margin-top:8px;font-size:13px'>"
-      +"<b>⚠️ Don't send this as-is</b> — "+esc(problem)+". Rewrite it below, or press <b>Repair broken bids</b> above to swap it for a plain, coherent fallback (no AI needed).</div>"
-    : "";
-  el.innerHTML="<div style='border:1px solid var(--bd);border-left:3px solid "+(problem?"#dc2626":"var(--acc)")+";border-radius:8px;padding:12px'>"
-    +"<div style='display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline'>"
-    +"<b>"+esc(g.title)+"</b><span class='note' style='margin:0'>"+(submitIdx+1)+" of "+submitQueue.length+budget+"</span></div>"
-    +"<div class='note' style='margin:4px 0 0'><a href='"+esc(g.url)+"' target='_blank' rel='noopener noreferrer'>"+esc(g.url)+"</a></div>"
-    +warn
-    +"<textarea id='queueBid' style='width:100%;height:150px;margin-top:8px;font-size:12px'>"+esc(g.draftBid||"")+"</textarea>"
-    +"<div class='note' style='margin:2px 0 6px'>Edit it here before copying — it goes out under your name, not ATLAS's.</div>"
-    +"<div style='display:flex;gap:8px;flex-wrap:wrap'>"
-    +"<button onclick='prepareAndOpen()'>1 · Copy bid &amp; open posting</button>"
-    +"<button onclick='queueMarkSubmitted()'>2 · Mark submitted</button>"
-    +"<button class='sec' onclick='queueSkip()'>Skip</button>"
-    +"</div></div>";
+  el.innerHTML="<div class='note' style='margin-bottom:8px'>"+submitQueue.length+" bid(s) ready. Skim, copy+open the ones you want, mark submitted as you go.</div>"
+    +submitQueue.map(g=>{
+      const budget=g.budget?(" · $"+g.budget):"";
+      const problem=bidProblem(g.draftBid);
+      const warn=problem
+        ? "<div style='background:rgba(220,38,38,.12);border-radius:6px;padding:6px 8px;margin-top:6px;font-size:12px'>"
+          +"<b>⚠️ Don't send as-is</b> — "+esc(problem)+". Edit below, or use <b>Repair broken bids</b> above.</div>"
+        : "";
+      return "<div id='gigrow-"+g.id+"' style='border:1px solid var(--bd);border-left:3px solid "+(problem?"#dc2626":"var(--acc)")+";border-radius:8px;padding:10px;margin-bottom:8px'>"
+        +"<div style='display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline'>"
+        +"<b style='font-size:13px'>"+esc(g.title)+"</b><span class='note' style='margin:0'>"+budget+"</span></div>"
+        +"<div class='note' style='margin:2px 0 0'><a href='"+esc(g.url)+"' target='_blank' rel='noopener noreferrer'>"+esc(g.url)+"</a></div>"
+        +warn
+        +"<textarea id='qb-"+g.id+"' style='width:100%;height:80px;margin-top:6px;font-size:12px'>"+esc(g.draftBid||"")+"</textarea>"
+        +"<div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:4px'>"
+        +"<button class='mini' onclick='prepareAndOpen(\\""+g.id+"\\")'>Copy &amp; open</button>"
+        +"<button class='mini' onclick='queueMarkSubmitted(\\""+g.id+"\\")'>Mark submitted</button>"
+        +"<button class='mini sec' onclick='queueSkip(\\""+g.id+"\\")'>Hide</button>"
+        +"</div></div>";
+    }).join("");
 }
 
-async function prepareAndOpen(){
-  const g=submitQueue[submitIdx]; if(!g) return;
-  const t=$("queueBid");
+async function prepareAndOpen(id){
+  const g=submitQueue.find(x=>x.id===id); if(!g) return;
+  const t=$("qb-"+id); if(!t) return;
   // Copy BEFORE opening the tab: window.open moves focus, and a clipboard
   // write from a background document is blocked in most browsers.
   try { await navigator.clipboard.writeText(t.value); }
@@ -1586,14 +1615,20 @@ async function prepareAndOpen(){
   window.open(g.url, "_blank", "noopener");
 }
 
-async function queueMarkSubmitted(){
-  const g=submitQueue[submitIdx]; if(!g) return;
-  try { await api("/api/gigs/"+encodeURIComponent(g.id)+"/submitted","POST"); }
-  catch(e){ alert(e.message); return; }
-  submitIdx++; renderSubmitQueue(); loadGigStats();
+function removeGigRow(id){
+  submitQueue=submitQueue.filter(g=>g.id!==id);
+  const row=$("gigrow-"+id);
+  if(row) row.remove();
+  if(!submitQueue.length) renderSubmitQueue();
 }
 
-function queueSkip(){ submitIdx++; renderSubmitQueue(); }
+async function queueMarkSubmitted(id){
+  try { await api("/api/gigs/"+encodeURIComponent(id)+"/submitted","POST"); }
+  catch(e){ alert(e.message); return; }
+  removeGigRow(id); loadGigStats();
+}
+
+function queueSkip(id){ removeGigRow(id); }
 
 async function copyWorkPrompt(id){
   const t=$("wp-"+id); if(!t) return;

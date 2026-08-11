@@ -42,6 +42,8 @@ export type WholesaleCommand =
   /** Stored intro drafts in the shape `sender` takes, with the CAN-SPAM
    * footer added. Sends nothing. */
   | { op: "draftBatchForSender"; ids?: string[] }
+  /** Drafts + sends unattended via sender.sendAutonomous. No per-email review. */
+  | { op: "autoOutreach"; ids?: string[]; maxPerRun?: number }
   /** Sends REAL emails. Requires confirmSend: true. Pass `drafts` (from
    * previewIntros, after approval) to send that exact copy verbatim. */
   | {

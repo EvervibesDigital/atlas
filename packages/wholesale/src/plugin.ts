@@ -43,7 +43,7 @@ export function createWholesalePlugin(opts: { fetcher?: typeof fetch; introDraft
       name: "wholesale",
       version: "0.1.0",
       capabilities: ["wholesale"],
-      permissions: ["secret:*"],
+      permissions: ["secret:*", "call:sender"],
       role: "executor",
     },
 
@@ -171,14 +171,17 @@ export function createWholesalePlugin(opts: { fetcher?: typeof fetch; introDraft
          * Identity comes from secrets, never the request — a per-call postal
          * address is a per-call chance to send a non-compliant email.
          */
-        if (cmd.op === "draftBatchForSender") {
+        /** Shared by draftBatchForSender and autoOutreach — one rendering
+         * path so the email a human previews is identical to what goes out
+         * unattended. */
+        async function draftIntrosEligible(ids?: string[]) {
           const postalAddress = await ctx.secret("COMPANY_POSTAL_ADDRESS");
           if (!postalAddress) {
             throw new Error("wholesale: COMPANY_POSTAL_ADDRESS is not set — commercial email legally requires a physical address in the body.");
           }
           const optOut = (await ctx.secret("UNSUBSCRIBE_NOTE")) ?? undefined;
           const drafts = await loadDrafts();
-          const chosen = cmd.ids?.length ? drafts.filter((d) => cmd.ids!.includes(d.id)) : drafts;
+          const chosen = ids?.length ? drafts.filter((d) => ids.includes(d.id)) : drafts;
 
           const emails: Array<{ draftId: string; to: string; subject: string; body: string }> = [];
           const skipped: Array<{ draftId: string; name: string; reason: string }> = [];
@@ -187,14 +190,46 @@ export function createWholesalePlugin(opts: { fetcher?: typeof fetch; introDraft
               skipped.push({ draftId: d.id, name: d.name, reason: "no email address on this buyer" });
               continue;
             }
-            emails.push({
-              draftId: d.id,
-              to: d.email,
-              subject: d.subject,
-              body: withComplianceFooter(d.body, postalAddress, optOut),
-            });
+            emails.push({ draftId: d.id, to: d.email, subject: d.subject, body: withComplianceFooter(d.body, postalAddress, optOut) });
           }
-          return { emails, skipped, drafted: emails.length, considered: chosen.length };
+          return { emails, skipped, considered: chosen.length };
+        }
+
+        if (cmd.op === "draftBatchForSender") {
+          const { emails, skipped, considered } = await draftIntrosEligible(cmd.ids);
+          return { emails, skipped, drafted: emails.length, considered };
+        }
+
+        /**
+         * Unattended intro sending — the daily-digest path. Routed through
+         * `sender.sendAutonomous`, not `send`: with nobody choosing which
+         * drafts to approve, one buyer with a stale email must not block the
+         * rest of the batch, which is what the human-reviewed all-or-nothing
+         * `send` path would do.
+         */
+        if (cmd.op === "autoOutreach") {
+          const { emails, skipped: draftSkipped } = await draftIntrosEligible(cmd.ids);
+          if (!emails.length) return { drafted: 0, sent: 0, sendSkipped: 0, draftSkipped: draftSkipped.length };
+
+          const result = (await ctx.call("sender", {
+            op: "sendAutonomous",
+            emails: emails.map((e) => ({ to: e.to, subject: e.subject, body: e.body })),
+            confirmSend: true,
+            source: "wholesale",
+            maxPerRun: cmd.maxPerRun,
+          })) as { sentCount: number; skippedCount: number; sent: Array<{ to: string }> };
+
+          // Discard only the drafts that actually went out — the copy for a
+          // skipped one is still worth keeping to fix and retry.
+          const byEmail = new Map(emails.map((e) => [e.to, e.draftId]));
+          const deliveredIds = result.sent.map((s) => byEmail.get(s.to)).filter((id): id is string => Boolean(id));
+          if (deliveredIds.length) {
+            let drafts = await loadDrafts();
+            for (const id of deliveredIds) drafts = removeDraft(drafts, id);
+            await saveDrafts(drafts);
+          }
+
+          return { drafted: emails.length, sent: result.sentCount, sendSkipped: result.skippedCount, draftSkipped: draftSkipped.length, discarded: deliveredIds.length };
         }
 
         if (cmd.op === "discardIntroDraft") {

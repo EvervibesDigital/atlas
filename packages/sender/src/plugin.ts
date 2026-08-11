@@ -3,6 +3,7 @@ import { checkOutgoing, type OutgoingEmail, type Violation } from "./compliance"
 import { loadSuppressions, saveSuppressions, addSuppression, partitionBySuppression, isSuppressed } from "./suppression";
 import { sendViaResend, unsendableFromReason, type FetchLike } from "./resend";
 import { sendViaSmtp, guessSmtpHost, nodemailerTransport, type SmtpConfig, type TransportFactory } from "./smtp";
+import { appendDigest, loadDigest, summarizeDigest, type DigestEntry } from "./digest";
 
 /**
  * Sender — the one place ATLAS is allowed to put email on the wire.
@@ -26,6 +27,7 @@ import { sendViaSmtp, guessSmtpHost, nodemailerTransport, type SmtpConfig, type 
 
 export interface SenderOptions {
   suppressionFile?: string;
+  digestFile?: string;
   fetcher?: FetchLike;
   makeTransport?: TransportFactory;
 }
@@ -33,7 +35,19 @@ export interface SenderOptions {
 export type SenderCommand =
   | { op: "status" }
   | { op: "preview"; emails: OutgoingEmail[] }
-  | { op: "send"; emails: OutgoingEmail[]; confirmSend?: boolean; replyTo?: string }
+  | { op: "send"; emails: OutgoingEmail[]; confirmSend?: boolean; replyTo?: string; source?: string }
+  /**
+   * Unattended sending: each email is judged on ITS OWN merits, not as an
+   * all-or-nothing batch. `send` refuses the whole batch if one email fails a
+   * check, which is correct when a human reviewed the batch and expects
+   * exactly what they saw to go out — but with no human in the loop, that rule
+   * just means one bad lead blocks every good one behind it. Here, a failing
+   * email is skipped and reported; the rest still go. `maxPerRun` bounds a
+   * single call so a bug can't blast an entire list in one shot.
+   */
+  | { op: "sendAutonomous"; emails: OutgoingEmail[]; confirmSend?: boolean; source?: string; maxPerRun?: number; replyTo?: string }
+  /** Today's (default) or a given day's send activity, for the morning brief. */
+  | { op: "digest"; date?: string }
   | { op: "suppress"; email: string; reason?: string }
   | { op: "listSuppressed" };
 
@@ -47,6 +61,7 @@ export interface PreviewRow {
 
 export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
   const suppressionFile = opts.suppressionFile ?? "./data/suppressions.json";
+  const digestFile = opts.digestFile ?? "./data/send-digest.json";
   const fetcher = opts.fetcher ?? fetch;
   const makeTransport = opts.makeTransport ?? nodemailerTransport;
 
@@ -166,6 +181,39 @@ export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
           return { suppressed: cmd.email, total: next.length };
         }
 
+        /** A resolved transport that is actually usable — "none" excluded,
+         * so `deliverOne`'s smtp/resend branch is exhaustive without TS
+         * needing to guard against a case `prepareToSend` already ruled out. */
+        type ReadyTransport = Exclude<Awaited<ReturnType<typeof resolveTransport>>, { kind: "none" }>;
+
+        /** Resolves the transport + From address, or throws with a reason a
+         * human (or the morning brief) can act on. Shared by both send paths
+         * so "why can't this send" is answered identically either way. */
+        async function prepareToSend(): Promise<{ transport: ReadyTransport; from: string }> {
+          const transport = await resolveTransport();
+          if (transport.kind === "none") throw new Error(`sender: ${transport.blockers.join("; ")}`);
+          const from = await ctx.secret("SENDER_FROM");
+          if (!from) throw new Error('sender: SENDER_FROM is not set — the address mail is sent from, e.g. "EverVibes <team@evervibesdigital.com>".');
+          if (transport.kind === "resend") {
+            const fromProblem = unsendableFromReason(from);
+            if (fromProblem) throw new Error(`sender: ${fromProblem}`);
+          }
+          return { transport, from };
+        }
+
+        /** Delivers one already-cleared email over whichever transport resolved. */
+        async function deliverOne(
+          transport: ReadyTransport,
+          from: string,
+          email: OutgoingEmail,
+          replyTo: string | undefined,
+        ): Promise<{ id: string }> {
+          const message = { from, to: email.to, subject: email.subject, text: email.body, replyTo };
+          return transport.kind === "smtp"
+            ? sendViaSmtp(message, transport.config, makeTransport)
+            : sendViaResend(message, transport.apiKey, fetcher);
+        }
+
         if (cmd.op === "send") {
           // The gate. A required literal true, checked before anything else —
           // no default, no truthiness, no "unless dryRun". This is what makes
@@ -178,14 +226,7 @@ export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
             );
           }
 
-          const transport = await resolveTransport();
-          if (transport.kind === "none") throw new Error(`sender: ${transport.blockers.join("; ")}`);
-          const from = await ctx.secret("SENDER_FROM");
-          if (!from) throw new Error('sender: SENDER_FROM is not set — the address mail is sent from, e.g. "EverVibes <team@evervibesdigital.com>".');
-          if (transport.kind === "resend") {
-            const fromProblem = unsendableFromReason(from);
-            if (fromProblem) throw new Error(`sender: ${fromProblem}`);
-          }
+          const { transport, from } = await prepareToSend();
 
           const rows = await review(cmd.emails ?? []);
           const blocked = rows.filter((r) => !r.sendable);
@@ -203,20 +244,22 @@ export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
 
           const sent: Array<{ to: string; id: string }> = [];
           const failed: Array<{ to: string; error: string }> = [];
+          const digestEntries: DigestEntry[] = [];
+          const now = new Date().toISOString();
           for (const email of allowed) {
             try {
-              const message = { from, to: email.to, subject: email.subject, text: email.body, replyTo: cmd.replyTo };
-              const res =
-                transport.kind === "smtp"
-                  ? await sendViaSmtp(message, transport.config, makeTransport)
-                  : await sendViaResend(message, transport.apiKey, fetcher);
+              const res = await deliverOne(transport, from, email, cmd.replyTo);
               sent.push({ to: email.to, id: res.id });
+              digestEntries.push({ at: now, source: cmd.source, to: email.to, subject: email.subject, outcome: "sent" });
             } catch (err) {
               // One bad address must not strand the rest of an approved batch,
               // but every failure is reported — never swallowed.
-              failed.push({ to: email.to, error: (err as Error).message });
+              const reason = (err as Error).message;
+              failed.push({ to: email.to, error: reason });
+              digestEntries.push({ at: now, source: cmd.source, to: email.to, subject: email.subject, outcome: "failed", reason });
             }
           }
+          await appendDigest(digestFile, digestEntries).catch(() => { /* digest is a log, not a gate */ });
 
           if (sent.length) {
             try {
@@ -233,6 +276,61 @@ export function createSenderPlugin(opts: SenderOptions = {}): Plugin {
           }
 
           return { sentCount: sent.length, failedCount: failed.length, sent, failed };
+        }
+
+        if (cmd.op === "sendAutonomous") {
+          if (cmd.confirmSend !== true) {
+            throw new Error(
+              `sender: refusing to send ${(cmd.emails ?? []).length} email(s) without confirmSend:true. ` +
+                `This is the unattended path — confirmSend is what an automated cycle must set deliberately, not by default.`,
+            );
+          }
+
+          const { transport, from } = await prepareToSend();
+          const suppressions = await loadSuppressions(suppressionFile);
+          const cc = await complianceContext();
+          const cap = cmd.maxPerRun ?? 25;
+          const now = new Date().toISOString();
+
+          const sent: Array<{ to: string; id: string }> = [];
+          const skipped: Array<{ to: string; reason: string }> = [];
+          const failed: Array<{ to: string; error: string }> = [];
+          const digestEntries: DigestEntry[] = [];
+
+          for (const email of cmd.emails ?? []) {
+            if (sent.length >= cap) {
+              skipped.push({ to: email.to, reason: `daily cap of ${cap} reached — will be picked up on a future run` });
+              digestEntries.push({ at: now, source: cmd.source, to: email.to, subject: email.subject, outcome: "skipped", reason: "daily cap reached" });
+              continue;
+            }
+            // Judged individually — a bad email here must not block the good
+            // ones behind it, unlike the human-reviewed `send` path.
+            const problems = checkOutgoing(email, cc);
+            if (isSuppressed(suppressions, email.to)) problems.push({ rule: "suppressed", detail: `${email.to} has opted out` });
+            if (problems.length) {
+              const reason = problems.map((p) => p.detail).join("; ");
+              skipped.push({ to: email.to, reason });
+              digestEntries.push({ at: now, source: cmd.source, to: email.to, subject: email.subject, outcome: "skipped", reason });
+              continue;
+            }
+            try {
+              const res = await deliverOne(transport, from, email, cmd.replyTo);
+              sent.push({ to: email.to, id: res.id });
+              digestEntries.push({ at: now, source: cmd.source, to: email.to, subject: email.subject, outcome: "sent" });
+            } catch (err) {
+              const reason = (err as Error).message;
+              failed.push({ to: email.to, error: reason });
+              digestEntries.push({ at: now, source: cmd.source, to: email.to, subject: email.subject, outcome: "failed", reason });
+            }
+          }
+          await appendDigest(digestFile, digestEntries).catch(() => { /* digest is a log, not a gate */ });
+
+          return { sentCount: sent.length, skippedCount: skipped.length, failedCount: failed.length, sent, skipped, failed };
+        }
+
+        if (cmd.op === "digest") {
+          const entries = await loadDigest(digestFile);
+          return summarizeDigest(entries, cmd.date);
         }
 
         throw new Error(`sender: unknown op "${(cmd as { op: string }).op}"`);

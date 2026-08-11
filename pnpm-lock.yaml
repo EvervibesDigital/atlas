@@ -623,6 +623,9 @@ importers:
       '@atlas/outreach':
         specifier: workspace:*
         version: link:../outreach
+      '@atlas/sender':
+        specifier: workspace:*
+        version: link:../sender
 
   packages/learning:
     dependencies:
@@ -975,6 +978,9 @@ importers:
       '@atlas/guardian':
         specifier: workspace:*
         version: link:../guardian
+      '@atlas/sender':
+        specifier: workspace:*
+        version: link:../sender
 
 packages:
 
