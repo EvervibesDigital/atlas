@@ -2246,6 +2246,15 @@ export function createControlPanel(opts: ControlPanelOptions = {}): ControlPanel
       const a = await ensureAtlas();
       return send(res, 200, await a.invoke("publishing", { op: "validate", input }));
     }
+    // Uploads a rendered video to YouTube. confirmUpload passes through
+    // untouched — the plugin refuses without a literal true, and defaulting it
+    // here would quietly remove the gate.
+    if (method === "POST" && path === "/api/publishing/youtube-upload") {
+      const { videoPath, metadata, confirmUpload } = await readBody(req);
+      if (!videoPath || !(metadata as { title?: string })?.title) return send(res, 400, { error: "videoPath and metadata.title required" });
+      const a = await ensureAtlas();
+      return send(res, 200, await a.invoke("publishing", { op: "uploadYouTube", videoPath, metadata, confirmUpload }));
+    }
     // Clears duplicate Reels already queued. dryRun defaults true in the
     // plugin — this rejects real queued work, so the flag passes through.
     if (method === "POST" && path === "/api/publishing/dedupe-pending") {

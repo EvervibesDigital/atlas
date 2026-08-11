@@ -408,6 +408,8 @@ export const PAGE = `<!doctype html>
             <option>EMAIL_USER</option><option>EMAIL_PASS</option>
             <option>EMAIL_SMTP_HOST</option><option>EMAIL_IMAP_HOST</option>
             <option>COMPANY_POSTAL_ADDRESS</option><option>SENDER_FROM</option>
+            <option>YOUTUBE_CLIENT_ID</option><option>YOUTUBE_CLIENT_SECRET</option>
+            <option>YOUTUBE_REFRESH_TOKEN</option>
             <option>SENDER_SMTP_USER</option><option>SENDER_SMTP_PASS</option>
             <option>SENDER_SMTP_HOST</option><option>SENDER_SMTP_PORT</option>
             <option>RESEND_API_KEY</option><option>SENDER_PROVIDER</option>

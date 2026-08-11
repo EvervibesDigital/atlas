@@ -40,6 +40,8 @@ export interface BrowserStep {
 export type PublishCommand =
   | { op: "publish"; input: PublishInput }
   | { op: "validate"; input: PublishInput }
+  /** Uploads a rendered file to YouTube. confirmUpload MUST be a literal true. */
+  | { op: "uploadYouTube"; videoPath: string; metadata: import("./youtube").UploadMetadata; confirmUpload?: boolean }
   /** Rejects duplicate Reels already queued. dryRun defaults to true. */
   | { op: "dedupePending"; dryRun?: boolean }
   | { op: "render"; spec: { voice: string; scenes: Array<{ text: string; imageUrl: string }> } }

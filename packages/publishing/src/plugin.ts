@@ -4,7 +4,7 @@ import type { PublishCommand, PublishInput, PublishResult } from "./types";
 import { validateForInstagram } from "./instagram";
 import { existsSync, readdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { DryRunPublisher, type Publisher } from "./publisher";
 import { VideoRenderer, NoOpRenderer, type Renderer } from "./video-renderer";
 import { MontageRenderer } from "./montage-renderer";
@@ -176,6 +176,57 @@ export function createPublishingPlugin(opts: { publisher?: Publisher; renderer?:
             }
           }
           return { dryRun, pendingReels: reels.length, uniqueHooks: seen.size, duplicates: duplicates.length, rejected, examples: duplicates.slice(0, 5) };
+        }
+
+        /**
+         * Upload a rendered video to YouTube.
+         *
+         * `confirmUpload: true` is a required literal, same shape as
+         * sender's confirmSend and enrichment's confirmCost: this publishes
+         * under Mat's channel, so an autonomous cycle must not be able to do
+         * it by forgetting a flag.
+         *
+         * Reports the privacy YouTube ACTUALLY set. An unverified app has
+         * every upload forced private regardless of what was asked for, and a
+         * caller that assumed "public" would wait for views on an invisible
+         * video.
+         */
+        if (cmd.op === "uploadYouTube") {
+          if (cmd.confirmUpload !== true) {
+            throw new Error(
+              `publishing: refusing to upload to YouTube without confirmUpload:true — this publishes to Mat's channel.`,
+            );
+          }
+          const { uploadVideo, validateMetadata } = await import("./youtube");
+          const creds = {
+            clientId: (await ctx.secret("YOUTUBE_CLIENT_ID")) ?? "",
+            clientSecret: (await ctx.secret("YOUTUBE_CLIENT_SECRET")) ?? "",
+            refreshToken: (await ctx.secret("YOUTUBE_REFRESH_TOKEN")) ?? "",
+          };
+          const missing = Object.entries(creds).filter(([, v]) => !v).map(([k]) => k);
+          if (missing.length) {
+            throw new Error(`publishing: YouTube not configured — missing ${missing.map((m) => "YOUTUBE_" + m.replace(/[A-Z]/g, (c) => "_" + c).toUpperCase()).join(", ")}. Uploads need OAuth, not an API key.`);
+          }
+
+          const problems = validateMetadata(cmd.metadata);
+          if (problems.length) return { status: "rejected", detail: problems.join("; ") } satisfies PublishResult;
+
+          // Keep the read inside the working directory: the path can come
+          // from a queued job, and a traversal would read arbitrary files.
+          const full = resolve(process.cwd(), cmd.videoPath);
+          if (!full.startsWith(resolve(process.cwd()))) {
+            throw new Error("publishing: video path escapes the working directory");
+          }
+          const bytes = new Uint8Array(await readFile(full));
+
+          const result = await uploadVideo({ bytes }, cmd.metadata, creds);
+          await ctx.emit("youtube.uploaded", result);
+          return {
+            status: "posted",
+            detail: result.privacyDowngraded
+              ? `uploaded as ${result.privacyStatus} — YouTube overrode the requested privacy (the app is not OAuth-verified, so uploads are forced private). ${result.url}`
+              : `uploaded ${result.privacyStatus}: ${result.url}`,
+          } satisfies PublishResult;
         }
 
         if (cmd.op === "validate") {
